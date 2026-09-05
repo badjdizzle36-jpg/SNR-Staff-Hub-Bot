@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 
-LOYALTY_TARGET = 4
 JACKPOT_POOL_SIZE = 1000
 
 
@@ -23,12 +22,19 @@ class Deal:
     drinks: int
     loyalty_points: int
     golden_tickets: int
+    contents: str = ""
+
+    @property
+    def item_summary(self) -> str:
+        return self.contents or f"{self.food} food + {self.drinks} drinks"
 
 
 DEALS: dict[str, Deal] = {
-    "loyalty": Deal("loyalty", "SNR Loyalty Deal", 500, 4, 4, 1, 1),
-    "crew": Deal("crew", "SNR Crew Deal", 750, 6, 6, 1, 2),
-    "big_feed": Deal("big_feed", "SNR Big Feed", 1000, 8, 8, 1, 3),
+    "quick_fix": Deal("quick_fix", "SNR Quick Fix", 150, 1, 1, 0, 1),
+    "happy_meal": Deal("happy_meal", "SNR Happy Meal", 300, 2, 2, 0, 1),
+    "sweet_treat": Deal("sweet_treat", "SNR Sweet Treat Deal", 400, 5, 0, 0, 1, "5 desserts"),
+    "mega_deal": Deal("mega_deal", "SNR Mega Deal", 500, 4, 4, 1, 1),
+    "blue_light": Deal("blue_light", "SNR Blue Light Deal", 600, 8, 8, 0, 1),
     "share_box": Deal("share_box", "SNR Share Box", 1200, 10, 10, 2, 4),
 }
 
@@ -161,6 +167,15 @@ class SNRDatabase:
                     (cycle, self.jackpot_pool_size, winning_position, issued),
                 )
 
+            # Trading-card giveaways have been retired. Historical rows remain
+            # for audit purposes, but no unclaimed card reward can be redeemed.
+            conn.execute(
+                """UPDATE rewards SET status = 'cancelled', cancelled_at = ?,
+                   cancelled_by = 'system: trading-card rewards retired'
+                   WHERE reward_type = 'card_pack' AND status = 'unclaimed'""",
+                (utc_now(),),
+            )
+
     def customer_names(self) -> list[str]:
         with self.connect() as conn:
             return [r["display_name"] for r in conn.execute("SELECT display_name FROM customers")]
@@ -228,8 +243,6 @@ class SNRDatabase:
             shown = customer["display_name"]
 
             new_points_total = int(customer["loyalty_points"]) + deal.loyalty_points
-            card_rewards = new_points_total // LOYALTY_TARGET
-            remaining_points = new_points_total % LOYALTY_TARGET
 
             cursor = conn.execute(
                 """INSERT INTO sales
@@ -238,21 +251,13 @@ class SNRDatabase:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key, shown, deal.key, deal.name, deal.price, deal.food, deal.drinks,
-                    deal.loyalty_points, deal.golden_tickets, card_rewards,
+                    deal.loyalty_points, deal.golden_tickets, 0,
                     str(staff_id), staff_name, now,
                 ),
             )
             sale_id = int(cursor.lastrowid)
             transaction_id = self._transaction_id(sale_id)
             conn.execute("UPDATE sales SET transaction_id = ? WHERE id = ?", (transaction_id, sale_id))
-
-            card_codes = []
-            for _ in range(card_rewards):
-                card_codes.append(
-                    self._create_reward(
-                        conn, key, shown, "card_pack", "FREE 2-card trading pack", sale_id
-                    )
-                )
 
             jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
             winning_ticket = None
@@ -289,7 +294,7 @@ class SNRDatabase:
                    food_sold = food_sold + ?, drinks_sold = drinks_sold + ?, updated_at = ?
                    WHERE customer_key = ?""",
                 (
-                    remaining_points, card_rewards, deal.golden_tickets, 1 if winning_ticket else 0,
+                    new_points_total, 0, deal.golden_tickets, 1 if winning_ticket else 0,
                     deal.price, deal.food, deal.drinks, now, key,
                 ),
             )
@@ -307,7 +312,7 @@ class SNRDatabase:
             "transaction_id": transaction_id,
             "customer": dict(updated),
             "deal": deal,
-            "card_reward_codes": card_codes,
+            "card_reward_codes": [],
             "jackpot_won": bool(winning_ticket),
             "jackpot_reward_code": jackpot_code,
             "winning_ticket": winning_ticket,
@@ -352,11 +357,6 @@ class SNRDatabase:
                 "UPDATE rewards SET status = 'claimed', claimed_at = ?, claimed_by = ? WHERE reward_code = ?",
                 (now, staff_name, reward_code),
             )
-            if reward["reward_type"] == "card_pack":
-                conn.execute(
-                    "UPDATE customers SET card_packs_claimed = card_packs_claimed + 1 WHERE customer_key = ?",
-                    (reward["customer_key"],),
-                )
             conn.execute(
                 "INSERT INTO audit_log (action, staff_id, staff_name, details, created_at) VALUES (?, ?, ?, ?, ?)",
                 ("reward_claimed", str(staff_id), staff_name, json.dumps({"code": reward_code}), now),
@@ -448,15 +448,18 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
         if not deal_key or deal_key not in DEALS:
             raise ValueError("A valid deal is required.")
         d = DEALS[deal_key]
-        chance_word = "chance" if d.golden_tickets == 1 else "chances"
-        point_word = "point" if d.loyalty_points == 1 else "points"
+        reward_lines = []
+        if d.loyalty_points:
+            point_word = "point" if d.loyalty_points == 1 else "points"
+            reward_lines.append(f"⭐ {d.loyalty_points} loyalty {point_word}")
+        ticket_word = "ticket" if d.golden_tickets == 1 else "tickets"
+        reward_lines.append(f"🎟️ {d.golden_tickets} Golden {ticket_word}")
         return (
             "🍔 SNR BUNS IS OPEN! 🍔\n\n"
             f"🔥 {d.name.upper()} 🔥\n"
-            f"{d.food} FOOD + {d.drinks} DRINKS\n"
+            f"{d.item_summary.upper()}\n"
             f"ONLY £{d.price:,}\n\n"
-            f"⭐ {d.loyalty_points} loyalty {point_word}\n"
-            f"🎟️ {d.golden_tickets} Golden Ticket {chance_word}\n\n"
+            f"{'\n'.join(reward_lines)}\n\n"
             "The extremely rare £5,000 cash jackpot is still waiting to be found!\n"
             "Head down to SNR Buns or call us to order."
         )
@@ -487,9 +490,9 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
     if kind == "loyalty":
         return (
             "⭐🍔 SNR BUNS LOYALTY REWARDS 🍔⭐\n\n"
-            "Buy qualifying SNR meal deals and collect loyalty points every time you visit.\n\n"
-            "COLLECT 4 POINTS = FREE 2-CARD TRADING PACK 🎁\n\n"
-            "Your next reward could be closer than you think—head down to SNR Buns!"
+            "Purchase our Mega Deal or Share Box to collect loyalty points.\n\n"
+            "Your points are saved under your character name and continue building every time you visit.\n\n"
+            "Head down to SNR Buns and keep growing your loyalty balance!"
         )
     if kind == "delivery":
         return (

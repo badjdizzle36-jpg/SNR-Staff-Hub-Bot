@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from snr_core import DEALS, LOYALTY_TARGET, SNRDatabase, birdy_post, normalize_name
+from snr_core import DEALS, SNRDatabase, birdy_post, normalize_name
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -66,7 +66,7 @@ def customer_embed(customer: dict) -> discord.Embed:
         title=f"🍔 {customer['display_name']}",
         colour=discord.Colour.orange(),
     )
-    embed.add_field(name="Loyalty", value=f"**{customer['loyalty_points']}/{LOYALTY_TARGET}**", inline=True)
+    embed.add_field(name="Loyalty Points", value=f"**{customer['loyalty_points']}**", inline=True)
     embed.add_field(name="Golden Tickets", value=f"**{customer['golden_tickets']}**", inline=True)
     embed.add_field(name="Jackpot Wins", value=f"**{customer['jackpot_wins']}**", inline=True)
     embed.add_field(name="Sales", value=f"**{customer['lifetime_sales']}**", inline=True)
@@ -96,15 +96,14 @@ def sale_embed(result: dict) -> discord.Embed:
     embed.add_field(name="Customer", value=f"**{customer['display_name']}**", inline=True)
     embed.add_field(name="Deal", value=f"**{deal.name}**", inline=True)
     embed.add_field(name="Sale", value=f"**£{deal.price:,}**", inline=True)
-    embed.add_field(name="Items", value=f"{deal.food} food + {deal.drinks} drinks", inline=True)
-    embed.add_field(name="Loyalty", value=f"+{deal.loyalty_points} → **{customer['loyalty_points']}/{LOYALTY_TARGET}**", inline=True)
+    embed.add_field(name="Items", value=deal.item_summary, inline=True)
+    loyalty_value = (
+        f"+{deal.loyalty_points} → **{customer['loyalty_points']} total**"
+        if deal.loyalty_points
+        else f"No point on this deal • **{customer['loyalty_points']} total**"
+    )
+    embed.add_field(name="Loyalty", value=loyalty_value, inline=True)
     embed.add_field(name="Golden Tickets", value=f"+{deal.golden_tickets}", inline=True)
-    if result["card_reward_codes"]:
-        embed.add_field(
-            name="🎁 Loyalty Reward",
-            value="FREE 2-card trading pack is now waiting to be claimed.",
-            inline=False,
-        )
     if won:
         embed.add_field(
             name="🏆 JACKPOT PRIZE",
@@ -219,7 +218,7 @@ class DealSelect(discord.ui.Select):
             discord.SelectOption(
                 label=d.name,
                 value=d.key,
-                description=f"{d.food}+{d.drinks} • £{d.price:,} • {d.golden_tickets} Golden ticket(s)",
+                description=f"{d.item_summary} • £{d.price:,} • {d.golden_tickets} Golden ticket(s)",
                 emoji="🍔",
             )
             for d in DEALS.values()
