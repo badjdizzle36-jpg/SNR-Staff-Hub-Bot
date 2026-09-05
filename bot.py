@@ -16,6 +16,7 @@ from snr_core import (
     birdy_post,
     normalize_name,
 )
+from web_portal import start_web_server
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -25,6 +26,7 @@ MANAGER_ROLE_NAME = os.getenv("MANAGER_ROLE_NAME", "SNR Management")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "snr_staff_hub.db")
 LEGACY_DATA_FILE = os.getenv("LEGACY_DATA_FILE", "loyalty_data.json")
 JACKPOT_POOL_SIZE = int(os.getenv("JACKPOT_POOL_SIZE", "1000"))
+PORT = int(os.getenv("PORT", "8080"))
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -498,7 +500,17 @@ async def report(interaction: discord.Interaction, period: app_commands.Choice[i
     )
 
 
-if not TOKEN:
-    raise RuntimeError("DISCORD_TOKEN is missing. Add it to your environment variables.")
+async def main() -> None:
+    if not TOKEN:
+        raise RuntimeError("DISCORD_TOKEN is missing. Add it to your environment variables.")
+    server = start_web_server(db, PORT)
+    print(f"SNR Loyalty Card website listening on port {PORT}")
+    try:
+        await bot.start(TOKEN)
+    finally:
+        server.shutdown()
+        server.server_close()
 
-bot.run(TOKEN)
+
+if __name__ == "__main__":
+    asyncio.run(main())
