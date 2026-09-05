@@ -7,7 +7,15 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from snr_core import DEALS, SNRDatabase, birdy_post, normalize_name
+from snr_core import (
+    AVERAGE_DESSERT_COST,
+    AVERAGE_DRINK_COST,
+    AVERAGE_FOOD_COST,
+    DEALS,
+    SNRDatabase,
+    birdy_post,
+    normalize_name,
+)
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -22,6 +30,10 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = SNRDatabase(DATABASE_PATH, JACKPOT_POOL_SIZE)
 db_lock = asyncio.Lock()
+
+
+def money(value: float | int) -> str:
+    return f"£{float(value):,.2f}"
 
 
 def has_role(interaction: discord.Interaction, role_name: str) -> bool:
@@ -51,7 +63,7 @@ def panel_embed() -> discord.Embed:
         title="🍔 SNR BUNS — STAFF HUB",
         description=(
             "Use the buttons below to record sales, check customers, redeem rewards, "
-            "manage the Golden Ticket Jackpot and generate Birdy posts.\n\n"
+            "manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
             "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
@@ -70,7 +82,13 @@ def customer_embed(customer: dict) -> discord.Embed:
     embed.add_field(name="Golden Tickets", value=f"**{customer['golden_tickets']}**", inline=True)
     embed.add_field(name="Jackpot Wins", value=f"**{customer['jackpot_wins']}**", inline=True)
     embed.add_field(name="Sales", value=f"**{customer['lifetime_sales']}**", inline=True)
-    embed.add_field(name="Revenue", value=f"**£{customer['revenue']:,}**", inline=True)
+    embed.add_field(name="Revenue", value=f"**{money(customer['revenue'])}**", inline=True)
+    embed.add_field(name="Production Cost", value=f"**{money(customer['production_cost'])}**", inline=True)
+    embed.add_field(
+        name="Gross Profit",
+        value=f"**{money(customer['gross_profit'])}** ({customer['profit_margin']:.1f}%)",
+        inline=True,
+    )
     embed.add_field(
         name="Items Sold",
         value=f"**{customer['food_sold']} food • {customer['drinks_sold']} drinks**",
@@ -95,8 +113,14 @@ def sale_embed(result: dict) -> discord.Embed:
     )
     embed.add_field(name="Customer", value=f"**{customer['display_name']}**", inline=True)
     embed.add_field(name="Deal", value=f"**{deal.name}**", inline=True)
-    embed.add_field(name="Sale", value=f"**£{deal.price:,}**", inline=True)
+    embed.add_field(name="Sale", value=f"**{money(deal.price)}**", inline=True)
     embed.add_field(name="Items", value=deal.item_summary, inline=True)
+    embed.add_field(name="Production Cost", value=f"**{money(deal.production_cost)}**", inline=True)
+    embed.add_field(
+        name="Gross Profit",
+        value=f"**{money(deal.gross_profit)}** ({deal.profit_margin:.1f}%)",
+        inline=True,
+    )
     loyalty_value = (
         f"+{deal.loyalty_points} → **{customer['loyalty_points']} total**"
         if deal.loyalty_points
@@ -117,6 +141,35 @@ def sale_embed(result: dict) -> discord.Embed:
     else:
         embed.add_field(name="Jackpot", value="The Golden Ticket remains unfound.", inline=False)
     embed.set_footer(text=f"Transaction {result['transaction_id']}")
+    return embed
+
+
+def finance_embed(stats: dict, title: str) -> discord.Embed:
+    embed = discord.Embed(title=title, colour=discord.Colour.green())
+    embed.add_field(name="Sales", value=f"**{stats['sales']}**", inline=True)
+    embed.add_field(name="Revenue", value=f"**{money(stats['revenue'])}**", inline=True)
+    embed.add_field(name="Production Cost", value=f"**{money(stats['production_cost'])}**", inline=True)
+    embed.add_field(name="Gross Profit", value=f"**{money(stats['gross_profit'])}**", inline=True)
+    embed.add_field(name="Profit Margin", value=f"**{stats['profit_margin']:.1f}%**", inline=True)
+    embed.add_field(name="Golden Tickets", value=f"**{stats['tickets']}**", inline=True)
+    embed.add_field(name="Food/Desserts", value=f"**{stats['food']}**", inline=True)
+    embed.add_field(name="Drinks", value=f"**{stats['drinks']}**", inline=True)
+    embed.add_field(name="Loyalty Points", value=f"**{stats['loyalty']}**", inline=True)
+    breakdown = "\n".join(
+        (
+            f"• **{d['deal_name']} ×{d['quantity']}** — "
+            f"Revenue {money(d['revenue'])} • Cost {money(d['production_cost'])} • "
+            f"Profit {money(d['gross_profit'])} ({d['profit_margin']:.1f}%)"
+        )
+        for d in stats["deals"]
+    ) or "No sales recorded for this period."
+    embed.add_field(name="Deal Profit Breakdown", value=breakdown[:1024], inline=False)
+    embed.set_footer(
+        text=(
+            f"Average costs: food {money(AVERAGE_FOOD_COST)} • drink {money(AVERAGE_DRINK_COST)} • "
+            f"dessert {money(AVERAGE_DESSERT_COST)}"
+        )
+    )
     return embed
 
 
@@ -368,23 +421,15 @@ class StaffPanel(discord.ui.View):
                 "Choose the post you want to copy into Birdy:", view=BirdyView(), ephemeral=True
             )
 
-    @discord.ui.button(label="Today’s Report", emoji="📊", style=discord.ButtonStyle.secondary, custom_id="snr:report")
+    @discord.ui.button(label="Finance Check", emoji="📊", style=discord.ButtonStyle.secondary, custom_id="snr:report")
     async def report(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
-        stats = db.report(days=1)
-        embed = discord.Embed(title="📊 SNR BUNS — LAST 24 HOURS", colour=discord.Colour.orange())
-        embed.add_field(name="Sales", value=f"**{stats['sales']}**", inline=True)
-        embed.add_field(name="Revenue", value=f"**£{stats['revenue']:,}**", inline=True)
-        embed.add_field(name="Golden Tickets", value=f"**{stats['tickets']}**", inline=True)
-        embed.add_field(name="Food", value=f"**{stats['food']}**", inline=True)
-        embed.add_field(name="Drinks", value=f"**{stats['drinks']}**", inline=True)
-        embed.add_field(name="Jackpots", value=f"**{stats['jackpots']}**", inline=True)
-        breakdown = "\n".join(
-            f"• {d['deal_name']}: **{d['quantity']}** (£{d['revenue']:,})" for d in stats["deals"]
-        ) or "No sales recorded."
-        embed.add_field(name="Deals Sold", value=breakdown, inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        stats = db.report(today=True)
+        await interaction.response.send_message(
+            embed=finance_embed(stats, "💷 SNR BUNS — TODAY’S FINANCE CHECK"),
+            ephemeral=True,
+        )
 
 
 @bot.event
@@ -438,7 +483,7 @@ async def birdy(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="snrhub_report", description="Show a full SNR sales report.")
 @app_commands.choices(period=[
-    app_commands.Choice(name="Last 24 hours", value=1),
+    app_commands.Choice(name="Today (UK time)", value=-1),
     app_commands.Choice(name="Last 7 days", value=7),
     app_commands.Choice(name="Last 30 days", value=30),
     app_commands.Choice(name="All time", value=0),
@@ -446,19 +491,11 @@ async def birdy(interaction: discord.Interaction) -> None:
 async def report(interaction: discord.Interaction, period: app_commands.Choice[int]) -> None:
     if not await require_staff(interaction):
         return
-    stats = db.report(days=period.value or None)
-    breakdown = "\n".join(
-        f"• {d['deal_name']}: **{d['quantity']}** (£{d['revenue']:,})" for d in stats["deals"]
-    ) or "No sales recorded."
-    embed = discord.Embed(title=f"📊 SNR REPORT — {period.name.upper()}", colour=discord.Colour.orange())
-    embed.description = (
-        f"Sales: **{stats['sales']}**\nRevenue: **£{stats['revenue']:,}**\n"
-        f"Food: **{stats['food']}** • Drinks: **{stats['drinks']}**\n"
-        f"Loyalty points issued: **{stats['loyalty']}**\n"
-        f"Golden Tickets issued: **{stats['tickets']}**\nJackpots won: **{stats['jackpots']}**\n\n"
-        f"**Deals sold**\n{breakdown}"
+    stats = db.report(today=period.value == -1, days=period.value if period.value > 0 else None)
+    await interaction.response.send_message(
+        embed=finance_embed(stats, f"💷 SNR FINANCE — {period.name.upper()}"),
+        ephemeral=True,
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 if not TOKEN:

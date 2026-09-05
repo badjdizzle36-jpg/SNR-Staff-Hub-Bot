@@ -8,9 +8,34 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 JACKPOT_POOL_SIZE = 1000
+
+# Production costs supplied by SNR Buns management. Bulk prices are converted
+# to a single-item cost before averages are calculated.
+FOOD_COSTS = {
+    "Burger": 7.70,
+    "Chicken Wrap": 5.60,
+}
+DRINK_COSTS = {
+    "Cherry Slush": 1.75,
+    "Lemon Slush": 0.70,
+    "Pineapple Slush": 6.25,
+}
+DESSERT_COSTS = {
+    "Chocolate Muffin": 7.00,
+    "Doughnut": 7.00,
+    "Chocolate Ice Cream": 3.50,
+    "Mint Ice Cream": 4.90,
+    "Strawberry Ice Cream": 8.20,
+    "Vanilla Ice Cream": 2.80,
+}
+
+AVERAGE_FOOD_COST = sum(FOOD_COSTS.values()) / len(FOOD_COSTS)
+AVERAGE_DRINK_COST = sum(DRINK_COSTS.values()) / len(DRINK_COSTS)
+AVERAGE_DESSERT_COST = sum(DESSERT_COSTS.values()) / len(DESSERT_COSTS)
 
 
 @dataclass(frozen=True)
@@ -27,6 +52,23 @@ class Deal:
     @property
     def item_summary(self) -> str:
         return self.contents or f"{self.food} food + {self.drinks} drinks"
+
+    @property
+    def production_cost(self) -> float:
+        if self.key == "sweet_treat":
+            return round(self.food * AVERAGE_DESSERT_COST, 2)
+        return round(
+            (self.food * AVERAGE_FOOD_COST) + (self.drinks * AVERAGE_DRINK_COST),
+            2,
+        )
+
+    @property
+    def gross_profit(self) -> float:
+        return round(self.price - self.production_cost, 2)
+
+    @property
+    def profit_margin(self) -> float:
+        return round((self.gross_profit / self.price) * 100, 1) if self.price else 0.0
 
 
 DEALS: dict[str, Deal] = {
@@ -95,6 +137,7 @@ class SNRDatabase:
                     price INTEGER NOT NULL,
                     food INTEGER NOT NULL,
                     drinks INTEGER NOT NULL,
+                    production_cost REAL NOT NULL DEFAULT 0,
                     loyalty_points INTEGER NOT NULL,
                     golden_tickets INTEGER NOT NULL,
                     card_rewards_created INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +189,25 @@ class SNRDatabase:
                     created_at TEXT NOT NULL
                 );
                 """
+            )
+
+            # Add finance support without replacing an existing Railway database.
+            sales_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sales)")}
+            if "production_cost" not in sales_columns:
+                conn.execute("ALTER TABLE sales ADD COLUMN production_cost REAL NOT NULL DEFAULT 0")
+
+            # Backfill any earlier sales using the same category-average model.
+            for deal in DEALS.values():
+                conn.execute(
+                    """UPDATE sales SET production_cost = ?
+                       WHERE deal_key = ? AND production_cost = 0""",
+                    (deal.production_cost, deal.key),
+                )
+            conn.execute(
+                """UPDATE sales SET production_cost = ROUND(
+                       (food * ?) + (drinks * ?), 2
+                   ) WHERE production_cost = 0""",
+                (AVERAGE_FOOD_COST, AVERAGE_DRINK_COST),
             )
             row = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
             if row is None:
@@ -246,12 +308,12 @@ class SNRDatabase:
 
             cursor = conn.execute(
                 """INSERT INTO sales
-                   (customer_key, customer_name, deal_key, deal_name, price, food, drinks,
+                   (customer_key, customer_name, deal_key, deal_name, price, food, drinks, production_cost,
                     loyalty_points, golden_tickets, card_rewards_created, staff_id, staff_name, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key, shown, deal.key, deal.name, deal.price, deal.food, deal.drinks,
-                    deal.loyalty_points, deal.golden_tickets, 0,
+                    deal.production_cost, deal.loyalty_points, deal.golden_tickets, 0,
                     str(staff_id), staff_name, now,
                 ),
             )
@@ -338,6 +400,17 @@ class SNRDatabase:
             result = dict(customer)
             result["unclaimed_rewards"] = [dict(r) for r in rewards]
             result["recent_sales"] = [dict(r) for r in recent]
+            finance = conn.execute(
+                """SELECT COALESCE(SUM(production_cost), 0) AS production_cost,
+                   COALESCE(SUM(price - production_cost), 0) AS gross_profit
+                   FROM sales WHERE customer_key = ? AND voided = 0""",
+                (key,),
+            ).fetchone()
+            result["production_cost"] = round(float(finance["production_cost"]), 2)
+            result["gross_profit"] = round(float(finance["gross_profit"]), 2)
+            result["profit_margin"] = round(
+                (result["gross_profit"] / result["revenue"] * 100), 1
+            ) if result["revenue"] else 0.0
             return result
 
     def unclaimed_rewards(self, name: str) -> list[dict[str, Any]]:
@@ -376,15 +449,24 @@ class SNRDatabase:
     def latest_jackpot_winner(self) -> str | None:
         return self.jackpot_status().get("last_winner")
 
-    def report(self, days: int | None = None) -> dict[str, Any]:
+    def report(self, days: int | None = None, today: bool = False) -> dict[str, Any]:
         where = "WHERE voided = 0"
         params: tuple[Any, ...] = ()
-        if days:
+        if today:
+            london_now = datetime.now(ZoneInfo("Europe/London"))
+            london_start = london_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            utc_start = london_start.astimezone(timezone.utc).isoformat(timespec="seconds")
+            utc_end = london_now.astimezone(timezone.utc).isoformat(timespec="seconds")
+            where += " AND created_at >= ? AND created_at <= ?"
+            params = (utc_start, utc_end)
+        elif days:
             where += " AND datetime(created_at) >= datetime('now', ?)"
             params = (f"-{int(days)} days",)
         with self.connect() as conn:
             total = conn.execute(
                 f"""SELECT COUNT(*) AS sales, COALESCE(SUM(price),0) AS revenue,
+                    COALESCE(SUM(production_cost),0) AS production_cost,
+                    COALESCE(SUM(price - production_cost),0) AS gross_profit,
                     COALESCE(SUM(food),0) AS food, COALESCE(SUM(drinks),0) AS drinks,
                     COALESCE(SUM(loyalty_points),0) AS loyalty,
                     COALESCE(SUM(golden_tickets),0) AS tickets,
@@ -392,11 +474,29 @@ class SNRDatabase:
                 params,
             ).fetchone()
             deals = conn.execute(
-                f"""SELECT deal_name, COUNT(*) AS quantity, SUM(price) AS revenue
+                f"""SELECT deal_name, COUNT(*) AS quantity, SUM(price) AS revenue,
+                    SUM(production_cost) AS production_cost,
+                    SUM(price - production_cost) AS gross_profit
                     FROM sales {where} GROUP BY deal_key, deal_name ORDER BY quantity DESC, revenue DESC""",
                 params,
             ).fetchall()
-            return {**dict(total), "deals": [dict(d) for d in deals]}
+            result = dict(total)
+            result["production_cost"] = round(float(result["production_cost"]), 2)
+            result["gross_profit"] = round(float(result["gross_profit"]), 2)
+            result["profit_margin"] = round(
+                (result["gross_profit"] / result["revenue"] * 100), 1
+            ) if result["revenue"] else 0.0
+            deal_rows = []
+            for row in deals:
+                deal_row = dict(row)
+                deal_row["production_cost"] = round(float(deal_row["production_cost"]), 2)
+                deal_row["gross_profit"] = round(float(deal_row["gross_profit"]), 2)
+                deal_row["profit_margin"] = round(
+                    (deal_row["gross_profit"] / deal_row["revenue"] * 100), 1
+                ) if deal_row["revenue"] else 0.0
+                deal_rows.append(deal_row)
+            result["deals"] = deal_rows
+            return result
 
     def import_legacy_json(self, legacy_path: str) -> dict[str, int]:
         path = Path(legacy_path)
