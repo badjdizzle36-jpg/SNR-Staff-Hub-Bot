@@ -1,36 +1,9 @@
 # SNR Buns Staff Hub
 
-## Secure LB Phone app (current version)
+## Website delivery orders (latest update)
 
-Customer access is now passwordless and lives inside a separate LB Phone custom
-app. The public Railway webpage no longer lists customer names or offers a
-password form.
-
-On first use, the customer enters their existing loyalty name while physically
-with SNR staff. The FiveM server—not the customer's form—adds the equipped LB
-Phone number, permanent framework character ID and current roleplay name to the
-request. Discord shows all of that information. Staff approve only after
-checking the customer in person.
-
-Approval binds one loyalty account to that exact character and equipped phone.
-The app then opens the correct card automatically and can submit delivery and
-reward requests to the existing database. A new phone requires a new approval;
-approving it revokes the old phone. Management can immediately remove access
-with `/snrhub_phone_unlink name`.
-
-Add the same long random `LB_PHONE_API_SECRET` in Railway and in the FiveM
-resource's server-only `server_config.lua`. Never put this secret in a client or
-UI file. Install the separately supplied `snr_buns_lb_phone` resource after
-`lb-phone`; its `INSTALL.md` contains the server steps.
-
-The older password-account classes remain in the source only to migrate safely
-without deleting historical database records. They are no longer exposed on
-the customer website or used by the LB Phone app.
-
-## LB Phone delivery orders
-
-Paired customers can order one of the six current SNR deals directly from the
-LB Phone app. Every deal shows its contents, exact price, loyalty
+Logged-in customers can now order one of the six current SNR deals directly
+from their loyalty webpage. Every deal shows its contents, exact price, loyalty
 points and Golden Tickets. A postal or clear delivery location is required.
 
 Create a private Discord channel such as `snr-delivery-orders`, make sure
@@ -45,14 +18,16 @@ database uses a unique delivery reference, so restarts or repeated button clicks
 cannot count the same order twice. Customers can have one waiting order at a
 time and can follow its status on their account page.
 
-## Reward requests
+## Password-protected loyalty accounts (latest update)
 
 Every 4 available loyalty points can be exchanged for one pack containing 2
 trading cards. Existing saved points qualify. Mega Deal still earns 1 point and
 Share Box earns 2. No automatic free card is added to another meal.
 
-Upload all supplied Railway bot files together at the repository root. Keep
-`snr-logo.png` there and do not replace the Railway database or volume.
+Upload `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`,
+`customer_accounts.py`, and the new `delivery_orders.py` together at the
+repository root. Keep `snr-logo.png` there. Do not replace the Railway database
+or volume. No new environment variables or dependencies are needed.
 
 After deployment, an SNR Management member or administrator runs
 `/snrhub_claims_setup` in the private staff text channel that should receive
@@ -60,8 +35,25 @@ alerts. The bot needs View Channel, Send Messages and Embed Links there. The
 channel must not allow @everyone to view it. Website requests are disabled until
 this setup is complete.
 
-When a paired player requests a pack, Railway gets the customer identity from
-the server-verified LB Phone pairing—not from a dropdown or editable form field.
+Run `/snrhub_panel` again to post the new **Account Approvals** button. No setup
+code is needed. On the same website login screen, the customer selects their
+existing character name, chooses a password between 10 and 128 characters, and
+presses **Request My Account**.
+
+An approval appears automatically in the configured private delivery-orders
+channel (or the private pack-claims channel on an older setup). Staff verify the
+player in-game and click **Approve Account** or **Reject**. Approval unlocks the
+card; rejection changes nothing. Passwords are stored only as salted PBKDF2
+hashes and are never shown to staff.
+
+The same form handles forgotten passwords. If the name already has an active
+account, it creates a password-reset approval. The old password keeps working
+until staff approve the reset. Approval immediately signs out all old sessions
+and activates the newly chosen password. Five incorrect logins lock attempts
+for 15 minutes, and a valid website login lasts 8 hours.
+
+When the logged-in player requests a pack, the server gets the customer identity
+from the protected login session—not from a dropdown or editable form field.
 Exactly four points are reserved transactionally. Only one pending request per
 customer is allowed. Repeat submissions do not reserve again. Staff click
 **Handed Over** after delivering the pack, or **Cancel & Return Points**. Both
@@ -78,10 +70,19 @@ queued, not delivered to Discord. Staff actions remain private to Discord.
 Finance reports still show food-production gross profit; they do not subtract
 the cost of reward packs or other giveaways. Claims are audited separately.
 
-The ordinary Railway web address now shows only instructions to open the secure
-LB Phone app. It does not expose customer names, loyalty cards, finance data,
-staff identities or the hidden jackpot position. Railway supplies `PORT`
-automatically; do not change it manually.
+The older deployment notes below describe the original sale-entry behavior;
+this section governs the new website reward redemption workflow.
+
+## Public customer loyalty card
+
+The same Railway service runs a mobile-friendly public loyalty page. Customers
+do not need Discord. Put the public Railway link on the in-game wall. Players
+select their character name and log in to see their own visits, points, Golden
+Tickets and recent meals. The dropdown alone never reveals anyone's card.
+
+The public page never exposes revenue, costs, profit, staff identities, password
+hashes or the hidden jackpot position. Railway supplies `PORT`
+automatically; do not add or change it manually.
 
 A private, staff-only Discord bot for recording SNR Buns sales with only the customer’s character name.
 
@@ -94,7 +95,7 @@ The bot automatically handles:
 - Today, 7-day, 30-day and all-time finance reports with production cost, gross profit and margin
 - Ready-to-copy Birdy posts
 - Name matching and misspelling suggestions
-- Character-and-phone-protected delivery orders with required locations
+- Password-protected website delivery orders with required locations
 - Importing existing `loyalty_data.json` customers without changing the original file
 
 Customers never need to join Discord.
@@ -184,7 +185,6 @@ Add these variables in Railway:
 - `DATABASE_PATH`: `/data/snr_staff_hub.db`
 - `LEGACY_DATA_FILE`: `/data/loyalty_data.json`
 - `JACKPOT_POOL_SIZE`: `1000`
-- `LB_PHONE_API_SECRET`: one long random secret matching the FiveM resource's server-only setting
 
 If the old `loyalty_data.json` is already stored somewhere else on your Volume, change `LEGACY_DATA_FILE` to that exact location.
 
@@ -209,8 +209,7 @@ The panel remains usable after the bot restarts.
 - `/snrhub_panel` — post the permanent control panel
 - `/snrhub_sale name` — open the deal dropdown for a customer
 - `/snrhub_customer name` — check loyalty, sales and outstanding rewards
-- `/snrhub_accounts_pending` — review secure LB Phone pairing approvals
-- `/snrhub_phone_unlink name` — management removes a customer’s phone access
+- `/snrhub_accounts_pending` — review new-account and password-reset approvals
 - `/snrhub_claims_setup` — choose the private staff channel for website alerts
 - `/snrhub_claims_pending` — show pending website pack requests
 - `/snrhub_orders_setup` — choose the private Discord delivery-orders channel

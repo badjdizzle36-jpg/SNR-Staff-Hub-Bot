@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import html
 import json
-import os
+import secrets
 import time
 from collections import defaultdict, deque
 from datetime import datetime
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
+from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
-from phone_pairing import PhonePairings
 from reward_claims import ClaimStore
-from snr_core import DEALS, SNRDatabase
+from snr_core import DEALS, SNRDatabase, normalize_name
 
 LONDON = ZoneInfo("Europe/London")
 MAX_REQUESTS_PER_MINUTE = 15
@@ -34,15 +36,22 @@ form{display:flex;gap:10px;margin-top:18px}input,select{min-width:0;flex:1;width
 
 
 def page(title: str, content: str) -> str:
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1983" height="793"></div><div class="tag">LOYALTY ACCOUNT</div></div>{content}<footer>SNR Buns • Securely linked to your in-game character</footer></main></body></html>'''
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1983" height="793"></div><div class="tag">LOYALTY ACCOUNT</div></div>{content}<footer>SNR Buns • Your account is protected by your password</footer></main></body></html>'''
 
 
-def lb_phone_landing(message: str = "") -> str:
+def name_options(names: list[str], selected: str = "") -> str:
+    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your character name</option>']
+    wanted = normalize_name(selected)
+    for name in sorted(set(names), key=normalize_name):
+        mark = " selected" if normalize_name(name) == wanted else ""
+        items.append(f'<option value="{html.escape(name, quote=True)}"{mark}>{html.escape(name)}</option>')
+    return "".join(items)
+
+
+def login_page(names: list[str], message: str = "", selected: str = "") -> str:
     notice = f'<div class="notice">{html.escape(message)}</div>' if message else ""
-    return page(
-        "SNR Buns LB Phone App",
-        f'''<section class="card"><div class="label">Secure customer access</div><h1>Open SNR Buns on your LB Phone</h1>{notice}<p>Your loyalty card, rewards and delivery ordering are now inside the official SNR Buns in-game phone app.</p><div class="notice"><strong>No password is required.</strong><br>Your account is linked to your verified in-game character and equipped phone after an in-person staff approval.</div><p class="muted">Visit the SNR Buns counter if your phone has not been paired yet.</p></section>''',
-    )
+    options = name_options(names, selected)
+    return page("SNR Buns account login", f'''<section class="card"><div class="label">Customer login</div><h1>Open your loyalty account</h1><p class="muted">Choose your character name and enter your password.</p>{notice}<form method="post" action="/login"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required><button type="submit">Log In</button></form><div class="panel"><div class="label">Create account or forgot password</div><h2>Choose your password here</h2><p class="muted">No setup code is needed. Choose your name and password below. SNR staff will receive one approval button in Discord to protect your rewards.</p><form method="post" action="/request-access"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose password (10+ characters)" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required><button type="submit">Request My Account</button></form><p class="muted">If you already have an account, this safely requests a password reset. Your old password stays active until staff approve the request.</p></div></section>''')
 
 
 def _sale_date(value: str) -> str:
@@ -50,6 +59,60 @@ def _sale_date(value: str) -> str:
         return datetime.fromisoformat(value).astimezone(LONDON).strftime("%d %b %Y")
     except (TypeError, ValueError):
         return "Previous visit"
+
+
+def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
+    rows = claims.summary(customer["display_name"])
+    pending = next((row for row in rows if row["status"] == "pending"), None)
+    labels = {"pending": "Awaiting staff handover — 4 points reserved", "fulfilled": "Pack handed over", "cancelled": "Cancelled — 4 points returned"}
+    history = "".join(f'<p>Request #{row["id"]}: {labels[row["status"]]}</p>' for row in rows)
+    points = int(customer["loyalty_points"])
+    if pending:
+        action = "<p>Your request is saved. Visit SNR Buns to collect your pack from staff.</p>"
+    elif not claims.configured():
+        action = "<p>Online claims are being set up. Please ask staff.</p>"
+    elif points < 4:
+        action = f"<p>Collect {4-points} more loyalty point(s) to request your next pack.</p>"
+    else:
+        action = f'<form method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(form_token, quote=True)}"><button type="submit">Redeem 4 Points for My Pack</button></form>'
+    return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>4 points = 1 pack containing 2 trading cards.</strong></p><p>{points} available points. Your login proves this is your account.</p>{action}<div class="muted">{history}</div></section>'
+
+
+def delivery_section(customer: dict, orders: DeliveryStore, form_token: str) -> str:
+    rows = orders.summary(customer["display_name"])
+    active = next((row for row in rows if row["status"] in ("pending", "processing")), None)
+    labels = {
+        "pending": "Waiting for SNR staff",
+        "processing": "Payment is being confirmed",
+        "paid": "Paid and added to loyalty",
+        "cancelled": "Cancelled",
+    }
+    recent = "".join(
+        f'<p>Order #{row["id"]}: <strong class="status-{"pending" if row["status"] == "processing" else row["status"]}">{labels[row["status"]]}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
+        for row in rows
+    )
+    if active:
+        order_form = (
+            f'<div class="notice"><strong>Order #{active["id"]} is waiting.</strong><br>'
+            f'{html.escape(active["deal_name"])} • <strong>£{int(active["price"]):,} owed</strong><br>'
+            f'Delivery location: {html.escape(active["postal"])}</div>'
+        )
+    else:
+        choices = "".join(
+            f'''<label class="deal-choice"><input type="radio" name="deal" value="{deal.key}" required><span class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,}</span></span></label>'''
+            for deal in DEALS.values()
+        )
+        if orders.configured():
+            order_form = f'''<form class="delivery-form" method="post" action="/order"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">You pay SNR staff on delivery. Loyalty points and Golden Tickets are added only after staff confirm payment.</p></form>'''
+        else:
+            order_form = f'<div class="deal-list">{choices}</div><div class="notice">Online delivery is being set up. Please contact SNR Buns for now.</div>'
+    return f'''<section class="delivery"><div class="label">🚗 SNR delivery</div><h2>Order from our current deals</h2><p class="muted">Choose one deal and tell us exactly where to deliver it.</p>{order_form}<div class="history"><div class="label">My delivery orders</div>{recent or '<p class="muted">No delivery orders yet.</p>'}</div></section>'''
+
+
+def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, claim_token: str, order_token: str) -> str:
+    recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
+    jackpot = '<strong>🏆 Jackpot winner!</strong>' if int(customer["jackpot_wins"]) else "Your Golden Tickets are automatically entered into the £5,000 jackpot."
+    return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card"><div class="label">Logged-in customer</div><div class="name">{html.escape(customer["display_name"])}</div><div class="grid"><div class="stat"><div class="label">Available points</div><div class="num">⭐ {int(customer["loyalty_points"])}</div></div><div class="stat"><div class="label">Golden tickets</div><div class="num">🎟️ {int(customer["golden_tickets"])}</div></div><div class="stat"><div class="label">Visits</div><div class="num">🍔 {int(customer["lifetime_sales"])}</div></div><div class="stat"><div class="label">Items served</div><div class="num">🥤 {int(customer["food_sold"])+int(customer["drinks_sold"])}</div></div><div class="stat wide jackpot"><div class="label">£5,000 Golden Ticket Jackpot</div><p>{jackpot}</p><small>The winning position remains hidden.</small></div></div>{delivery_section(customer, orders, order_token)}{claim_section(customer, claims, claim_token)}<div class="history"><div class="label">Recent visits</div>{recent}</div><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></section>''')
 
 
 class Limiter:
@@ -68,30 +131,51 @@ class Limiter:
 
 
 def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
-    limiter, claims, orders = Limiter(), ClaimStore(db), DeliveryStore(db)
-    pairings = PhonePairings(db)
-    api_secret = os.getenv("LB_PHONE_API_SECRET", "")
+    limiter, claims, orders, accounts = Limiter(), ClaimStore(db), DeliveryStore(db), Accounts(db)
+    form_secret = secrets.token_bytes(32)
+
+    def signature(owner: str, token: str) -> str:
+        return hmac.new(form_secret, (owner + "|" + token).encode(), hashlib.sha256).hexdigest()
+
+    def make_form_token(owner: str) -> str:
+        token = f"{int(time.time())}.{secrets.token_hex(16)}"
+        return token + "." + signature(owner, token)
+
+    def valid_form_token(owner: str, key: str) -> bool:
+        parts = key.split(".")
+        if len(parts) != 3 or not hmac.compare_digest(signature(owner, ".".join(parts[:2])), parts[2]):
+            return False
+        try:
+            age = time.time() - int(parts[0])
+        except ValueError:
+            return False
+        return 0 <= age <= 1800
+
     class Handler(BaseHTTPRequestHandler):
         def address(self) -> str:
             forwarded = self.headers.get("X-Forwarded-For")
             return forwarded.split(",")[0].strip() if forwarded else self.client_address[0]
 
-        def api_authorized(self) -> bool:
-            supplied = self.headers.get("Authorization", "")
-            expected = "Bearer " + api_secret
-            return bool(api_secret) and hmac.compare_digest(supplied, expected)
+        def session_token(self) -> str:
+            cookie = SimpleCookie()
+            try:
+                cookie.load(self.headers.get("Cookie", ""))
+                return cookie["snr_session"].value if "snr_session" in cookie else ""
+            except Exception:
+                return ""
 
-        def read_json(self) -> dict:
+        def owner(self) -> str | None:
+            return accounts.owner(self.session_token())
+
+        def read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 8192 or self.headers.get("Transfer-Encoding"):
+            if not 0 < length <= 4096 or self.headers.get("Transfer-Encoding"):
                 raise ValueError("Invalid request size.")
-            if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
-                raise ValueError("JSON is required.")
+            if self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
+                raise ValueError("Please use the form on this page.")
             self.connection.settimeout(10)
-            value = json.loads(self.rfile.read(length).decode("utf-8"))
-            if not isinstance(value, dict):
-                raise ValueError("Invalid request.")
-            return value
+            parsed = parse_qs(self.rfile.read(length).decode("utf-8"), max_num_fields=8)
+            return {key: values[0] for key, values in parsed.items()}
 
         def send_html(self, status: int, body: str, cookie: str | None = None) -> None:
             data = body.encode("utf-8")
@@ -107,16 +191,6 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             self.end_headers()
             self.wfile.write(data)
 
-        def send_json(self, status: int, value: dict) -> None:
-            data = json.dumps(value, separators=(",", ":")).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(data)
-
         def redirect(self, location: str, cookie: str | None = None) -> None:
             self.send_response(303)
             self.send_header("Location", location)
@@ -129,26 +203,15 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
         def session_cookie(token: str) -> str:
             return f"snr_session={token}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=None; Partitioned"
 
-        @staticmethod
-        def public_customer(customer: dict) -> dict:
-            return {
-                "name": customer["display_name"],
-                "loyalty_points": int(customer["loyalty_points"]),
-                "golden_tickets": int(customer["golden_tickets"]),
-                "visits": int(customer["lifetime_sales"]),
-                "items_served": int(customer["food_sold"]) + int(customer["drinks_sold"]),
-                "jackpot_wins": int(customer["jackpot_wins"]),
-                "recent_sales": [
-                    {"deal": row["deal_name"], "loyalty": int(row["loyalty_points"]), "date": _sale_date(row["created_at"])}
-                    for row in customer.get("recent_sales", [])
-                ],
-            }
-
-        def api_owner(self, data: dict) -> str:
-            owner = pairings.owner(data.get("character_id"), data.get("phone_number"))
-            if not owner:
-                raise PermissionError("This character and phone are not paired to an SNR loyalty account.")
-            return owner
+        def show_account(self) -> None:
+            owner = self.owner()
+            customer = db.get_customer(owner) if owner else None
+            if not customer:
+                self.send_html(401, login_page(db.customer_names(), "Please log in to open a loyalty account."))
+                return
+            self.send_html(200, customer_page(
+                customer, claims, orders, make_form_token(owner), make_form_token(owner)
+            ))
 
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
@@ -166,62 +229,64 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
-            elif path in ("/", "/account", "/card"):
-                self.send_html(200, lb_phone_landing())
+            elif path in ("/account", "/card"):
+                self.show_account()
+            elif path == "/":
+                self.redirect("/account") if self.owner() else self.send_html(200, login_page(db.customer_names()))
             else:
-                self.send_html(404, lb_phone_landing("Page not found."))
+                self.send_html(404, login_page(db.customer_names(), "Page not found."))
 
         def do_POST(self) -> None:  # noqa: N802
+            if not limiter.allowed(self.address()):
+                self.send_html(429, page("Please wait", '<section class="card"><h1>Please wait one minute and try again.</h1></section>'))
+                return
             path, data = urlparse(self.path).path, {}
-            if not path.startswith("/api/lb/"):
-                self.send_html(404, lb_phone_landing("Use the SNR Buns app on your LB Phone."))
-                return
-            if not self.api_authorized():
-                self.send_json(503 if not api_secret else 401, {"ok": False, "error": "LB Phone connection is not configured."})
-                return
             try:
-                data = self.read_json()
-                if path == "/api/lb/state":
-                    owner = pairings.owner(data.get("character_id"), data.get("phone_number"))
+                data = self.read_form()
+                if path == "/login":
+                    token = accounts.login(data.get("name", ""), data.get("password", ""))
+                    self.redirect("/account", self.session_cookie(token))
+                elif path == "/request-access":
+                    if data.get("password", "") != data.get("confirm", ""):
+                        raise ValueError("The two passwords do not match.")
+                    result = accounts.request_access(data.get("name", ""), data.get("password", ""))
+                    action = "password reset" if result["request_type"] == "reset" else "new account"
+                    if result.get("already_pending"):
+                        notice = "An approval is already waiting for this name. The original password chosen for that request has not been changed. If it needs replacing, ask staff to reject the waiting request and submit again."
+                    else:
+                        notice = "You do not need a code. After staff verify and approve you in Discord, return here and log in using the password you just chose."
+                    self.send_html(200, page("Account request sent", f'''<section class="card"><div class="label">Account request sent</div><h1>One quick staff check</h1><p>Your {action} request for <strong>{html.escape(result["customer_name"])}</strong> has been sent to SNR staff.</p><div class="notice">{html.escape(notice)}</div><a class="back" href="/">Back to login</a></section>'''))
+                elif path == "/logout":
+                    accounts.logout(self.session_token())
+                    self.redirect("/", "snr_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned")
+                elif path == "/claim":
+                    owner = self.owner()
                     if not owner:
-                        self.send_json(200, {"ok": True, **pairings.status_for_identity(data.get("character_id", ""))})
-                        return
-                    customer = db.get_customer(owner)
-                    self.send_json(200, {
-                        "ok": True,
-                        "status": "approved",
-                        "customer": self.public_customer(customer),
-                        "claims": claims.summary(owner),
-                        "orders": orders.summary(owner),
-                        "deals": [
-                            {"key": deal.key, "name": deal.name, "price": deal.price, "contents": deal.item_summary,
-                             "loyalty": deal.loyalty_points, "tickets": deal.golden_tickets}
-                            for deal in DEALS.values()
-                        ],
-                    })
-                elif path == "/api/lb/pair":
-                    result = pairings.request(
-                        data.get("customer_name"), data.get("character_id"), data.get("phone_number"),
-                        data.get("rp_name"), data.get("request_key"),
-                    )
-                    self.send_json(200, {"ok": True, "status": result["status"], "customer_name": result["customer_name"]})
-                elif path == "/api/lb/claim":
-                    owner = self.api_owner(data)
-                    result = claims.request_authenticated(owner, data.get("request_key", ""))
-                    self.send_json(200, {"ok": True, "id": result["id"], "status": result["status"]})
-                elif path == "/api/lb/order":
-                    owner = self.api_owner(data)
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("claim_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This form has expired. Refresh your account and try again.")
+                    result = claims.request_authenticated(owner, key)
+                    message = {"pending": "Your request is saved for staff. Four points are reserved. Visit SNR Buns to collect your pack.", "fulfilled": "Staff already marked this pack as handed over.", "cancelled": "This request was cancelled and its four points were returned."}[result["status"]]
+                    self.send_html(200, page("Reward request", f'<section class="card"><h1>Request #{result["id"]}</h1><p>{message}</p><a class="back" href="/account">Back to my account</a></section>'))
+                elif path == "/order":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("order_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This order form has expired. Refresh your account and try again.")
                     result = orders.create_authenticated(
-                        owner, data.get("deal", ""), data.get("postal", ""), data.get("request_key", "")
+                        owner, data.get("deal", ""), data.get("postal", ""), key
                     )
-                    self.send_json(200, {"ok": True, "id": result["id"], "status": result["status"],
-                                         "deal_name": result["deal_name"], "price": result["price"]})
+                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><p><strong>{html.escape(result["deal_name"])}</strong></p><p>Amount to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p><div class="notice">SNR staff have been notified. Your loyalty points and Golden Tickets will update after staff confirm you have paid.</div><a class="back" href="/account">Back to my account</a></section>'''))
                 else:
-                    self.send_json(404, {"ok": False, "error": "Unknown LB Phone action."})
-            except PermissionError as exc:
-                self.send_json(403, {"ok": False, "error": str(exc)})
-            except (ValueError, UnicodeError, KeyError, json.JSONDecodeError) as exc:
-                self.send_json(400, {"ok": False, "error": str(exc)})
+                    self.send_html(404, login_page(db.customer_names(), "Page not found."))
+            except (ValueError, UnicodeError, KeyError) as exc:
+                if self.owner():
+                    self.send_html(400, page("Could not complete request", f'<section class="card"><h1>Could not complete that request</h1><div class="notice">{html.escape(str(exc))}</div><a class="back" href="/account">Back to my account</a></section>'))
+                else:
+                    self.send_html(400, login_page(db.customer_names(), str(exc), data.get("name", "")))
 
         def log_message(self, format: str, *args: object) -> None:
             return

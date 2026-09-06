@@ -129,7 +129,7 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(len({row["id"] for row in rows}), 1)
         self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 4)
 
-    def test_public_page_has_no_customer_list_or_password_form(self):
+    def test_full_web_account_flow_and_phone_cookie(self):
         for _ in range(2):
             self.db.record_sale("Cody Ortega", "share_box", "1", "Staff")
         claims = ClaimStore(self.db)
@@ -137,17 +137,65 @@ class AccountTests(unittest.TestCase):
         DeliveryStore(self.db).configure(100, 200, "1", "Manager")
         server = start_web_server(self.db, 0)
         base = f"http://127.0.0.1:{server.server_port}"
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        browser = build_opener(NoRedirect())
+        session_cookie = ""
+
+        def open_request(path, values=None, opener=browser, cookie=""):
+            headers = {"Cookie": cookie} if cookie else {}
+            request = Request(base + path, data=urlencode(values).encode() if values else None, headers=headers)
+            try:
+                response = opener.open(request)
+            except HTTPError as error:
+                response = error
+            return response, response.read().decode()
+
         try:
-            response = build_opener().open(base + "/")
-            public = response.read().decode()
-            self.assertEqual(response.status, 200)
-            self.assertNotIn("Cody Ortega", public)
-            self.assertIn("No password is required", public)
-            self.assertIn("LB Phone", public)
-            self.assertNotIn('name="password"', public)
-            self.assertNotIn("Choose your character name", public)
+            response, public = open_request("/")
+            self.assertIn("Cody Ortega", public)
+            self.assertIn("No setup code is needed", public)
+            self.assertNotIn("one-time setup code", public.lower())
             self.assertNotIn("Golden tickets", public)
             self.assertNotIn("Recent visits", public)
+            response, blocked = open_request("/card?name=Cody+Ortega", opener=build_opener())
+            self.assertEqual(response.status, 401)
+            self.assertNotIn("Golden tickets", blocked)
+            response, request_sent = open_request("/request-access", {
+                "name": "Cody Ortega", "password": "my safe password", "confirm": "my safe password"
+            })
+            self.assertEqual(response.status, 200)
+            self.assertIn("You do not need a code", request_sent)
+            pending = self.accounts.pending()
+            self.assertEqual(len(pending), 1)
+            with self.assertRaises(ValueError):
+                self.accounts.login("Cody Ortega", "my safe password")
+            self.accounts.resolve_request(pending[0]["id"], "approved", "1", "Staff")
+            response, _ = open_request("/login", {
+                "name": "Cody Ortega", "password": "my safe password"
+            })
+            self.assertEqual(response.status, 303)
+            raw_cookie = response.headers.get("Set-Cookie", "")
+            self.assertIn("HttpOnly", raw_cookie)
+            self.assertIn("Secure", raw_cookie)
+            self.assertIn("SameSite=None", raw_cookie)
+            self.assertIn("Partitioned", raw_cookie)
+            session_cookie = raw_cookie.split(";", 1)[0]
+            response, body = open_request("/account", cookie=session_cookie)
+            self.assertEqual(response.status, 200)
+            self.assertIn("Golden tickets", body)
+            parser = HiddenForm(); parser.feed(body)
+            forged = dict(parser.values); forged["claim_request_key"] = "forged"
+            self.assertEqual(open_request("/claim", forged, cookie=session_cookie)[0].status, 400)
+            response, result = open_request("/claim", parser.values, cookie=session_cookie)
+            self.assertEqual(response.status, 200)
+            self.assertIn("saved for staff", result)
+            self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+            response, body = open_request("/account", cookie=session_cookie)
+            self.assertIn("Awaiting staff handover", body)
+            self.assertNotIn('name="code"', body)
+            self.assertEqual(len(claims.pending()), 1)
         finally:
             server.shutdown(); server.server_close()
 

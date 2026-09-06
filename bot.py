@@ -21,7 +21,6 @@ from web_portal import start_web_server
 from reward_claims import ClaimStore
 from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
-from phone_pairing import PhonePairings
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -40,7 +39,6 @@ db_lock = asyncio.Lock()
 claims = ClaimStore(db)
 accounts = Accounts(db)
 orders = DeliveryStore(db)
-pairings = PhonePairings(db)
 
 
 def money(value: float | int) -> str:
@@ -73,7 +71,7 @@ def panel_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🍔 SNR BUNS — STAFF HUB",
         description=(
-            "Use the buttons below to record sales, approve secure LB Phone pairings, manage deliveries, check customers, "
+            "Use the buttons below to record sales, manage website deliveries, check customers, "
             "redeem rewards, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
             "Customers do **not** need Discord."
         ),
@@ -105,7 +103,7 @@ def customer_embed(customer: dict) -> discord.Embed:
         value=f"**{customer['food_sold']} food • {customer['drinks_sold']} drinks**",
         inline=True,
     )
-    embed.add_field(name="LB Phone Access", value=f"**{pairings.status(customer['display_name'])}**", inline=True)
+    embed.add_field(name="Website Account", value=f"**{accounts.status(customer['display_name'])}**", inline=True)
     rewards = customer["unclaimed_rewards"]
     if rewards:
         lines = [f"`{r['reward_code']}` — {r['description']}" for r in rewards[:8]]
@@ -426,7 +424,7 @@ class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Phone Pairings", emoji="📱", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
+    @discord.ui.button(label="Account Approvals", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
     async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await show_account_requests(interaction)
 
@@ -662,13 +660,13 @@ async def show_delivery_orders(interaction):
 
 def account_request_embed(row):
     status = str(row['status']).upper()
-    request_label = 'REPLACEMENT PHONE' if row['request_type'] == 'replace' else 'FIRST PAIRING'
+    request_label = 'PASSWORD RESET' if row['request_type'] == 'reset' else 'NEW ACCOUNT'
     colour = {
         'pending': discord.Colour.orange(),
         'approved': discord.Colour.green(),
         'rejected': discord.Colour.red(),
     }.get(row['status'], discord.Colour.orange())
-    embed = discord.Embed(title=f"📱 LB PHONE PAIRING #{row['id']}", colour=colour)
+    embed = discord.Embed(title=f"👤 WEBSITE ACCOUNT REQUEST #{row['id']}", colour=colour)
     embed.add_field(
         name='Customer',
         value=f"**{discord.utils.escape_markdown(row['customer_name'])}**",
@@ -676,22 +674,14 @@ def account_request_embed(row):
     )
     embed.add_field(name='Request', value=f'**{request_label}**', inline=True)
     embed.add_field(name='Status', value=f'**{status}**', inline=True)
-    embed.add_field(
-        name='Server-verified RP name',
-        value=f"**{discord.utils.escape_markdown(row['rp_name'])}**",
-        inline=False,
-    )
-    phone = str(row['phone_number'])
-    masked_phone = ('•' * max(0, len(phone) - 4)) + phone[-4:]
-    embed.add_field(name='Verified LB Phone', value=f'**{masked_phone}**', inline=True)
-    embed.add_field(name='Character identity', value=f"`{discord.utils.escape_markdown(row['character_id'])}`", inline=False)
-    match_text = '✅ Matches the loyalty name' if row['identity_match'] else '⚠️ DOES NOT MATCH — verify in person'
-    embed.add_field(name='Automatic name check', value=f'**{match_text}**', inline=False)
     embed.description = (
-        'Approve only while this customer is physically with SNR staff. '
-        'The phone number and character identity came directly from the game server and cannot be typed into the app.'
+        'Confirm that this is the correct in-game customer before approving. '
+        'Their password is securely stored and is never shown to staff.'
     )
-    embed.set_footer(text='Approval links one loyalty account to this exact character and equipped phone')
+    if row['request_type'] == 'reset':
+        embed.set_footer(text='Approving this reset signs out all old website sessions')
+    else:
+        embed.set_footer(text='Approval unlocks this customer’s loyalty card')
     return embed
 
 
@@ -700,7 +690,7 @@ class AccountRequestView(discord.ui.View):
         super().__init__(timeout=None)
         self.request_id = int(request_id)
         approve = discord.ui.Button(
-            label='Approve In Person', emoji='✅', style=discord.ButtonStyle.success,
+            label='Approve Account', emoji='✅', style=discord.ButtonStyle.success,
             custom_id=f'snr:account:{self.request_id}:approved',
         )
         reject = discord.ui.Button(
@@ -722,22 +712,22 @@ class AccountRequestView(discord.ui.View):
     async def _resolve(self, interaction, decision):
         if not await require_staff(interaction):
             return
-        row = pairings.get_request(self.request_id)
+        row = accounts.get_request(self.request_id)
         if not row or str(interaction.guild_id) != row['guild_id']:
             await interaction.response.send_message('This request belongs to another server.', ephemeral=True)
             return
         try:
             async with db_lock:
-                row = pairings.resolve(
+                row = accounts.resolve_request(
                     self.request_id, decision, str(interaction.user.id), str(interaction.user)
                 )
         except ValueError as exc:
             await interaction.response.send_message(f'❌ {exc}', ephemeral=True)
             return
         message = (
-            '✅ Phone paired. The SNR app will now open only this customer’s loyalty account.'
+            '✅ Account approved. The customer can now log in using the password they chose.'
             if decision == 'approved'
-            else 'Phone pairing rejected. No loyalty account access was granted.'
+            else 'Account request rejected. No password or account access was changed.'
         )
         await interaction.response.send_message(message, ephemeral=True)
         try:
@@ -754,9 +744,9 @@ class AccountRequestView(discord.ui.View):
 async def show_account_requests(interaction):
     if not await require_staff(interaction):
         return
-    rows = [row for row in pairings.pending() if row['guild_id'] == str(interaction.guild_id)]
+    rows = [row for row in accounts.pending() if row['guild_id'] == str(interaction.guild_id)]
     await interaction.response.send_message(
-        f'{len(rows)} secure phone pairing(s) waiting. Showing the oldest 10.', ephemeral=True
+        f'{len(rows)} account approval(s) waiting. Showing the oldest 10.', ephemeral=True
     )
     for row in rows[:10]:
         await interaction.followup.send(
@@ -810,7 +800,7 @@ async def notify_delivery_orders():
 async def notify_account_requests():
     if not bot.is_ready():
         return
-    for row in pairings.pending(unsent=True)[:20]:
+    for row in accounts.pending(unsent=True)[:20]:
         try:
             channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
             if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
@@ -822,9 +812,9 @@ async def notify_account_requests():
                 embed=account_request_embed(row), view=AccountRequestView(row['id']),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
-            pairings.notified(row['id'], message.id)
+            accounts.request_notified(row['id'], message.id)
         except Exception:
-            logging.exception('Phone-pairing alert failed; will retry: %s', row['id'])
+            logging.exception('Account approval alert failed; will retry: %s', row['id'])
 
 
 @bot.event
@@ -845,7 +835,7 @@ async def setup_hook() -> None:
         bot.add_view(PackClaimView(row['id']))
     for row in orders.pending():
         bot.add_view(DeliveryOrderView(row['id']))
-    for row in pairings.pending():
+    for row in accounts.pending():
         bot.add_view(AccountRequestView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)
     if result["imported"]:
@@ -909,28 +899,9 @@ async def orders_setup(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name='snrhub_accounts_pending', description='Review secure LB Phone pairing requests.')
+@bot.tree.command(name='snrhub_accounts_pending', description='Review customer website account and password-reset requests.')
 async def accounts_pending(interaction: discord.Interaction):
     await show_account_requests(interaction)
-
-
-@bot.tree.command(name='snrhub_phone_unlink', description='Management: remove a customer’s LB Phone link.')
-@app_commands.describe(name='Customer character name')
-async def phone_unlink(interaction: discord.Interaction, name: str):
-    if not has_role(interaction, MANAGER_ROLE_NAME):
-        await interaction.response.send_message('SNR Management only.', ephemeral=True)
-        return
-    try:
-        async with db_lock:
-            display = pairings.unlink(name, str(interaction.user.id), str(interaction.user))
-    except ValueError as exc:
-        await interaction.response.send_message(f'❌ {exc}', ephemeral=True)
-        return
-    await interaction.response.send_message(
-        f'✅ LB Phone access removed for **{discord.utils.escape_markdown(display)}**. '
-        'They must visit the counter and complete a new in-person pairing.',
-        ephemeral=True,
-    )
 
 
 @bot.tree.command(name='snrhub_claims_pending', description='Review website pack requests awaiting handover.')
