@@ -162,6 +162,15 @@ class DeliveryStore:
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (int(order_id),)).fetchone()
         return dict(row) if row else None
 
+    def ticket_result(self, order_id):
+        prefix = f"delivery:{int(order_id)}"
+        with self.db.connect() as conn:
+            row = conn.execute("""SELECT COALESCE(SUM(golden_tickets),0) AS tickets,
+                COALESCE(MAX(jackpot_won),0) AS jackpot_won FROM sales
+                WHERE voided=0 AND (source_ref=? OR source_ref LIKE ?)""",
+                (prefix, prefix + ":%"),).fetchone()
+        return {"tickets": int(row["tickets"]), "jackpot_won": bool(row["jackpot_won"])}
+
     def notified(self, order_id, message_id):
         with self.db.connect() as conn:
             conn.execute("UPDATE web_delivery_orders SET message_id=? WHERE id=?", (str(message_id), int(order_id)))

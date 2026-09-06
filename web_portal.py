@@ -39,7 +39,7 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 
 
 def page(title: str, content: str) -> str:
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1983" height="793"></div><div class="tag">LOYALTY • DELIVERY • VIP</div><div class="ownership">Owned by Cody, Ash &amp; Lola</div></div>{content}<footer>SNR Buns • Owned by Cody, Ash &amp; Lola • Your account is protected by your password</footer></main></body></html>'''
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1254" height="1254"></div><div class="tag">LOYALTY • DELIVERY • VIP</div></div>{content}<footer>SNR Buns • Your account is protected by your password</footer></main></body></html>'''
 
 
 def name_options(names: list[str], selected: str = "") -> str:
@@ -110,10 +110,17 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
       <section class="notice">
         <div class="label">👑 SNR Membership Levels</div>
         <p><strong>Regular</strong> from your first purchase<br>
-        <strong>🥈 Silver</strong> at 5 purchases — +1 Golden Ticket every purchase<br>
-        <strong>🥇 Gold</strong> at 15 purchases — +1 loyalty point and +1 Golden Ticket<br>
-        <strong>👑 SNR VIP</strong> at 30 purchases — +1 loyalty point and +2 Golden Tickets</p>
+        <strong>🥉 Bronze</strong> at 10 purchases — +1 Golden Ticket every purchase<br>
+        <strong>🥈 Silver</strong> at 25 purchases — +1 Golden Ticket every purchase<br>
+        <strong>🥇 Gold</strong> at 50 purchases — +1 loyalty point and +1 Golden Ticket<br>
+        <strong>💎 Platinum</strong> at 100 purchases — +1 loyalty point and +2 Golden Tickets<br>
+        <strong>👑 SNR VIP</strong> at 200 purchases — +2 loyalty points and +3 Golden Tickets</p>
         <p class="muted">Membership upgrades automatically. Log in to see your current level and progress.</p>
+      </section>
+      <section class="notice jackpot">
+        <div class="label">🎟️ £5,000 Golden Ticket Draw</div>
+        <p><strong>Every SNR meal deal automatically issues its listed Golden Ticket(s).</strong></p>
+        <p>The tickets enter the live draw automatically and are checked instantly against one secret winner hidden among 1,000 tickets. You never need to enter a number yourself. If you win, your account and the staff sale receipt display a clear £5,000 winner alert.</p>
       </section>
     </section>''')
 
@@ -190,7 +197,9 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
                   accounts: Accounts, claim_token: str, order_token: str, security_token: str) -> str:
     recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
-    jackpot = '<strong>🏆 Jackpot winner!</strong>' if int(customer["jackpot_wins"]) else "Your Golden Tickets are automatically entered into the £5,000 jackpot."
+    jackpot = ('''<strong>🏆 YOU HAVE A WINNING GOLDEN TICKET!</strong><br>Your account has won the £5,000 jackpot. Speak to SNR staff to verify and collect the prize.'''
+               if int(customer["jackpot_wins"]) else
+               f'''<strong>Your {int(customer["golden_tickets"])} Golden Ticket(s) were entered automatically.</strong><br>Every meal deal issues its listed ticket(s). The system checks each one instantly against one secret winner hidden among 1,000 tickets. You do not need to enter anything—this box and the staff receipt will clearly announce if you win.''')
     recovery = '' if accounts.has_security(customer['customer_key']) else f'''<section class="notice"><strong>Protect your password recovery</strong><p>This older account needs a memorable question. Set it now so you can reset your own password later.</p><form method="post" action="/set-security"><input type="hidden" name="security_request_key" value="{html.escape(security_token, quote=True)}"><select name="security_question" required><option value="" disabled selected>Choose a memorable question</option>{question_options()}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><button type="submit">Save Memorable Answer</button></form></section>'''
     fee = orders.outstanding_fee(customer["customer_key"])
     debt = (f'''<div class="debt-warning"><strong>⚠️ DELIVERY ACCOUNT: £{int(fee["amount"]):,} OWED</strong><br>Wasted Journey fee. Please speak to SNR staff. New delivery orders are blocked until it is paid or waived.</div>'''
@@ -198,7 +207,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
     membership = customer["membership"]
     next_text = (f'''<p class="muted">Complete {membership["remaining"]} more purchase(s) to unlock {html.escape(membership["next_level"])}.</p>'''
                  if membership["next_level"] else '<p class="muted">You have reached your current highest membership level.</p>')
-    vip = f'''<div class="stat vip-card"><div class="label">SNR Customer Membership</div><div class="num">{membership["emoji"]} {html.escape(membership["name"])}</div><p class="vip-benefits">Every purchase at this level earns the normal deal rewards <strong>plus {membership["bonus_points"]} loyalty point(s) and {membership["bonus_tickets"]} Golden Ticket(s)</strong>.</p>{next_text}<small>Regular 0+ • Silver 5+ • Gold 15+ • SNR VIP 30+ completed purchases</small></div>'''
+    vip = f'''<div class="stat vip-card"><div class="label">SNR Customer Membership</div><div class="num">{membership["emoji"]} {html.escape(membership["name"])}</div><p class="vip-benefits">Every purchase at this level earns the normal deal rewards <strong>plus {membership["bonus_points"]} loyalty point(s) and {membership["bonus_tickets"]} Golden Ticket(s)</strong>.</p>{next_text}<small>Regular 0+ • Bronze 10+ • Silver 25+ • Gold 50+ • Platinum 100+ • SNR VIP 200+</small></div>'''
     recovery = debt + recovery
     return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card">
       <div class="label">Logged-in customer</div><div class="name">{html.escape(customer["display_name"])}</div>
@@ -337,8 +346,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
 const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal");
 const total=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",total));total();
 const tracker=document.querySelector("[data-order-id]");if(!tracker)return;let current=tracker.dataset.orderStatus;
-const messages={accepted:"Your delivery has been accepted!",on_way:"Your driver is on the way!",paid:"Your delivery has been completed!",cancelled:"Your delivery order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
-setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=messages[d.status]||"Your delivery status has changed.";if(d.driver&&d.status!=="cancelled")message+=" Driver: "+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);setTimeout(()=>location.reload(),3500)}}catch(e){}},5000);
+const messages={accepted:"Your delivery has been accepted!",on_way:"Your driver is on the way!",paid:"Your delivery is complete. Your Golden Tickets were issued and entered automatically!",cancelled:"Your delivery order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
+setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=(d.status==="paid"&&d.jackpot_won)?"WINNER! One of your automatic Golden Tickets won the \\u00a35,000 jackpot! Speak to SNR staff now.":(messages[d.status]||"Your delivery status has changed.");if(d.driver&&!["cancelled","wasted_journey"].includes(d.status))message+=" Driver: "+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);setTimeout(()=>location.reload(),3500)}}catch(e){}},5000);
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
@@ -353,8 +362,10 @@ setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"}
                     return
                 rows = orders.summary(owner, 1)
                 row = rows[0] if rows else None
+                outcome = orders.ticket_result(row["id"]) if row and row["status"] == "paid" else {"tickets": 0, "jackpot_won": False}
                 self.send_json(200, ({"id": str(row["id"]), "status": row["status"],
-                                      "driver": row.get("assigned_driver_name") or ""}
+                                      "driver": row.get("assigned_driver_name") or "",
+                                      "tickets": outcome["tickets"], "jackpot_won": outcome["jackpot_won"]}
                                      if row else {"id": None, "status": "none", "driver": ""}))
             elif path == "/health":
                 data = json.dumps({"status": "ok"}).encode()
@@ -433,7 +444,7 @@ setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"}
                         owner, quantities, data.get("postal", ""), key, data.get("notes", ""))
                     lines = "".join(f'<li>{item["quantity"]} × {html.escape(item["name"])} — £{item["line_total"]:,}</li>' for item in orders.items(result))
                     note = f'<p>Order note: <strong>{html.escape(result["notes"])}</strong></p>' if result.get("notes") else ""
-                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Subtotal to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open to receive live Accepted and Driver On The Way updates.</div><a class="back" href="/account">Track my order</a></section>'''))
+                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Subtotal to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open for Accepted, Driver On The Way and completion updates.<br><br>After staff confirm payment, your Golden Tickets are issued, checked and entered into the £5,000 draw automatically. This page will immediately alert you if one wins.</div><a class="back" href="/account">Track my order</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:

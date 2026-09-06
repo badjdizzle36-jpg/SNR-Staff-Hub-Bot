@@ -103,8 +103,7 @@ def panel_embed() -> discord.Embed:
         description=(
             "Use the buttons below to record sales, manage website deliveries, check customers, "
             "redeem rewards, clock delivery staff in/out, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
-            "Customers do **not** need Discord.\n\n"
-            "👑 **Owned by Cody, Ash & Lola**"
+            "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
     )
@@ -200,7 +199,13 @@ def sale_embed(result: dict) -> discord.Embed:
             inline=False,
         )
     else:
-        embed.add_field(name="Jackpot", value="The Golden Ticket remains unfound.", inline=False)
+        embed.add_field(
+            name="🎟️ Automatic Golden Ticket Entry",
+            value=(f"**{awarded_tickets} ticket(s) issued and entered automatically.**\n"
+                   "Nothing else needs entering. If a ticket matches the hidden winner, this receipt "
+                   "immediately changes to the £5,000 winning alert."),
+            inline=False,
+        )
     embed.set_footer(text=f"Transaction {result['transaction_id']}")
     return embed
 
@@ -634,7 +639,7 @@ class OwnerAdminView(discord.ui.View):
         fees = orders.outstanding_fees(interaction.guild_id)
         stats = db.report(today=True)
         embed = discord.Embed(title="👑 SNR OWNER DASHBOARD", colour=discord.Colour.gold())
-        embed.description = "**SNR Buns — Owned by Cody, Ash & Lola**"
+        embed.description = "Private business overview and administration."
         embed.add_field(name="Today", value=f"{stats['sales']} sales • {money(stats['revenue'])} revenue • {money(stats['gross_profit'])} profit", inline=False)
         embed.add_field(name="Memberships", value="\n".join(f"{VIP_LEVELS[name]['emoji']} {name}: **{total}**" for name, total in counts.items()), inline=True)
         embed.add_field(name="Delivery Staff", value=f"**{len(active)} clocked in**", inline=True)
@@ -735,6 +740,11 @@ class StaffPanel(discord.ui.View):
         embed.description = (
             "Jackpot prize: **£5,000 CASH**\n"
             "Drop rate: **1 hidden winner per 1,000 Golden Tickets (0.1%)**\n\n"
+            "**How Golden Tickets work**\n"
+            "• Every SNR meal deal automatically issues its listed ticket(s).\n"
+            "• Tickets enter the current draw automatically—nobody types or claims a number.\n"
+            "• The bot checks every ticket against the secret winning position immediately.\n"
+            "• A winner triggers a large £5,000 alert for staff and on the customer’s website account.\n\n"
             f"Current cycle: **{status['cycle']}**\n"
             f"Tickets issued this cycle: **{status['tickets_issued']}/{status['pool_size']}**\n"
             f"Total winners: **{status['total_winners']}**\n\n"
@@ -863,7 +873,23 @@ def delivery_order_embed(row):
                 tickets += deal.golden_tickets + int(projected_vip['bonus_tickets'])
     embed.add_field(name='Order Items', value="\n".join(lines)[:1024] or row['deal_name'], inline=False)
     embed.add_field(name='Rewards After Payment',
-                    value=f"{loyalty} loyalty point(s) • {tickets} Golden ticket(s)", inline=True)
+                    value=(f"{loyalty} loyalty point(s) • {tickets} Golden ticket(s)\n"
+                           "Tickets are issued and entered into the £5,000 draw automatically when payment is confirmed."),
+                    inline=True)
+    if row['status'] == 'paid':
+        outcome = orders.ticket_result(row['id'])
+        if outcome['jackpot_won']:
+            embed.add_field(
+                name='🏆 £5,000 GOLDEN TICKET WINNER!',
+                value='One of this customer’s automatically issued tickets matched the hidden winner. Contact the customer and verify the jackpot reward now.',
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name='🎟️ Automatic Entry Confirmed',
+                value=f"{outcome['tickets']} Golden Ticket(s) issued, checked and entered automatically. No winning match on this order.",
+                inline=False,
+            )
     embed.add_field(
         name='📍 Postal / Delivery Location',
         value=f"**{discord.utils.escape_markdown(row['postal'])}**",
@@ -1025,8 +1051,12 @@ class DeliveryOrderView(discord.ui.View):
         elif target == 'on_way':
             response = '🚗 Marked Driver On The Way. The customer’s webpage is notifying them now.'
         elif target == 'paid':
-            response = (f'✅ Delivered and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
-                        'Everything is now included in sales, finance, loyalty and Golden Tickets.')
+            won = any(result.get('jackpot_won') for result in sales)
+            response = ((f'🏆 GOLDEN TICKET WINNER! This customer won the £5,000 jackpot. '
+                         'Their webpage is alerting them now and the reward is recorded for staff verification.')
+                        if won else
+                        (f'✅ Delivered and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
+                         'Sales, finance and loyalty are updated, and every Golden Ticket was issued and entered automatically.'))
         elif target == 'wasted_journey':
             response = ('⚠️ Wasted Journey recorded. £500 is now owed on the customer’s webpage and name, '
                         'and new deliveries are blocked. No sale, loyalty points or Golden Tickets were added.')

@@ -91,10 +91,12 @@ class TestSNRCore(unittest.TestCase):
 
     def test_vip_levels_bonuses_and_owner_override(self):
         self.assertEqual(vip_level_for_sales(0)["name"], "Regular")
-        self.assertEqual(vip_level_for_sales(5)["name"], "Silver")
-        self.assertEqual(vip_level_for_sales(15)["name"], "Gold")
-        self.assertEqual(vip_level_for_sales(30)["name"], "SNR VIP")
-        for _ in range(5):
+        self.assertEqual(vip_level_for_sales(10)["name"], "Bronze")
+        self.assertEqual(vip_level_for_sales(25)["name"], "Silver")
+        self.assertEqual(vip_level_for_sales(50)["name"], "Gold")
+        self.assertEqual(vip_level_for_sales(100)["name"], "Platinum")
+        self.assertEqual(vip_level_for_sales(200)["name"], "SNR VIP")
+        for _ in range(25):
             result = self.db.record_sale("Member", "quick_fix", "1", "Staff")
         self.assertEqual(result["customer"]["membership"]["name"], "Silver")
         self.assertEqual(result["loyalty_awarded"], 0)
@@ -102,8 +104,8 @@ class TestSNRCore(unittest.TestCase):
         customer = self.db.set_vip_override("Member", "SNR VIP", "99", "Owner")
         self.assertTrue(customer["membership"]["manual"])
         result = self.db.record_sale("Member", "quick_fix", "1", "Staff")
-        self.assertEqual(result["loyalty_awarded"], 1)
-        self.assertEqual(result["tickets_awarded"], 3)
+        self.assertEqual(result["loyalty_awarded"], 2)
+        self.assertEqual(result["tickets_awarded"], 4)
         customer = self.db.set_vip_override("Member", "Automatic", "99", "Owner")
         self.assertEqual(customer["membership"]["name"], "Silver")
         self.assertFalse(customer["membership"]["manual"])

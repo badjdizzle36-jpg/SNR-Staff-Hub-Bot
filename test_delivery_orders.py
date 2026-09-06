@@ -110,6 +110,8 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("SNR Customer Membership", body)
             self.assertIn("Regular", body)
+            self.assertIn("entered automatically", body)
+            self.assertNotIn("Owned by", body)
             for deal in DEALS.values():
                 self.assertIn(deal.name, body)
                 self.assertIn(f"£{deal.price:,}", body)
@@ -162,6 +164,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(sales), 3)
         self.assertEqual(self.db.report()["sales"], 3)
         self.assertEqual(self.db.report()["revenue"], 800)
+        self.assertEqual(self.orders.ticket_result(row["id"])["tickets"], 3)
 
     def test_wasted_journey_adds_fee_blocks_orders_and_adds_no_rewards(self):
         order = self.orders.create_authenticated(

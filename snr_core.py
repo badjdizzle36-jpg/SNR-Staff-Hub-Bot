@@ -82,9 +82,11 @@ DEALS: dict[str, Deal] = {
 
 VIP_LEVELS = {
     "Regular": {"minimum_sales": 0, "bonus_points": 0, "bonus_tickets": 0, "emoji": "🍔"},
-    "Silver": {"minimum_sales": 5, "bonus_points": 0, "bonus_tickets": 1, "emoji": "🥈"},
-    "Gold": {"minimum_sales": 15, "bonus_points": 1, "bonus_tickets": 1, "emoji": "🥇"},
-    "SNR VIP": {"minimum_sales": 30, "bonus_points": 1, "bonus_tickets": 2, "emoji": "👑"},
+    "Bronze": {"minimum_sales": 10, "bonus_points": 0, "bonus_tickets": 1, "emoji": "🥉"},
+    "Silver": {"minimum_sales": 25, "bonus_points": 0, "bonus_tickets": 1, "emoji": "🥈"},
+    "Gold": {"minimum_sales": 50, "bonus_points": 1, "bonus_tickets": 1, "emoji": "🥇"},
+    "Platinum": {"minimum_sales": 100, "bonus_points": 1, "bonus_tickets": 2, "emoji": "💎"},
+    "SNR VIP": {"minimum_sales": 200, "bonus_points": 2, "bonus_tickets": 3, "emoji": "👑"},
 }
 
 

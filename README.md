@@ -5,9 +5,10 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 ## Latest features
 
 - A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
-- The official hub and website are branded **SNR Buns — Owned by Cody, Ash & Lola**.
-- Customer memberships progress automatically: Regular (0+ purchases), Silver (5+), Gold (15+) and SNR VIP (30+). Owners can override a level or return it to automatic mode.
-- Silver earns +1 Golden Ticket per purchase; Gold earns +1 loyalty point and +1 Golden Ticket; SNR VIP earns +1 loyalty point and +2 Golden Tickets. The bonuses are recorded in the same sale, finance, delivery and jackpot transaction.
+- A new valid square SNR Buns brand poster replaces the broken wide logo file and is designed for clean Discord avatar cropping and website display.
+- Customer memberships progress automatically through Regular (0+), Bronze (10+), Silver (25+), Gold (50+), Platinum (100+) and SNR VIP (200+). Owners can override a level or return it to automatic mode.
+- Bronze and Silver earn +1 Golden Ticket per purchase; Gold earns +1 loyalty point and +1 ticket; Platinum earns +1 loyalty point and +2 tickets; SNR VIP earns +2 loyalty points and +3 tickets. Bonuses use the same sale, finance, delivery and jackpot transaction.
+- The website and Discord now explain that meal-deal Golden Tickets are issued, checked and entered automatically. A winning ticket creates an immediate £5,000 alert for both the customer webpage and staff receipt.
 - Customers create a zero-point loyalty account on the website without making a purchase first.
 - New accounts activate immediately with no staff approval. Discord posts an informational alert and mentions the configured `SNR Staff` role.
 - Password resets use the customer's memorable question and answer—no setup code or staff reset is required.
@@ -65,7 +66,7 @@ Railway supplies `PORT`; do not add it manually. The volume should remain mounte
 
 In a private orders channel, an SNR Management member runs `/snrhub_orders_setup`. The bot needs View Channel, Send Messages and Embed Links. The `SNR Staff` role must be mentionable, or the bot must have permission to mention roles, for alerts to ping it. This channel receives account-created notices; staff do not approve them.
 
-Create a Discord role named **SNR Owner** and assign it to Cody, Ash and Lola. Server administrators also count as owners. Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel; only an owner can post it. A staff member must press **Clock In** before delivery controls appear to customers.
+Create a Discord role named **SNR Owner** and assign it to the appropriate business owners. Server administrators also count as owners. Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel; only an owner can post it. A staff member must press **Clock In** before delivery controls appear to customers.
 
 Open **Owner Admin** (or run `/snrhub_owner`) to use the private owner controls. Press **Set Bot Logo** once to change the bot's Discord profile picture to the supplied official SNR Buns logo. Discord may temporarily rate-limit repeated picture changes, so do not repeatedly press it.
 
