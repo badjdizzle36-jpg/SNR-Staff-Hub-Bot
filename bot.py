@@ -487,7 +487,7 @@ class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Account Approvals", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
+    @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
     async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await show_account_requests(interaction)
 
@@ -787,6 +787,18 @@ def account_request_embed(row):
     return embed
 
 
+def account_created_embed(row):
+    embed = discord.Embed(title=f"👤 NEW LOYALTY ACCOUNT #{row['id']}", colour=discord.Colour.green())
+    embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
+    embed.add_field(name='Status', value='**ACTIVE NOW**', inline=True)
+    embed.description = (
+        'The customer created their own loyalty account on the website. '
+        'No staff approval is needed and the account starts with zero points.'
+    )
+    embed.set_footer(text='Password and memorable answer are securely hashed and never shown')
+    return embed
+
+
 class AccountRequestView(discord.ui.View):
     def __init__(self, request_id):
         super().__init__(timeout=None)
@@ -849,9 +861,13 @@ async def show_account_requests(interaction):
     if not await require_staff(interaction):
         return
     rows = [row for row in accounts.pending() if row['guild_id'] == str(interaction.guild_id)]
+    recent = [row for row in accounts.created_notifications(limit=10)
+              if row['guild_id'] == str(interaction.guild_id)]
+    summary = "\n".join(f"• **{discord.utils.escape_markdown(row['customer_name'])}** — active"
+                         for row in recent) or "No recently created accounts."
     await interaction.response.send_message(
-        f'{len(rows)} account approval(s) waiting. Showing the oldest 10.', ephemeral=True
-    )
+        f'**Recent account activity**\n{summary}\n\n'
+        f'{len(rows)} older approval request(s) still waiting.', ephemeral=True)
     for row in rows[:10]:
         await interaction.followup.send(
             embed=account_request_embed(row), view=AccountRequestView(row['id']),
@@ -903,6 +919,20 @@ async def notify_delivery_orders():
 async def notify_account_requests():
     if not bot.is_ready():
         return
+    for row in accounts.created_notifications(unsent=True):
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Account notification channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=account_created_embed(row), allowed_mentions=allowed)
+            accounts.request_notified(row['id'], message.id)
+            await message.delete(delay=5 * 60)
+        except Exception:
+            logging.exception('Account-created notification failed; will retry: %s', row['id'])
     for row in accounts.pending(unsent=True)[:20]:
         try:
             channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
@@ -1001,7 +1031,7 @@ async def orders_setup(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name='snrhub_accounts_pending', description='Review new customer website account verifications.')
+@bot.tree.command(name='snrhub_accounts_pending', description='Review recent account activity and older pending requests.')
 async def accounts_pending(interaction: discord.Interaction):
     await show_account_requests(interaction)
 

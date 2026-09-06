@@ -235,7 +235,7 @@ class Accounts:
         return clean
 
     def request_access(self, name, password, security_question=None, security_answer=None):
-        """Self-create a zero-point account; staff approve the character identity."""
+        """Create and activate a customer account immediately, then queue a staff notice."""
         if not 10 <= len(password) <= 128:
             raise ValueError('Choose a password between 10 and 128 characters.')
         if not 2 <= len(name.strip()) <= 60:
@@ -245,16 +245,9 @@ class Accounts:
         with self.db.connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             customer = self.db._ensure_customer(conn, name)
-            existing = conn.execute(
-                "SELECT * FROM customer_account_requests WHERE customer_key=? AND status='pending'", (key,)
-            ).fetchone()
-            if existing:
-                result = dict(existing)
-                result["already_pending"] = True
-                return result
             route = self._alert_channel(conn)
             if not route:
-                raise ValueError('Website account approvals are being set up. Please ask SNR staff.')
+                raise ValueError('Website account notifications are being set up. Please ask SNR staff.')
             account = conn.execute('SELECT password_hash FROM customer_accounts WHERE customer_key=?', (key,)).fetchone()
             if account and account['password_hash']:
                 raise ValueError('This name already has an account. Use Forgot Password and your memorable answer.')
@@ -266,14 +259,29 @@ class Accounts:
             cursor = conn.execute(
                 '''INSERT INTO customer_account_requests
                    (customer_key,customer_name,request_type,salt,password_hash,rounds,created_at,channel_id,guild_id,
-                    security_question,answer_salt,answer_hash)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    security_question,answer_salt,answer_hash,status,resolved_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, customer['display_name'], request_type, salt, digest, ROUNDS, utc_now(),
-                 route['channel_id'], route['guild_id'], security_question, answer_salt, answer_digest),
+                 route['channel_id'], route['guild_id'], security_question, answer_salt, answer_digest,
+                 'created', utc_now()),
+            )
+            conn.execute(
+                '''INSERT INTO customer_accounts(customer_key,salt,password_hash,rounds,updated_at,
+                   security_question,answer_salt,answer_hash)
+                   VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(customer_key) DO UPDATE SET
+                   salt=excluded.salt,password_hash=excluded.password_hash,rounds=excluded.rounds,
+                   security_question=excluded.security_question,answer_salt=excluded.answer_salt,
+                   answer_hash=excluded.answer_hash,failures=0,locked_until=0,
+                   answer_failures=0,answer_locked_until=0,updated_at=excluded.updated_at''',
+                (key, salt, digest, ROUNDS, utc_now(), security_question, answer_salt, answer_digest),
+            )
+            conn.execute(
+                "UPDATE customer_account_requests SET salt='',password_hash='',answer_salt='',answer_hash='' WHERE id=?",
+                (cursor.lastrowid,),
             )
             conn.execute(
                 'INSERT INTO audit_log(action,details,created_at) VALUES(?,?,?)',
-                ('website_account_requested', f'request={cursor.lastrowid};customer={key};type={request_type}', utc_now()),
+                ('website_account_created', f'notice={cursor.lastrowid};customer={key}', utc_now()),
             )
             return dict(conn.execute(
                 'SELECT * FROM customer_account_requests WHERE id=?', (cursor.lastrowid,)
@@ -317,6 +325,13 @@ class Accounts:
         with self.db.connect() as conn:
             return [dict(row) for row in conn.execute(
                 f'SELECT * FROM customer_account_requests {where} ORDER BY id'
+            )]
+
+    def created_notifications(self, unsent=False, limit=20):
+        where = "WHERE status='created'" + (' AND message_id IS NULL' if unsent else '')
+        with self.db.connect() as conn:
+            return [dict(row) for row in conn.execute(
+                f'SELECT * FROM customer_account_requests {where} ORDER BY id DESC LIMIT ?', (int(limit),)
             )]
 
     def get_request(self, request_id):

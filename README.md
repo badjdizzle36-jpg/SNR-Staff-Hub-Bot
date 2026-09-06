@@ -5,7 +5,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 ## Latest features
 
 - Customers create a zero-point loyalty account on the website without making a purchase first.
-- New accounts require one staff verification in Discord. The configured `SNR Staff` role is mentioned.
+- New accounts activate immediately with no staff approval. Discord posts an informational alert and mentions the configured `SNR Staff` role.
 - Password resets use the customer's memorable question and answer—no setup code or staff reset is required.
 - Existing older accounts are prompted to add a memorable question after logging in.
 - Customers can order several different deals and choose 0–10 of each (20 deals maximum per order).
@@ -14,7 +14,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Website ordering is available only while at least one staff member is clocked in.
 - The hub includes **Clock In**, **Clock Off** and **Who’s Clocked In**. Shifts expire after eight hours if somebody forgets to clock off.
 - Record Sale, Check Customer and Redeem Reward include a paged character-name dropdown plus **Type / Suggest Name** for spelling correction.
-- Completed account and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
+- New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
 - Paid multi-deal orders record every selected deal in sales, finance, loyalty and Golden Tickets exactly once.
 
 ## Current deals
@@ -50,7 +50,7 @@ Railway supplies `PORT`; do not add it manually. The volume should remain mounte
 
 ## One-time Discord setup
 
-In a private orders channel, an SNR Management member runs `/snrhub_orders_setup`. The bot needs View Channel, Send Messages and Embed Links. The `SNR Staff` role must be mentionable, or the bot must have permission to mention roles, for alerts to ping it.
+In a private orders channel, an SNR Management member runs `/snrhub_orders_setup`. The bot needs View Channel, Send Messages and Embed Links. The `SNR Staff` role must be mentionable, or the bot must have permission to mention roles, for alerts to ping it. This channel receives account-created notices; staff do not approve them.
 
 Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel. A staff member must press **Clock In** before delivery controls appear to customers.
 
@@ -68,7 +68,7 @@ Pending orders and requests are durable. If Discord or Railway restarts, unsent 
 - `/snrhub_panel` — post the permanent staff panel
 - `/snrhub_orders_setup` — set the private delivery/account-alert channel
 - `/snrhub_claims_setup` — optionally set a separate pack-claim channel
-- `/snrhub_accounts_pending` — review new-account verifications
+- `/snrhub_accounts_pending` — review recent account activity and any older approval requests
 - `/snrhub_claims_pending` — review pack requests
 - `/snrhub_orders_pending` — review delivery orders
 - `/snrhub_sale` — record a sale

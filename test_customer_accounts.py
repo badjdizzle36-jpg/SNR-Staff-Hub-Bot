@@ -69,16 +69,13 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.accounts.login("Cody Ortega", "long enough password")
 
-    def test_self_service_create_and_memorable_answer_reset(self):
+    def test_self_service_create_is_immediate_and_memorable_answer_resets(self):
         DeliveryStore(self.db).configure(100, 200, "1", "Manager")
         request = self.accounts.request_access(
             "Cody Ortega", "customer chosen password", "first_pet", "Buster")
         self.assertEqual(request["request_type"], "create")
+        self.assertEqual(request["status"], "created")
         self.assertEqual(self.db.get_customer("Cody Ortega")["lifetime_sales"], 0)
-        with self.assertRaises(ValueError):
-            self.accounts.login("Cody Ortega", "customer chosen password")
-        approved = self.accounts.resolve_request(request["id"], "approved", "1", "Staff")
-        self.assertEqual(approved["status"], "approved")
         first_session = self.accounts.login("Cody Ortega", "customer chosen password")
         with self.assertRaises(ValueError):
             self.accounts.reset_with_answer("Cody Ortega", "first_pet", "wrong", "customer new password")
@@ -95,14 +92,16 @@ class AccountTests(unittest.TestCase):
         self.assertNotIn("customer chosen password", raw)
         self.assertNotIn("customer new password", raw)
 
-    def test_rejected_self_service_request_changes_nothing(self):
-        self.db.record_sale("Cody Ortega", "quick_fix", "1", "Staff")
+    def test_duplicate_self_service_account_cannot_replace_password(self):
         DeliveryStore(self.db).configure(100, 200, "1", "Manager")
         request = self.accounts.request_access(
             "Cody Ortega", "customer chosen password", "first_pet", "Buster")
-        self.accounts.resolve_request(request["id"], "rejected", "1", "Staff")
         with self.assertRaises(ValueError):
-            self.accounts.login("Cody Ortega", "customer chosen password")
+            self.accounts.request_access(
+                "Cody Ortega", "attacker password", "first_pet", "Wrong Answer")
+        self.assertEqual(self.accounts.owner(
+            self.accounts.login("Cody Ortega", "customer chosen password")), "cody ortega")
+        self.assertEqual(len(self.accounts.created_notifications(unsent=True)), 1)
 
     def test_authenticated_claim_is_bound_to_session_owner(self):
         self.create("Cody Ortega")
@@ -173,7 +172,7 @@ class AccountTests(unittest.TestCase):
         try:
             response, public = open_request("/")
             self.assertIn("Cody Ortega", public)
-            self.assertIn("No purchase or setup code is needed", public)
+            self.assertIn("No purchase, setup code or staff approval is needed", public)
             self.assertNotIn("one-time setup code", public.lower())
             self.assertNotIn("Golden tickets", public)
             self.assertNotIn("Recent visits", public)
@@ -185,12 +184,9 @@ class AccountTests(unittest.TestCase):
                 "security_question": "first_pet", "security_answer": "Buster",
             })
             self.assertEqual(response.status, 200)
-            self.assertIn("You do not need a code", request_sent)
-            pending = self.accounts.pending()
-            self.assertEqual(len(pending), 1)
-            with self.assertRaises(ValueError):
-                self.accounts.login("Cody Ortega", "my safe password")
-            self.accounts.resolve_request(pending[0]["id"], "approved", "1", "Staff")
+            self.assertIn("no approval is required", request_sent)
+            self.assertEqual(len(self.accounts.pending()), 0)
+            self.assertEqual(len(self.accounts.created_notifications(unsent=True)), 1)
             response, _ = open_request("/login", {
                 "name": "Cody Ortega", "password": "my safe password"
             })
