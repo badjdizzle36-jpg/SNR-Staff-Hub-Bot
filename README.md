@@ -10,10 +10,15 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Existing older accounts are prompted to add a memorable question after logging in.
 - Customers can order several different deals and choose 0–10 of each (20 deals maximum per order).
 - A live subtotal appears before checkout; the server recalculates it securely when submitted.
+- Customers can add an optional 200-character order note for meeting points or food instructions.
 - The confirmation asks customers to allow 5–7 minutes.
+- Delivery orders move through Waiting, Accepted, Driver On The Way and Delivered/Paid.
+- The customer page checks for delivery updates every five seconds and shows a bright status notification.
+- Loyalty customers see a visual progress bar toward their four-point trading-card pack.
 - Website ordering is available only while at least one staff member is clocked in.
 - The hub includes **Clock In**, **Clock Off** and **Who’s Clocked In**. Shifts expire after eight hours if somebody forgets to clock off.
 - Record Sale, Check Customer and Redeem Reward include a paged character-name dropdown plus **Type / Suggest Name** for spelling correction.
+- Delivery Orders opens a dashboard showing the live queue, drivers, today’s revenue and gross profit.
 - New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
 - Paid multi-deal orders record every selected deal in sales, finance, loyalty and Golden Tickets exactly once.
 
@@ -58,8 +63,9 @@ Run `/snrhub_panel` again in the private staff channel to post the upgraded perm
 
 1. Press **Clock In** when accepting deliveries.
 2. For counter sales, press **Record Sale**, choose a saved character or type the name, then choose the deal.
-3. For website orders, open **Delivery Orders** and press **Customer Paid** only after payment.
-4. Press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
+3. For website orders, open **Delivery Orders**, press **Accept Delivery**, then **Driver On The Way** when leaving.
+4. After delivery and payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
+5. Press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
 
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.
 

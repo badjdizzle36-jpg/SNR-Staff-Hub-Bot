@@ -203,6 +203,8 @@ class AccountTests(unittest.TestCase):
             response, body = open_request("/account", cookie=session_cookie)
             self.assertEqual(response.status, 200)
             self.assertIn("Golden tickets", body)
+            self.assertIn("Reward ready!", body)
+            self.assertIn('aria-valuenow="4"', body)
             parser = HiddenForm(); parser.feed(body)
             forged = dict(parser.values); forged["claim_request_key"] = "forged"
             self.assertEqual(open_request("/claim", forged, cookie=session_cookie)[0].status, 400)

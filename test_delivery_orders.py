@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from urllib.error import HTTPError
@@ -54,6 +55,8 @@ class DeliveryTests(unittest.TestCase):
         order = self.orders.create_authenticated(
             "Cody Ortega", "mega_deal", "Postal 505", "paid-request-key"
         )
+        self.orders.advance(order["id"], "accepted", "9", "Delivery Staff")
+        self.orders.advance(order["id"], "on_way", "9", "Delivery Staff")
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(
                 lambda _: self.orders.resolve(order["id"], "paid", "9", "Delivery Staff"),
@@ -114,16 +117,25 @@ class DeliveryTests(unittest.TestCase):
                 "order_request_key": parser.values["order_request_key"],
                 "qty_blue_light": "1",
                 "postal": "Postal 401 Mission Row",
+                "notes": "Meet outside and call me",
             }
             response, confirmation = request("/order", values)
             self.assertEqual(response.status, 200)
             self.assertIn("£600", confirmation)
             self.assertIn("Postal 401 Mission Row", confirmation)
+            self.assertIn("Meet outside and call me", confirmation)
             self.assertEqual(self.db.report()["sales"], 0)
             self.assertEqual(len(self.orders.pending()), 1)
             response, body = request("/account")
-            self.assertIn("Order #1 is waiting", body)
+            self.assertIn("Order #1: Waiting for a driver to accept", body)
             self.assertNotIn('action="/order"', body)
+            self.orders.advance(1, "accepted", "9", "Delivery Staff")
+            response, status_body = request("/order-status")
+            status = json.loads(status_body)
+            self.assertEqual(status["status"], "accepted")
+            self.assertEqual(status["driver"], "Delivery Staff")
+            self.orders.advance(1, "on_way", "9", "Delivery Staff")
+            self.assertEqual(json.loads(request("/order-status")[1])["status"], "on_way")
         finally:
             server.shutdown()
             server.server_close()
@@ -133,6 +145,9 @@ class DeliveryTests(unittest.TestCase):
             "Cody Ortega", {"mega_deal": 1, "quick_fix": 2}, "Postal 1", "multi-cart-request")
         self.assertEqual(row["price"], 800)
         self.assertEqual(sum(item["quantity"] for item in self.orders.items(row)), 3)
+        self.orders.advance(row["id"], "accepted", "9", "Delivery Staff")
+        on_way = self.orders.advance(row["id"], "on_way", "9", "Delivery Staff")
+        self.assertEqual(on_way["status"], "on_way")
         paid, sales = self.orders.resolve(row["id"], "paid", "9", "Delivery Staff")
         self.assertEqual(paid["status"], "paid")
         self.assertEqual(len(sales), 3)

@@ -640,14 +640,18 @@ async def show_pack_requests(interaction):
 def delivery_order_embed(row):
     colours = {
         'pending': discord.Colour.orange(),
+        'accepted': discord.Colour.blue(),
+        'on_way': discord.Colour.purple(),
         'processing': discord.Colour.gold(),
         'paid': discord.Colour.green(),
         'cancelled': discord.Colour.red(),
     }
     status = {
-        'pending': 'WAITING FOR PAYMENT',
+        'pending': 'WAITING FOR DRIVER',
+        'accepted': 'ACCEPTED — PREPARING',
+        'on_way': 'DRIVER ON THE WAY',
         'processing': 'PROCESSING',
-        'paid': 'PAID — SALE RECORDED',
+        'paid': 'DELIVERED & PAID — SALE RECORDED',
         'cancelled': 'CANCELLED',
     }.get(row['status'], str(row['status']).upper())
     embed = discord.Embed(title=f"🚗 DELIVERY ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
@@ -671,6 +675,10 @@ def delivery_order_embed(row):
         value=f"**{discord.utils.escape_markdown(row['postal'])}**",
         inline=False,
     )
+    if row.get('assigned_driver_name'):
+        embed.add_field(name='Driver', value=f"**{discord.utils.escape_markdown(row['assigned_driver_name'])}**", inline=True)
+    if row.get('notes'):
+        embed.add_field(name='📝 Customer Notes', value=discord.utils.escape_markdown(row['notes'])[:1024], inline=False)
     if row.get('sale_transaction_id'):
         embed.set_footer(text=f"Sale {row['sale_transaction_id']} • Confirmed by staff")
     else:
@@ -682,27 +690,37 @@ class DeliveryOrderView(discord.ui.View):
     def __init__(self, order_id):
         super().__init__(timeout=None)
         self.order_id = int(order_id)
-        paid = discord.ui.Button(
-            label='Customer Paid', emoji='💷', style=discord.ButtonStyle.success,
-            custom_id=f'snr:delivery:{self.order_id}:paid',
-        )
+        row = orders.get(self.order_id)
+        status = row['status'] if row else 'pending'
+        if status == 'pending':
+            action = discord.ui.Button(label='Accept Delivery', emoji='✅', style=discord.ButtonStyle.primary,
+                                       custom_id=f'snr:delivery:{self.order_id}:accepted')
+            target = 'accepted'
+        elif status == 'accepted':
+            action = discord.ui.Button(label='Driver On The Way', emoji='🚗', style=discord.ButtonStyle.primary,
+                                       custom_id=f'snr:delivery:{self.order_id}:on_way')
+            target = 'on_way'
+        else:
+            action = discord.ui.Button(label='Delivered & Customer Paid', emoji='💷', style=discord.ButtonStyle.success,
+                                       custom_id=f'snr:delivery:{self.order_id}:paid')
+            target = 'paid'
         cancel = discord.ui.Button(
             label='Cancel Order', emoji='✖️', style=discord.ButtonStyle.danger,
             custom_id=f'snr:delivery:{self.order_id}:cancelled',
         )
 
-        async def paid_callback(interaction):
-            await self._resolve(interaction, 'paid')
+        async def action_callback(interaction, chosen=target):
+            await self._update(interaction, chosen)
 
         async def cancel_callback(interaction):
-            await self._resolve(interaction, 'cancelled')
+            await self._update(interaction, 'cancelled')
 
-        paid.callback = paid_callback
+        action.callback = action_callback
         cancel.callback = cancel_callback
-        self.add_item(paid)
+        self.add_item(action)
         self.add_item(cancel)
 
-    async def _resolve(self, interaction, target):
+    async def _update(self, interaction, target):
         if not await require_staff(interaction):
             return
         row = orders.get(self.order_id)
@@ -712,9 +730,20 @@ class DeliveryOrderView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         try:
             async with db_lock:
-                row, sale = orders.resolve(
-                    self.order_id, target, str(interaction.user.id), str(interaction.user)
-                )
+                if target == 'accepted':
+                    if not any(entry['staff_id'] == str(interaction.user.id)
+                               for entry in shifts.active(interaction.guild_id)):
+                        raise ValueError('Clock in before accepting a delivery so the customer knows a driver is available.')
+                    row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
+                    sales = []
+                elif target == 'on_way':
+                    if row.get('assigned_driver_id') != str(interaction.user.id) and not has_role(interaction, MANAGER_ROLE_NAME):
+                        raise ValueError('Only the assigned driver or SNR Management can mark this order on the way.')
+                    row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
+                    sales = []
+                else:
+                    row, sales = orders.resolve(
+                        self.order_id, target, str(interaction.user.id), str(interaction.user))
         except ValueError as exc:
             await interaction.followup.send(f'❌ {exc}', ephemeral=True)
             return
@@ -725,34 +754,54 @@ class DeliveryOrderView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        if target == 'paid':
-            await interaction.followup.send(
-                content=(f'✅ Payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
-                         'Every item is now included in sales, finance, loyalty and Golden Tickets.'),
-                ephemeral=True,
-            )
+        if target == 'accepted':
+            response = '✅ Delivery accepted and assigned to you. The customer’s webpage has been updated.'
+        elif target == 'on_way':
+            response = '🚗 Marked Driver On The Way. The customer’s webpage is notifying them now.'
+        elif target == 'paid':
+            response = (f'✅ Delivered and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
+                        'Everything is now included in sales, finance, loyalty and Golden Tickets.')
         else:
-            await interaction.followup.send('Order cancelled. No sale or rewards were added.', ephemeral=True)
+            response = 'Order cancelled. No sale or rewards were added. The customer’s webpage has been updated.'
+        await interaction.followup.send(response, ephemeral=True)
+        finished = target in ('paid', 'cancelled')
+        next_view = None if finished else DeliveryOrderView(self.order_id)
         try:
-            await interaction.message.edit(embed=delivery_order_embed(row), view=None)
+            await interaction.message.edit(embed=delivery_order_embed(row), view=next_view)
             if row['message_id'] and str(interaction.message.id) != row['message_id']:
                 channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
                 canonical = channel.get_partial_message(int(row['message_id']))
-                await canonical.edit(embed=delivery_order_embed(row), view=None)
-                await canonical.delete(delay=12 * 3600)
-            else:
+                await canonical.edit(embed=delivery_order_embed(row), view=next_view)
+                if finished:
+                    await canonical.delete(delay=12 * 3600)
+            elif finished:
                 await interaction.message.delete(delay=12 * 3600)
         except discord.HTTPException:
-            logging.exception('Order resolved but Discord message refresh failed: %s', self.order_id)
+            logging.exception('Order updated but Discord message refresh failed: %s', self.order_id)
+
+
+def delivery_dashboard_embed(guild_id):
+    counts = orders.status_counts(guild_id)
+    active_staff = shifts.active(guild_id)
+    stats = db.report(today=True)
+    embed = discord.Embed(title='🚗 SNR DELIVERY DASHBOARD', colour=discord.Colour.orange())
+    embed.add_field(name='Waiting', value=f"**{counts['pending']}**", inline=True)
+    embed.add_field(name='Accepted', value=f"**{counts['accepted']}**", inline=True)
+    embed.add_field(name='On The Way', value=f"**{counts['on_way']}**", inline=True)
+    embed.add_field(name='Drivers Clocked In', value=f"**{len(active_staff)}**", inline=True)
+    embed.add_field(name='Today’s Revenue', value=f"**{money(stats['revenue'])}**", inline=True)
+    embed.add_field(name='Today’s Gross Profit', value=f"**{money(stats['gross_profit'])}**", inline=True)
+    drivers = '\n'.join(f"• {discord.utils.escape_markdown(row['staff_name'])}" for row in active_staff)
+    embed.add_field(name='Available Drivers', value=drivers or 'Nobody is clocked in', inline=False)
+    embed.set_footer(text='Orders below are shown oldest first')
+    return embed
 
 
 async def show_delivery_orders(interaction):
     if not await require_staff(interaction):
         return
     rows = [row for row in orders.pending() if row['guild_id'] == str(interaction.guild_id)]
-    await interaction.response.send_message(
-        f'{len(rows)} pending delivery order(s). Showing the oldest 10.', ephemeral=True
-    )
+    await interaction.response.send_message(embed=delivery_dashboard_embed(interaction.guild_id), ephemeral=True)
     for row in rows[:10]:
         await interaction.followup.send(
             embed=delivery_order_embed(row), view=DeliveryOrderView(row['id']),

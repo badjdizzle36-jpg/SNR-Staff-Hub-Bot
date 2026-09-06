@@ -30,9 +30,10 @@ CSS = """
 body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 10% 0%,#f02417 0,transparent 55%),radial-gradient(ellipse at 100% 45%,#9d120c 0,transparent 60%),#350708;background-attachment:fixed;color:var(--cream);font:16px/1.5 Inter,Arial,sans-serif}
 .wrap{width:min(740px,92vw);margin:auto;padding:28px 0 54px}.brand{text-align:center;margin-bottom:24px}.logo-frame{overflow:hidden;width:min(100%,620px);margin:0 auto 18px;border:2px solid var(--gold);border-radius:16px;box-shadow:0 12px 36px #1a000077}.logo-frame img{display:block;width:100%;height:auto}.tag{display:inline-block;padding:7px 22px;background:var(--gold);color:#7b1009;border-radius:99px;font-size:14px;font-weight:900;letter-spacing:2px}
 .card{background:linear-gradient(145deg,#73130f,#32090a);border:2px solid #ffd334;border-top:7px solid var(--gold);border-radius:24px;padding:clamp(22px,5vw,34px);box-shadow:0 18px 60px #21000088}.label{color:var(--gold);text-transform:uppercase;font-size:14px;font-weight:900;letter-spacing:1px}.name{font-size:clamp(28px,7vw,44px);font-weight:950;margin:6px 0 20px;overflow-wrap:anywhere}h1{font-size:clamp(27px,6vw,36px);line-height:1.15;margin:10px 0 18px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.stat{background:linear-gradient(135deg,#b52319,#70120e);border:1px solid #ffb93480;border-radius:16px;padding:17px}.num{font-size:29px;font-weight:950;margin-top:5px;color:#fff8dd}.wide{grid-column:1/-1}.jackpot{background:linear-gradient(135deg,#ffe33b,#ffa818);color:#51100a;border:2px solid #fff39c}.jackpot .label,.jackpot .muted,.jackpot strong{color:#51100a!important}
-form{display:flex;gap:10px;margin-top:18px}input,select{min-width:0;flex:1;width:100%;background:#290808;color:white;border:1px solid #ffda4e;border-radius:14px;padding:16px;font-size:16px}input:focus,select:focus{outline:3px solid var(--gold);outline-offset:3px}button{border:0;border-radius:14px;background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;padding:16px 20px;font-weight:950;font-size:15px;box-shadow:0 4px 0 #a3540b;cursor:pointer}button:hover{filter:brightness(1.1)}button:focus-visible,a:focus-visible{outline:3px solid white;outline-offset:4px}.secondary{background:#5f100d;color:#fff4db;border:1px solid #ffda4e;box-shadow:none}.panel{padding-top:22px;margin-top:22px;border-top:1px solid #ffda3544}.panel form{flex-direction:column}.notice{padding:18px;border-radius:14px;background:#ffda3514;border:1px solid #ffda3544;color:#fff1d3;margin-top:18px}.muted{color:var(--muted)}.history{margin-top:22px;padding-top:16px;border-top:1px solid #ffda3533}.sale{display:flex;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #ffffff12}.sale:last-child{border:0}.sale small{font-size:14px;color:var(--muted)}.back{display:block;text-align:center;color:var(--gold);font-weight:700;margin-top:20px;text-decoration:none}footer{text-align:center;color:#f2c9b7;font-size:13px;margin-top:24px}
+form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;flex:1;width:100%;background:#290808;color:white;border:1px solid #ffda4e;border-radius:14px;padding:16px;font:inherit}textarea{resize:vertical;min-height:82px}input:focus,select:focus,textarea:focus{outline:3px solid var(--gold);outline-offset:3px}button{border:0;border-radius:14px;background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;padding:16px 20px;font-weight:950;font-size:15px;box-shadow:0 4px 0 #a3540b;cursor:pointer}button:hover{filter:brightness(1.1)}button:focus-visible,a:focus-visible{outline:3px solid white;outline-offset:4px}.secondary{background:#5f100d;color:#fff4db;border:1px solid #ffda4e;box-shadow:none}.panel{padding-top:22px;margin-top:22px;border-top:1px solid #ffda3544}.panel form{flex-direction:column}.notice{padding:18px;border-radius:14px;background:#ffda3514;border:1px solid #ffda3544;color:#fff1d3;margin-top:18px}.muted{color:var(--muted)}.history{margin-top:22px;padding-top:16px;border-top:1px solid #ffda3533}.sale{display:flex;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #ffffff12}.sale:last-child{border:0}.sale small{font-size:14px;color:var(--muted)}.back{display:block;text-align:center;color:var(--gold);font-weight:700;margin-top:20px;text-decoration:none}footer{text-align:center;color:#f2c9b7;font-size:13px;margin-top:24px}
 .delivery{margin-top:24px;padding:22px;background:#210708aa;border:2px solid #ff8c22;border-radius:20px}.delivery h2{margin:5px 0 8px}.delivery-form{display:block}.deal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.deal-box{display:block;height:100%;padding:15px;border:2px solid #7e2b1f;border-radius:15px;background:#4a0d0c}.deal-box strong,.deal-box span{display:block}.deal-box .price{font-size:23px;color:var(--gold);font-weight:950;margin-top:7px}.quantity{display:flex;align-items:center;gap:10px;margin-top:12px}.quantity input{width:85px;flex:none;padding:10px;text-align:center}.subtotal{font-size:24px;font-weight:950;color:var(--gold);text-align:right;margin:14px 0}.location-row{display:flex;gap:10px}.status-paid{color:#88f29b}.status-pending{color:#ffe45f}.status-cancelled{color:#ff9f91}
 .account-choice{display:grid;gap:12px;margin-top:20px}.account-choice details{background:#3d0a0a;border:1px solid #ffda4e66;border-radius:16px;overflow:hidden}.account-choice details[open]{border-color:var(--gold);background:#4d0d0c}.account-choice summary{cursor:pointer;padding:17px 18px;color:var(--gold);font-size:18px;font-weight:950;list-style:none}.account-choice summary::-webkit-details-marker{display:none}.account-choice summary:after{content:'+';float:right}.account-choice details[open] summary:after{content:'−'}.choice-body{padding:0 18px 18px}.choice-body p{margin:0 0 10px}.choice-body form{flex-direction:column;margin-top:10px}
+.loyalty-progress{margin:15px 0}.progress-track{height:20px;border-radius:99px;background:#250606;border:1px solid #ffda4e;overflow:hidden}.progress-fill{height:100%;background:linear-gradient(90deg,#ff9e19,#fff05b);border-radius:99px;transition:width .4s}.progress-text{display:flex;justify-content:space-between;margin-top:7px;font-weight:800}.order-status{border:2px solid var(--gold);background:linear-gradient(135deg,#7e180f,#4b0b0a)}#status-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,130%);width:min(560px,90vw);padding:18px;background:#ffe33b;color:#4d0b08;border-radius:16px;font-weight:950;text-align:center;box-shadow:0 12px 40px #000a;z-index:10;transition:transform .25s}#status-toast.show{transform:translate(-50%,0)}
 @media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.card{padding:22px}.grid,.deal-list{grid-template-columns:1fr}.wide{grid-column:auto}.logo-frame{border-radius:14px}.wrap{padding-top:20px}}
 """
 
@@ -122,6 +123,9 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
     labels = {"pending": "Claim sent — awaiting staff handover", "fulfilled": "Pack handed over — points reset to 0", "cancelled": "Claim cancelled — points unchanged"}
     history = "".join(f'<p>Request #{row["id"]}: {labels[row["status"]]}</p>' for row in rows)
     points = int(customer["loyalty_points"])
+    progress = min(points, 4)
+    progress_label = "Reward ready!" if points >= 4 else f"{progress} of 4 points"
+    progress_bar = f'''<div class="loyalty-progress"><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="4" aria-valuenow="{progress}"><div class="progress-fill" style="width:{progress * 25}%"></div></div><div class="progress-text"><span>⭐ {progress_label}</span><span>🎴 Free pack</span></div></div>'''
     if pending:
         action = "<p>Your request is saved. Visit SNR Buns to collect your pack from staff.</p>"
     elif not claims.configured():
@@ -130,34 +134,40 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
         action = f"<p>Collect {4-points} more loyalty point(s) to request your next pack.</p>"
     else:
         action = f'<form method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(form_token, quote=True)}"><button type="submit">Claim Trading Card Pack</button></form>'
-    return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>Reach 4 points to claim 1 pack containing 2 trading cards.</strong></p><p>{points} available points. Your login proves this is your account.</p><p class="muted">After staff hand over your pack, your loyalty points reset to 0.</p>{action}<div class="muted">{history}</div></section>'
+    return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>Reach 4 points to claim 1 pack containing 2 trading cards.</strong></p>{progress_bar}<p>{points} available points.</p><p class="muted">After staff hand over your pack, your loyalty points reset to 0.</p>{action}<div class="muted">{history}</div></section>'
 
 
 def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
     rows = orders.summary(customer["display_name"])
-    active = next((row for row in rows if row["status"] in ("pending", "processing")), None)
+    active = next((row for row in rows if row["status"] in ("pending", "accepted", "on_way", "processing")), None)
     labels = {
-        "pending": "Waiting for SNR staff",
+        "pending": "Waiting for a driver to accept",
+        "accepted": "Accepted — your order is being prepared",
+        "on_way": "Your driver is on the way",
         "processing": "Payment is being confirmed",
-        "paid": "Paid and added to loyalty",
+        "paid": "Delivered, paid and added to loyalty",
         "cancelled": "Cancelled",
     }
     recent = "".join(
-        f'<p>Order #{row["id"]}: <strong class="status-{"pending" if row["status"] == "processing" else row["status"]}">{labels[row["status"]]}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
+        f'<p>Order #{row["id"]}: <strong class="status-{"pending" if row["status"] in ("accepted", "on_way", "processing") else row["status"]}">{labels.get(row["status"], row["status"])}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
         for row in rows
     )
     if active:
+        driver = (f'<br>Driver: <strong>{html.escape(active["assigned_driver_name"])}</strong>'
+                  if active.get("assigned_driver_name") else "")
+        note = f'<br>Your note: {html.escape(active["notes"])}' if active.get("notes") else ""
         order_form = (
-            f'<div class="notice"><strong>Order #{active["id"]} is waiting.</strong><br>'
+            f'<div class="notice order-status" data-order-id="{active["id"]}" data-order-status="{active["status"]}">'
+            f'<strong>Order #{active["id"]}: {labels[active["status"]]}</strong><br>'
             f'{html.escape(active["deal_name"])} • <strong>£{int(active["price"]):,} owed</strong><br>'
-            f'Delivery location: {html.escape(active["postal"])}</div>'
+            f'Delivery location: {html.escape(active["postal"])}{driver}{note}</div><div id="status-toast" role="status"></div><script src="/delivery.js" defer></script>'
         )
     else:
         choices = "".join(
             f'''<div class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,} each</span><label class="quantity">Amount <input class="deal-qty" type="number" name="qty_{deal.key}" value="0" min="0" max="10" step="1" data-price="{deal.price}" aria-label="Amount of {html.escape(deal.name, quote=True)}"></label></div>'''
             for deal in DEALS.values())
         if orders.configured() and shifts.drivers_available():
-            order_form = f'''<form class="delivery-form" method="post" action="/order"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Subtotal: <span id="delivery-subtotal">£0</span></div><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">Choose up to 10 of each deal (20 deals total). You pay SNR staff on delivery. Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
+            order_form = f'''<form class="delivery-form" method="post" action="/order"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Subtotal: <span id="delivery-subtotal">£0</span></div><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">Choose up to 10 of each deal (20 deals total). You pay SNR staff on delivery. Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
         elif orders.configured():
             order_form = '<div class="notice"><strong>No drivers are currently available.</strong><br>Please try again when SNR staff have clocked in.</div>'
         else:
@@ -249,6 +259,16 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             self.end_headers()
             self.wfile.write(data)
 
+        def send_json(self, status: int, value: dict) -> None:
+            data = json.dumps(value).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+
         def redirect(self, location: str, cookie: str | None = None) -> None:
             self.send_response(303)
             self.send_header("Location", location)
@@ -282,13 +302,29 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.end_headers()
                 self.wfile.write(LOGO_IMAGE)
             elif path == "/delivery.js":
-                data = b'''document.addEventListener("DOMContentLoaded",()=>{const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal");const u=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",u));u()});'''
+                data = b'''document.addEventListener("DOMContentLoaded",()=>{
+const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal");
+const total=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",total));total();
+const tracker=document.querySelector("[data-order-id]");if(!tracker)return;let current=tracker.dataset.orderStatus;
+const messages={accepted:"Your delivery has been accepted!",on_way:"Your driver is on the way!",paid:"Your delivery has been completed!",cancelled:"Your delivery order was cancelled."};
+setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=messages[d.status]||"Your delivery status has changed.";if(d.driver&&d.status!=="cancelled")message+=" Driver: "+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);setTimeout(()=>location.reload(),3500)}}catch(e){}},5000);
+});'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "public, max-age=3600")
                 self.end_headers()
                 self.wfile.write(data)
+            elif path == "/order-status":
+                owner = self.owner()
+                if not owner:
+                    self.send_json(401, {"error": "login_required"})
+                    return
+                rows = orders.summary(owner, 1)
+                row = rows[0] if rows else None
+                self.send_json(200, ({"id": str(row["id"]), "status": row["status"],
+                                      "driver": row.get("assigned_driver_name") or ""}
+                                     if row else {"id": None, "status": "none", "driver": ""}))
             elif path == "/health":
                 data = json.dumps({"status": "ok"}).encode()
                 self.send_response(200)
@@ -362,9 +398,11 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                     if not shifts.drivers_available():
                         raise ValueError("No drivers are currently available. Please try again when SNR staff have clocked in.")
                     quantities = {deal_key: data.get("qty_" + deal_key, "0") for deal_key in DEALS}
-                    result = orders.create_cart_authenticated(owner, quantities, data.get("postal", ""), key)
+                    result = orders.create_cart_authenticated(
+                        owner, quantities, data.get("postal", ""), key, data.get("notes", ""))
                     lines = "".join(f'<li>{item["quantity"]} × {html.escape(item["name"])} — £{item["line_total"]:,}</li>' for item in orders.items(result))
-                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Subtotal to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p><div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>SNR staff have been notified. Your loyalty points and Golden Tickets update after staff confirm payment.</div><a class="back" href="/account">Back to my account</a></section>'''))
+                    note = f'<p>Order note: <strong>{html.escape(result["notes"])}</strong></p>' if result.get("notes") else ""
+                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Subtotal to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open to receive live Accepted and Driver On The Way updates.</div><a class="back" href="/account">Track my order</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:
