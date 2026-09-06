@@ -113,6 +113,12 @@ def customer_embed(customer: dict) -> discord.Embed:
         inline=True,
     )
     embed.add_field(name="Website Account", value=f"**{accounts.status(customer['display_name'])}**", inline=True)
+    fee = orders.outstanding_fee(customer['customer_key'])
+    embed.add_field(
+        name="⚠️ Delivery Account",
+        value=(f"**{money(fee['amount'])} OWED — WASTED JOURNEY**" if fee else "**CLEAR**"),
+        inline=False,
+    )
     rewards = customer["unclaimed_rewards"]
     if rewards:
         lines = [f"`{r['reward_code']}` — {r['description']}" for r in rewards[:8]]
@@ -314,11 +320,15 @@ class NameChoiceView(discord.ui.View):
 
 
 class CustomerSelect(discord.ui.Select):
-    def __init__(self, action, names, page):
+    def __init__(self, action, names, page, debts):
         self.action = action
         start = page * 25
-        options = [discord.SelectOption(label=name[:100], value=name, emoji="👤")
-                   for name in names[start:start + 25]]
+        options = [discord.SelectOption(
+            label=((f"£{debts.get(normalize_name(name), 0):,} OWED — " if debts.get(normalize_name(name)) else "") + name)[:100],
+            value=name,
+            description=("Wasted Journey fee outstanding" if debts.get(normalize_name(name)) else None),
+            emoji=("⚠️" if debts.get(normalize_name(name)) else "👤"),
+        ) for name in names[start:start + 25]]
         super().__init__(placeholder="Select a character name", options=options)
 
     async def callback(self, interaction):
@@ -327,13 +337,17 @@ class CustomerSelect(discord.ui.Select):
 
 
 class CustomerPickerView(discord.ui.View):
-    def __init__(self, action, page=0):
+    def __init__(self, action, page=0, show_all=False):
         super().__init__(timeout=180)
         self.action = action
         self.names = sorted(db.customer_names(), key=normalize_name)
+        self.debts = orders.outstanding_debt_map()
         self.page = max(0, min(page, max(0, (len(self.names) - 1) // 25)))
         if self.names:
-            self.add_item(CustomerSelect(action, self.names, self.page))
+            self.add_item(CustomerSelect(action, self.names, self.page, self.debts))
+        if show_all:
+            self.remove_item(self.previous)
+            self.remove_item(self.next)
 
     @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
     async def previous(self, interaction, button):
@@ -358,13 +372,29 @@ class CustomerPickerView(discord.ui.View):
 
 
 async def show_customer_picker(interaction, action):
-    view = CustomerPickerView(action)
+    view = CustomerPickerView(action, show_all=True)
     count = len(view.names)
+    if not count:
+        await interaction.response.send_message(
+            "No customers are saved yet. Use **Type / Suggest Name** to enter the first customer.",
+            view=view, ephemeral=True,
+        )
+        return
+    pages = (count + 24) // 25
     await interaction.response.send_message(
-        f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
-        "Typed names still correct capitals and suggest close spellings.",
+        f"**All saved customers — list 1 of {pages}**\n"
+        f"Showing names 1–{min(25, count)} of {count}. Choose a name or use **Type / Suggest Name**.",
         view=view, ephemeral=True,
     )
+    for page in range(1, pages):
+        start = page * 25 + 1
+        end = min((page + 1) * 25, count)
+        await interaction.followup.send(
+            f"**All saved customers — list {page + 1} of {pages}**\nShowing names {start}–{end} of {count}.",
+            view=CustomerPickerView(action, page, show_all=True),
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
 
 class DealSelect(discord.ui.Select):
@@ -645,6 +675,7 @@ def delivery_order_embed(row):
         'processing': discord.Colour.gold(),
         'paid': discord.Colour.green(),
         'cancelled': discord.Colour.red(),
+        'wasted_journey': discord.Colour.red(),
     }
     status = {
         'pending': 'WAITING FOR DRIVER',
@@ -653,6 +684,7 @@ def delivery_order_embed(row):
         'processing': 'PROCESSING',
         'paid': 'DELIVERED & PAID — SALE RECORDED',
         'cancelled': 'CANCELLED',
+        'wasted_journey': 'WASTED JOURNEY — £500 FEE OWED',
     }.get(row['status'], str(row['status']).upper())
     embed = discord.Embed(title=f"🚗 DELIVERY ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
@@ -684,6 +716,60 @@ def delivery_order_embed(row):
     else:
         embed.set_footer(text='Confirm payment only after the customer has paid')
     return embed
+
+
+def delivery_fee_embed(row):
+    colour = discord.Colour.red() if row['status'] == 'owed' else discord.Colour.green()
+    status = {'owed': 'OWED', 'paid': 'PAID', 'waived': 'WAIVED'}.get(row['status'], row['status'].upper())
+    embed = discord.Embed(title=f"⚠️ DELIVERY FEE #{row['id']}", colour=colour)
+    embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
+    embed.add_field(name='Amount', value=f"**{money(row['amount'])}**", inline=True)
+    embed.add_field(name='Status', value=f"**{status}**", inline=True)
+    embed.add_field(name='Reason', value='Wasted delivery journey', inline=False)
+    embed.add_field(name='Original Order', value=f"**#{row['order_id']}**", inline=True)
+    embed.set_footer(text=('New website deliveries are blocked until this is paid or waived'
+                           if row['status'] == 'owed' else 'Resolved and fully recorded in the audit log'))
+    return embed
+
+
+class DeliveryFeeView(discord.ui.View):
+    def __init__(self, fee_id):
+        super().__init__(timeout=None)
+        self.fee_id = int(fee_id)
+        for label, emoji, style, target in (
+            ('Fee Paid', '💷', discord.ButtonStyle.success, 'paid'),
+            ('Waive Fee', '🕊️', discord.ButtonStyle.secondary, 'waived'),
+        ):
+            button = discord.ui.Button(label=label, emoji=emoji, style=style,
+                                       custom_id=f'snr:delivery_fee:{self.fee_id}:{target}')
+
+            async def callback(interaction, chosen=target):
+                if not await require_staff(interaction):
+                    return
+                fee = orders.fee_get(self.fee_id)
+                if not fee or fee['guild_id'] != str(interaction.guild_id):
+                    await interaction.response.send_message('This fee belongs to another server.', ephemeral=True)
+                    return
+                await interaction.response.defer(ephemeral=True)
+                try:
+                    async with db_lock:
+                        fee = orders.resolve_fee(self.fee_id, chosen, str(interaction.user.id), str(interaction.user))
+                except ValueError as exc:
+                    await interaction.followup.send(f'❌ {exc}', ephemeral=True)
+                    return
+                await interaction.followup.send(
+                    ('✅ The £500 fee is marked paid. This customer can order deliveries again.'
+                     if chosen == 'paid' else '✅ The £500 fee was waived. This customer can order deliveries again.'),
+                    ephemeral=True,
+                )
+                try:
+                    await interaction.message.edit(embed=delivery_fee_embed(fee), view=None)
+                    await interaction.message.delete(delay=12 * 3600)
+                except discord.HTTPException:
+                    logging.exception('Fee resolved but Discord message refresh failed: %s', self.fee_id)
+
+            button.callback = callback
+            self.add_item(button)
 
 
 class DeliveryOrderView(discord.ui.View):
@@ -719,6 +805,16 @@ class DeliveryOrderView(discord.ui.View):
         cancel.callback = cancel_callback
         self.add_item(action)
         self.add_item(cancel)
+        if status == 'on_way':
+            wasted = discord.ui.Button(label='Wasted Journey — Charge £500', emoji='⚠️',
+                                       style=discord.ButtonStyle.danger,
+                                       custom_id=f'snr:delivery:{self.order_id}:wasted_journey')
+
+            async def wasted_callback(interaction):
+                await self._update(interaction, 'wasted_journey')
+
+            wasted.callback = wasted_callback
+            self.add_item(wasted)
 
     async def _update(self, interaction, target):
         if not await require_staff(interaction):
@@ -741,6 +837,12 @@ class DeliveryOrderView(discord.ui.View):
                         raise ValueError('Only the assigned driver or SNR Management can mark this order on the way.')
                     row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
                     sales = []
+                elif target == 'wasted_journey':
+                    if row.get('assigned_driver_id') != str(interaction.user.id) and not has_role(interaction, MANAGER_ROLE_NAME):
+                        raise ValueError('Only the assigned driver or SNR Management can add a Wasted Journey fee.')
+                    row, fee = orders.charge_wasted_journey(
+                        self.order_id, str(interaction.user.id), str(interaction.user))
+                    sales = []
                 else:
                     row, sales = orders.resolve(
                         self.order_id, target, str(interaction.user.id), str(interaction.user))
@@ -761,20 +863,25 @@ class DeliveryOrderView(discord.ui.View):
         elif target == 'paid':
             response = (f'✅ Delivered and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
                         'Everything is now included in sales, finance, loyalty and Golden Tickets.')
+        elif target == 'wasted_journey':
+            response = ('⚠️ Wasted Journey recorded. £500 is now owed on the customer’s webpage and name, '
+                        'and new deliveries are blocked. No sale, loyalty points or Golden Tickets were added.')
         else:
             response = 'Order cancelled. No sale or rewards were added. The customer’s webpage has been updated.'
         await interaction.followup.send(response, ephemeral=True)
-        finished = target in ('paid', 'cancelled')
-        next_view = None if finished else DeliveryOrderView(self.order_id)
+        finished = target in ('paid', 'cancelled', 'wasted_journey')
+        next_view = (DeliveryFeeView(fee['id']) if target == 'wasted_journey'
+                     else None if finished else DeliveryOrderView(self.order_id))
+        next_embed = delivery_fee_embed(orders.fee_get(fee['id'])) if target == 'wasted_journey' else delivery_order_embed(row)
         try:
-            await interaction.message.edit(embed=delivery_order_embed(row), view=next_view)
+            await interaction.message.edit(embed=next_embed, view=next_view)
             if row['message_id'] and str(interaction.message.id) != row['message_id']:
                 channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
                 canonical = channel.get_partial_message(int(row['message_id']))
-                await canonical.edit(embed=delivery_order_embed(row), view=next_view)
-                if finished:
+                await canonical.edit(embed=next_embed, view=next_view)
+                if finished and target != 'wasted_journey':
                     await canonical.delete(delay=12 * 3600)
-            elif finished:
+            elif finished and target != 'wasted_journey':
                 await interaction.message.delete(delay=12 * 3600)
         except discord.HTTPException:
             logging.exception('Order updated but Discord message refresh failed: %s', self.order_id)
@@ -784,10 +891,12 @@ def delivery_dashboard_embed(guild_id):
     counts = orders.status_counts(guild_id)
     active_staff = shifts.active(guild_id)
     stats = db.report(today=True)
+    fees = orders.outstanding_fees(guild_id)
     embed = discord.Embed(title='🚗 SNR DELIVERY DASHBOARD', colour=discord.Colour.orange())
     embed.add_field(name='Waiting', value=f"**{counts['pending']}**", inline=True)
     embed.add_field(name='Accepted', value=f"**{counts['accepted']}**", inline=True)
     embed.add_field(name='On The Way', value=f"**{counts['on_way']}**", inline=True)
+    embed.add_field(name='Wasted Journey Fees', value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))} owed**", inline=True)
     embed.add_field(name='Drivers Clocked In', value=f"**{len(active_staff)}**", inline=True)
     embed.add_field(name='Today’s Revenue', value=f"**{money(stats['revenue'])}**", inline=True)
     embed.add_field(name='Today’s Gross Profit', value=f"**{money(stats['gross_profit'])}**", inline=True)
@@ -801,10 +910,16 @@ async def show_delivery_orders(interaction):
     if not await require_staff(interaction):
         return
     rows = [row for row in orders.pending() if row['guild_id'] == str(interaction.guild_id)]
+    fees = orders.outstanding_fees(interaction.guild_id, 10)
     await interaction.response.send_message(embed=delivery_dashboard_embed(interaction.guild_id), ephemeral=True)
     for row in rows[:10]:
         await interaction.followup.send(
             embed=delivery_order_embed(row), view=DeliveryOrderView(row['id']),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
+    for fee in fees:
+        await interaction.followup.send(
+            embed=delivery_fee_embed(fee), view=DeliveryFeeView(fee['id']),
             ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -1016,6 +1131,8 @@ async def setup_hook() -> None:
         bot.add_view(PackClaimView(row['id']))
     for row in orders.pending():
         bot.add_view(DeliveryOrderView(row['id']))
+    for row in orders.outstanding_fees():
+        bot.add_view(DeliveryFeeView(row['id']))
     for row in accounts.pending():
         bot.add_view(AccountRequestView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)

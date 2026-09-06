@@ -23,6 +23,16 @@ class DeliveryStore:
                     message_id TEXT, sale_transaction_id TEXT, items_json TEXT,
                     notes TEXT NOT NULL DEFAULT '', assigned_driver_id TEXT, assigned_driver_name TEXT,
                     accepted_at TEXT, on_way_at TEXT, status_updated_at TEXT);
+                CREATE TABLE IF NOT EXISTS delivery_fees (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER NOT NULL UNIQUE REFERENCES web_delivery_orders(id),
+                    customer_key TEXT NOT NULL REFERENCES customers(customer_key),
+                    customer_name TEXT NOT NULL,
+                    amount INTEGER NOT NULL DEFAULT 500,
+                    status TEXT NOT NULL DEFAULT 'owed',
+                    reason TEXT NOT NULL DEFAULT 'Wasted delivery journey',
+                    created_at TEXT NOT NULL, created_by TEXT NOT NULL, created_by_name TEXT NOT NULL,
+                    resolved_at TEXT, resolved_by TEXT, resolved_by_name TEXT);
             """)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(web_delivery_orders)")}
             for name, definition in (
@@ -106,6 +116,12 @@ class DeliveryStore:
                 if existing["customer_key"] != key:
                     raise ValueError("Please reopen your account and try again.")
                 return dict(existing)
+            fee = conn.execute("SELECT amount FROM delivery_fees WHERE customer_key=? AND status='owed'", (key,)).fetchone()
+            if fee:
+                raise ValueError(
+                    f"A £{int(fee['amount']):,} Wasted Journey fee is outstanding on your account. "
+                    "Please pay SNR staff before placing another delivery."
+                )
             pending = conn.execute("""SELECT * FROM web_delivery_orders WHERE customer_key=?
                 AND status IN ('pending','accepted','on_way','processing')""", (key,)).fetchone()
             if pending:
@@ -158,6 +174,84 @@ class DeliveryStore:
         counts = {name: 0 for name in ACTIVE_STATUSES}
         counts.update({row["status"]: int(row["total"]) for row in rows})
         return counts
+
+    def outstanding_fee(self, customer_key):
+        with self.db.connect() as conn:
+            row = conn.execute("""SELECT * FROM delivery_fees
+                WHERE customer_key=? AND status='owed' ORDER BY id DESC LIMIT 1""",
+                (normalize_name(customer_key),)).fetchone()
+        return dict(row) if row else None
+
+    def outstanding_fees(self, guild_id=None, limit=100):
+        where, values = "f.status='owed'", []
+        if guild_id is not None:
+            where += " AND o.guild_id=?"
+            values.append(str(guild_id))
+        values.append(int(limit))
+        with self.db.connect() as conn:
+            rows = conn.execute(f"""SELECT f.*,o.guild_id,o.channel_id FROM delivery_fees f
+                JOIN web_delivery_orders o ON o.id=f.order_id
+                WHERE {where} ORDER BY f.id LIMIT ?""", values).fetchall()
+        return [dict(row) for row in rows]
+
+    def fee_get(self, fee_id):
+        with self.db.connect() as conn:
+            row = conn.execute("""SELECT f.*,o.guild_id,o.channel_id FROM delivery_fees f
+                JOIN web_delivery_orders o ON o.id=f.order_id WHERE f.id=?""", (int(fee_id),)).fetchone()
+        return dict(row) if row else None
+
+    def outstanding_debt_map(self):
+        with self.db.connect() as conn:
+            rows = conn.execute("""SELECT customer_key,SUM(amount) AS amount FROM delivery_fees
+                WHERE status='owed' GROUP BY customer_key""").fetchall()
+        return {row["customer_key"]: int(row["amount"]) for row in rows}
+
+    def charge_wasted_journey(self, order_id, staff_id, staff_name):
+        order_id = int(order_id)
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
+            if not row:
+                raise ValueError("Order not found.")
+            existing = conn.execute("SELECT * FROM delivery_fees WHERE order_id=?", (order_id,)).fetchone()
+            if existing:
+                return dict(row), dict(existing)
+            if row["status"] != "on_way":
+                raise ValueError("A Wasted Journey fee can only be added after the driver is marked On The Way.")
+            now = utc_now()
+            cursor = conn.execute("""INSERT INTO delivery_fees
+                (order_id,customer_key,customer_name,amount,status,created_at,created_by,created_by_name)
+                VALUES(?,?,?,?,?,?,?,?)""",
+                (order_id, row["customer_key"], row["customer_name"], 500, "owed", now,
+                 str(staff_id), staff_name))
+            conn.execute("""UPDATE web_delivery_orders SET status='wasted_journey',resolved_at=?,
+                resolved_by=?,status_updated_at=? WHERE id=?""", (now, str(staff_id), now, order_id))
+            self.audit(conn, "web_delivery_wasted_journey",
+                       f"order={order_id};fee={cursor.lastrowid};amount=500", str(staff_id), staff_name)
+            fee = conn.execute("SELECT * FROM delivery_fees WHERE id=?", (cursor.lastrowid,)).fetchone()
+            updated = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
+        return dict(updated), dict(fee)
+
+    def resolve_fee(self, fee_id, status, staff_id, staff_name):
+        if status not in ("paid", "waived"):
+            raise ValueError("Invalid fee action.")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM delivery_fees WHERE id=?", (int(fee_id),)).fetchone()
+            if not row:
+                raise ValueError("Delivery fee not found.")
+            if row["status"] == status:
+                return dict(row)
+            if row["status"] != "owed":
+                raise ValueError("This delivery fee has already been resolved.")
+            now = utc_now()
+            conn.execute("""UPDATE delivery_fees SET status=?,resolved_at=?,resolved_by=?,resolved_by_name=?
+                WHERE id=?""", (status, now, str(staff_id), staff_name, int(fee_id)))
+            self.audit(conn, "web_delivery_fee_" + status,
+                       f"fee={int(fee_id)};order={row['order_id']};amount={row['amount']}",
+                       str(staff_id), staff_name)
+            updated = conn.execute("SELECT * FROM delivery_fees WHERE id=?", (int(fee_id),)).fetchone()
+        return dict(updated)
 
     def advance(self, order_id, target, staff_id, staff_name):
         transitions = {"accepted": "pending", "on_way": "accepted"}

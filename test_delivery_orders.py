@@ -136,6 +136,13 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(status["driver"], "Delivery Staff")
             self.orders.advance(1, "on_way", "9", "Delivery Staff")
             self.assertEqual(json.loads(request("/order-status")[1])["status"], "on_way")
+            self.orders.charge_wasted_journey(1, "9", "Delivery Staff")
+            response, body = request("/account")
+            self.assertEqual(response.status, 200)
+            self.assertIn("DELIVERY ACCOUNT: £500 OWED", body)
+            self.assertIn("New deliveries are unavailable", body)
+            self.assertNotIn('action="/order"', body)
+            self.assertEqual(json.loads(request("/order-status")[1])["status"], "wasted_journey")
         finally:
             server.shutdown()
             server.server_close()
@@ -153,6 +160,38 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(sales), 3)
         self.assertEqual(self.db.report()["sales"], 3)
         self.assertEqual(self.db.report()["revenue"], 800)
+
+    def test_wasted_journey_adds_fee_blocks_orders_and_adds_no_rewards(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "mega_deal", "Postal 909", "wasted-request-key"
+        )
+        self.orders.advance(order["id"], "accepted", "9", "Delivery Staff")
+        self.orders.advance(order["id"], "on_way", "9", "Delivery Staff")
+        wasted, fee = self.orders.charge_wasted_journey(
+            order["id"], "9", "Delivery Staff"
+        )
+        self.assertEqual(wasted["status"], "wasted_journey")
+        self.assertEqual(fee["amount"], 500)
+        self.assertEqual(fee["status"], "owed")
+        self.assertEqual(self.db.report()["sales"], 0)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+        with self.assertRaisesRegex(ValueError, "£500 Wasted Journey fee"):
+            self.orders.create_authenticated(
+                "Cody Ortega", "quick_fix", "Postal 909", "blocked-request-key"
+            )
+        self.orders.resolve_fee(fee["id"], "paid", "1", "Manager")
+        replacement = self.orders.create_authenticated(
+            "Cody Ortega", "quick_fix", "Postal 909", "allowed-request-key"
+        )
+        self.assertEqual(replacement["status"], "pending")
+
+    def test_wasted_journey_only_allowed_after_driver_is_on_way(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "quick_fix", "Postal 22", "too-early-wasted-key"
+        )
+        with self.assertRaisesRegex(ValueError, "only be added after"):
+            self.orders.charge_wasted_journey(order["id"], "9", "Delivery Staff")
+        self.assertIsNone(self.orders.outstanding_fee("Cody Ortega"))
 
 
 if __name__ == "__main__":

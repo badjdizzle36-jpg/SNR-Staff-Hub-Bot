@@ -17,10 +17,12 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Loyalty customers see a visual progress bar toward their four-point trading-card pack.
 - Website ordering is available only while at least one staff member is clocked in.
 - The hub includes **Clock In**, **Clock Off** and **Who’s Clocked In**. Shifts expire after eight hours if somebody forgets to clock off.
-- Record Sale, Check Customer and Redeem Reward include a paged character-name dropdown plus **Type / Suggest Name** for spelling correction.
+- Record Sale, Check Customer and Redeem Reward automatically display every saved character name in alphabetically ordered dropdowns of 25 (Discord's fixed limit per dropdown), plus **Type / Suggest Name** for spelling correction.
 - Delivery Orders opens a dashboard showing the live queue, drivers, today’s revenue and gross profit.
 - New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
 - Paid multi-deal orders record every selected deal in sales, finance, loyalty and Golden Tickets exactly once.
+- After a driver is marked On The Way, staff can mark a delivery as a **Wasted Journey**. This adds a £500 account fee, closes the order without recording a sale or rewards, and blocks new web deliveries.
+- Outstanding fees appear in red on the customer's webpage and as a warning stamp beside their name in Discord. The Delivery Orders dashboard lets staff mark a fee **Paid** or **Waived**; every action is audited.
 
 ## Current deals
 
@@ -65,7 +67,9 @@ Run `/snrhub_panel` again in the private staff channel to post the upgraded perm
 2. For counter sales, press **Record Sale**, choose a saved character or type the name, then choose the deal.
 3. For website orders, open **Delivery Orders**, press **Accept Delivery**, then **Driver On The Way** when leaving.
 4. After delivery and payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
-5. Press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
+5. If the driver arrives but the journey is wasted, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this, and only after **Driver On The Way**.
+6. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
+7. Press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
 
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.
 
