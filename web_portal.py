@@ -40,7 +40,7 @@ def page(title: str, content: str) -> str:
 
 
 def name_options(names: list[str], selected: str = "") -> str:
-    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your character name</option>']
+    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your name</option>']
     wanted = normalize_name(selected)
     for name in sorted(set(names), key=normalize_name):
         mark = " selected" if normalize_name(name) == wanted else ""
