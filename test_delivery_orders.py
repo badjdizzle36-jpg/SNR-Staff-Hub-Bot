@@ -108,6 +108,8 @@ class DeliveryTests(unittest.TestCase):
         try:
             response, body = request("/account")
             self.assertEqual(response.status, 200)
+            self.assertIn("SNR Customer Membership", body)
+            self.assertIn("Regular", body)
             for deal in DEALS.values():
                 self.assertIn(deal.name, body)
                 self.assertIn(f"£{deal.price:,}", body)
@@ -192,6 +194,16 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only be added after"):
             self.orders.charge_wasted_journey(order["id"], "9", "Delivery Staff")
         self.assertIsNone(self.orders.outstanding_fee("Cody Ortega"))
+
+    def test_owner_can_manually_clock_staff_off(self):
+        shifts = StaffShifts(self.db)
+        shifts.clock_in("9", "Delivery Staff", "200")
+        removed = shifts.force_clock_out("9", "1", "Cody Owner")
+        self.assertEqual(removed["staff_name"], "Delivery Staff")
+        self.assertEqual(shifts.active("200"), [])
+        with self.db.connect() as conn:
+            audit = conn.execute("SELECT action FROM audit_log ORDER BY rowid DESC LIMIT 1").fetchone()
+        self.assertEqual(audit["action"], "owner_clocked_staff_off")
 
 
 if __name__ == "__main__":

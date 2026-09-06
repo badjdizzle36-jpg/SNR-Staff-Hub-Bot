@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import logging
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -14,8 +15,10 @@ from snr_core import (
     AVERAGE_FOOD_COST,
     DEALS,
     SNRDatabase,
+    VIP_LEVELS,
     birdy_post,
     normalize_name,
+    vip_level_for_sales,
 )
 from web_portal import start_web_server
 from reward_claims import ClaimStore
@@ -28,6 +31,8 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 STAFF_ROLE_NAME = os.getenv("STAFF_ROLE_NAME", "SNR Staff")
 MANAGER_ROLE_NAME = os.getenv("MANAGER_ROLE_NAME", "SNR Management")
+OWNER_ROLE_NAME = os.getenv("OWNER_ROLE_NAME", "SNR Owner")
+WEBSITE_URL = os.getenv("WEBSITE_URL", "https://worker-production-2c48.up.railway.app").rstrip("/")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "snr_staff_hub.db")
 LEGACY_DATA_FILE = os.getenv("LEGACY_DATA_FILE", "loyalty_data.json")
 JACKPOT_POOL_SIZE = int(os.getenv("JACKPOT_POOL_SIZE", "1000"))
@@ -56,7 +61,23 @@ def has_role(interaction: discord.Interaction, role_name: str) -> bool:
 
 
 def is_staff(interaction: discord.Interaction) -> bool:
-    return has_role(interaction, STAFF_ROLE_NAME) or has_role(interaction, MANAGER_ROLE_NAME)
+    return (has_role(interaction, STAFF_ROLE_NAME) or has_role(interaction, MANAGER_ROLE_NAME)
+            or has_role(interaction, OWNER_ROLE_NAME))
+
+
+def is_owner(interaction: discord.Interaction) -> bool:
+    return has_role(interaction, OWNER_ROLE_NAME)
+
+
+async def require_owner(interaction: discord.Interaction) -> bool:
+    if is_owner(interaction):
+        return True
+    message = f"❌ This control is restricted to the **{OWNER_ROLE_NAME}** role."
+    if interaction.response.is_done():
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        await interaction.response.send_message(message, ephemeral=True)
+    return False
 
 
 def staff_ping(channel):
@@ -78,20 +99,23 @@ async def require_staff(interaction: discord.Interaction) -> bool:
 
 def panel_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="🍔 SNR BUNS — STAFF HUB",
+        title="🍔 SNR BUNS — PRO STAFF HUB",
         description=(
             "Use the buttons below to record sales, manage website deliveries, check customers, "
             "redeem rewards, clock delivery staff in/out, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
-            "Customers do **not** need Discord."
+            "Customers do **not** need Discord.\n\n"
+            "👑 **Owned by Cody, Ash & Lola**"
         ),
         colour=discord.Colour.gold(),
     )
     embed.add_field(name="Simple sale entry", value="Pick an existing customer or type a name, then choose the deal.", inline=False)
-    embed.set_footer(text="SNR Buns • Staff access only")
+    embed.set_thumbnail(url=f"{WEBSITE_URL}/snr-logo.png")
+    embed.set_footer(text=f"SNR Buns • Staff access only • Owner controls: {OWNER_ROLE_NAME}")
     return embed
 
 
 def customer_embed(customer: dict) -> discord.Embed:
+    membership = customer["membership"]
     embed = discord.Embed(
         title=f"🍔 {customer['display_name']}",
         colour=discord.Colour.orange(),
@@ -113,6 +137,14 @@ def customer_embed(customer: dict) -> discord.Embed:
         inline=True,
     )
     embed.add_field(name="Website Account", value=f"**{accounts.status(customer['display_name'])}**", inline=True)
+    progress = (f"{membership['remaining']} purchase(s) to {membership['next_level']}"
+                if membership['next_level'] else ("Owner-set membership" if membership['manual'] else "Highest level reached"))
+    embed.add_field(
+        name=f"{membership['emoji']} Customer Membership",
+        value=(f"**{membership['name']}**\n{progress}\n"
+               f"Per purchase bonus: +{membership['bonus_points']} loyalty • +{membership['bonus_tickets']} Golden Ticket(s)"),
+        inline=False,
+    )
     fee = orders.outstanding_fee(customer['customer_key'])
     embed.add_field(
         name="⚠️ Delivery Account",
@@ -146,13 +178,17 @@ def sale_embed(result: dict) -> discord.Embed:
         value=f"**{money(deal.gross_profit)}** ({deal.profit_margin:.1f}%)",
         inline=True,
     )
+    awarded_points = int(result.get("loyalty_awarded", deal.loyalty_points))
+    awarded_tickets = int(result.get("tickets_awarded", deal.golden_tickets))
     loyalty_value = (
-        f"+{deal.loyalty_points} → **{customer['loyalty_points']} total**"
-        if deal.loyalty_points
+        f"+{awarded_points} → **{customer['loyalty_points']} total**"
+        if awarded_points
         else f"No point on this deal • **{customer['loyalty_points']} total**"
     )
     embed.add_field(name="Loyalty", value=loyalty_value, inline=True)
-    embed.add_field(name="Golden Tickets", value=f"+{deal.golden_tickets}", inline=True)
+    embed.add_field(name="Golden Tickets", value=f"+{awarded_tickets}", inline=True)
+    membership = customer["membership"]
+    embed.add_field(name="Membership", value=f"{membership['emoji']} **{membership['name']}**", inline=True)
     if won:
         embed.add_field(
             name="🏆 JACKPOT PRIZE",
@@ -264,6 +300,16 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
             await interaction.followup.send(embed=customer_embed(customer), ephemeral=True)
         else:
             await interaction.response.send_message(embed=customer_embed(customer), ephemeral=True)
+    elif action == "vip":
+        if not await require_owner(interaction):
+            return
+        message = (f"Manage membership for **{discord.utils.escape_markdown(customer['display_name'])}**.\n"
+                   f"Current level: {customer['membership']['emoji']} **{customer['membership']['name']}**")
+        view = VIPLevelView(customer['display_name'])
+        if interaction.response.is_done():
+            await interaction.followup.send(message, view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, view=view, ephemeral=True)
     elif action == "redeem":
         rewards = customer["unclaimed_rewards"]
         if not rewards:
@@ -320,13 +366,15 @@ class NameChoiceView(discord.ui.View):
 
 
 class CustomerSelect(discord.ui.Select):
-    def __init__(self, action, names, page, debts):
+    def __init__(self, action, names, page, debts, memberships):
         self.action = action
         start = page * 25
         options = [discord.SelectOption(
-            label=((f"£{debts.get(normalize_name(name), 0):,} OWED — " if debts.get(normalize_name(name)) else "") + name)[:100],
+            label=((f"£{debts.get(normalize_name(name), 0):,} OWED — " if debts.get(normalize_name(name)) else "")
+                   + f"{memberships[normalize_name(name)]['emoji']} {name}")[:100],
             value=name,
-            description=("Wasted Journey fee outstanding" if debts.get(normalize_name(name)) else None),
+            description=("Wasted Journey fee outstanding" if debts.get(normalize_name(name))
+                         else f"{memberships[normalize_name(name)]['name']} member"),
             emoji=("⚠️" if debts.get(normalize_name(name)) else "👤"),
         ) for name in names[start:start + 25]]
         super().__init__(placeholder="Select a character name", options=options)
@@ -342,9 +390,10 @@ class CustomerPickerView(discord.ui.View):
         self.action = action
         self.names = sorted(db.customer_names(), key=normalize_name)
         self.debts = orders.outstanding_debt_map()
+        self.memberships = db.vip_membership_map()
         self.page = max(0, min(page, max(0, (len(self.names) - 1) // 25)))
         if self.names:
-            self.add_item(CustomerSelect(action, self.names, self.page, self.debts))
+            self.add_item(CustomerSelect(action, self.names, self.page, self.debts, self.memberships))
 
     @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
     async def previous(self, interaction, button):
@@ -495,9 +544,131 @@ class BirdyView(discord.ui.View):
         self.add_item(BirdySelect())
 
 
+class VIPLevelSelect(discord.ui.Select):
+    def __init__(self, customer_name):
+        self.customer_name = customer_name
+        options = [discord.SelectOption(
+            label="Automatic progression", value="Automatic", emoji="🔄",
+            description="Use completed purchases to choose the level",
+        )]
+        for name, details in VIP_LEVELS.items():
+            options.append(discord.SelectOption(
+                label=name, value=name, emoji=details["emoji"],
+                description=(f"+{details['bonus_points']} loyalty and +{details['bonus_tickets']} ticket(s) per purchase")[:100],
+            ))
+        super().__init__(placeholder="Set membership level", options=options)
+
+    async def callback(self, interaction):
+        if not await require_owner(interaction):
+            return
+        customer = db.set_vip_override(
+            self.customer_name, self.values[0], str(interaction.user.id), str(interaction.user))
+        await interaction.response.edit_message(
+            content=(f"✅ **{discord.utils.escape_markdown(customer['display_name'])}** is now "
+                     f"{customer['membership']['emoji']} **{customer['membership']['name']}**. "
+                     f"Mode: {'manual owner override' if customer['membership']['manual'] else 'automatic progression'}."),
+            view=None,
+        )
+
+
+class VIPLevelView(discord.ui.View):
+    def __init__(self, customer_name):
+        super().__init__(timeout=180)
+        self.add_item(VIPLevelSelect(customer_name))
+
+
+class OwnerClockOffSelect(discord.ui.Select):
+    def __init__(self, active_staff):
+        self.staff = {row['staff_id']: row for row in active_staff[:25]}
+        options = [discord.SelectOption(label=row['staff_name'][:100], value=row['staff_id'], emoji="🔴",
+                                        description="Manually clock this person off")
+                   for row in active_staff[:25]]
+        super().__init__(placeholder="Choose staff member to clock off", options=options)
+
+    async def callback(self, interaction):
+        if not await require_owner(interaction):
+            return
+        row = shifts.force_clock_out(self.values[0], interaction.user.id, str(interaction.user))
+        remaining = len(shifts.active(interaction.guild_id))
+        await interaction.response.edit_message(
+            content=(f"🔴 **{discord.utils.escape_markdown(row['staff_name'])}** was manually clocked off. "
+                     f"{remaining} delivery staff remain clocked in."),
+            view=None,
+        )
+
+
+class OwnerClockOffView(discord.ui.View):
+    def __init__(self, active_staff):
+        super().__init__(timeout=180)
+        self.add_item(OwnerClockOffSelect(active_staff))
+
+
+class OwnerAdminView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="Manage VIP Level", emoji="👑", style=discord.ButtonStyle.primary)
+    async def manage_vip(self, interaction, button):
+        if await require_owner(interaction):
+            await show_customer_picker(interaction, "vip")
+
+    @discord.ui.button(label="Clock Staff Off", emoji="🔴", style=discord.ButtonStyle.danger)
+    async def clock_staff_off(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        active = shifts.active(interaction.guild_id)
+        if not active:
+            await interaction.response.send_message("ℹ️ Nobody is currently clocked in.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "Choose the staff member you want to manually clock off:",
+            view=OwnerClockOffView(active), ephemeral=True,
+        )
+
+    @discord.ui.button(label="Owner Dashboard", emoji="📊", style=discord.ButtonStyle.secondary)
+    async def owner_dashboard(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        counts = db.vip_counts()
+        active = shifts.active(interaction.guild_id)
+        fees = orders.outstanding_fees(interaction.guild_id)
+        stats = db.report(today=True)
+        embed = discord.Embed(title="👑 SNR OWNER DASHBOARD", colour=discord.Colour.gold())
+        embed.description = "**SNR Buns — Owned by Cody, Ash & Lola**"
+        embed.add_field(name="Today", value=f"{stats['sales']} sales • {money(stats['revenue'])} revenue • {money(stats['gross_profit'])} profit", inline=False)
+        embed.add_field(name="Memberships", value="\n".join(f"{VIP_LEVELS[name]['emoji']} {name}: **{total}**" for name, total in counts.items()), inline=True)
+        embed.add_field(name="Delivery Staff", value=f"**{len(active)} clocked in**", inline=True)
+        embed.add_field(name="Fees Owed", value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))}**", inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
+    async def set_bot_logo(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            updated = await bot.user.edit(avatar=Path(__file__).with_name("snr-logo.png").read_bytes())
+            await interaction.followup.send(
+                f"✅ The main Discord picture for **{updated.name}** is now the official SNR Buns logo.",
+                ephemeral=True,
+            )
+        except discord.HTTPException:
+            logging.exception("Discord rejected bot avatar update")
+            await interaction.followup.send(
+                "❌ Discord could not update the picture right now. Wait an hour and try once more.", ephemeral=True)
+
+
 class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+
+    @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger, custom_id="snr:owner_admin")
+    async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_owner(interaction):
+            await interaction.response.send_message(
+                "👑 **SNR Owner Controls**\nManage memberships, shifts, finances and branding.",
+                view=OwnerAdminView(), ephemeral=True,
+            )
 
     @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
     async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -672,15 +843,24 @@ def delivery_order_embed(row):
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name='Amount Owed', value=f"**{money(row['price'])}**", inline=True)
     embed.add_field(name='Status', value=f"**{status}**", inline=True)
+    customer = db.get_customer(row['customer_key'])
+    if customer:
+        membership = customer['membership']
+        embed.add_field(name='Membership', value=f"{membership['emoji']} **{membership['name']}**", inline=True)
     items = orders.items(row)
     lines = []
     loyalty = tickets = 0
+    projected_sales = int(customer['lifetime_sales']) if customer else 0
     for item in items:
         deal = DEALS.get(item['key'])
         lines.append(f"**{item['quantity']} × {discord.utils.escape_markdown(item['name'])}** — {money(item['line_total'])}")
         if deal:
-            loyalty += deal.loyalty_points * int(item['quantity'])
-            tickets += deal.golden_tickets * int(item['quantity'])
+            for _ in range(int(item['quantity'])):
+                projected_sales += 1
+                projected_vip = vip_level_for_sales(
+                    projected_sales, customer.get('vip_override') if customer else None)
+                loyalty += deal.loyalty_points + int(projected_vip['bonus_points'])
+                tickets += deal.golden_tickets + int(projected_vip['bonus_tickets'])
     embed.add_field(name='Order Items', value="\n".join(lines)[:1024] or row['deal_name'], inline=False)
     embed.add_field(name='Rewards After Payment',
                     value=f"{loyalty} loyalty point(s) • {tickets} Golden ticket(s)", inline=True)
@@ -815,12 +995,14 @@ class DeliveryOrderView(discord.ui.View):
                     row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
                     sales = []
                 elif target == 'on_way':
-                    if row.get('assigned_driver_id') != str(interaction.user.id) and not has_role(interaction, MANAGER_ROLE_NAME):
+                    if (row.get('assigned_driver_id') != str(interaction.user.id)
+                            and not has_role(interaction, MANAGER_ROLE_NAME) and not is_owner(interaction)):
                         raise ValueError('Only the assigned driver or SNR Management can mark this order on the way.')
                     row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
                     sales = []
                 elif target == 'wasted_journey':
-                    if row.get('assigned_driver_id') != str(interaction.user.id) and not has_role(interaction, MANAGER_ROLE_NAME):
+                    if (row.get('assigned_driver_id') != str(interaction.user.id)
+                            and not has_role(interaction, MANAGER_ROLE_NAME) and not is_owner(interaction)):
                         raise ValueError('Only the assigned driver or SNR Management can add a Wasted Journey fee.')
                     row, fee = orders.charge_wasted_journey(
                         self.order_id, str(interaction.user.id), str(interaction.user))
@@ -892,6 +1074,8 @@ async def show_delivery_orders(interaction):
     if not await require_staff(interaction):
         return
     rows = [row for row in orders.pending() if row['guild_id'] == str(interaction.guild_id)]
+    rank = {name: index for index, name in enumerate(VIP_LEVELS)}
+    rows.sort(key=lambda row: (-rank.get((db.get_customer(row['customer_key']) or {'membership': {'name': 'Regular'}})['membership']['name'], 0), row['id']))
     fees = orders.outstanding_fees(interaction.guild_id, 10)
     await interaction.response.send_message(embed=delivery_dashboard_embed(interaction.guild_id), ephemeral=True)
     for row in rows[:10]:
@@ -1128,18 +1312,28 @@ async def setup_hook() -> None:
         await bot.tree.sync()
 
 
-@bot.tree.command(name="snrhub_panel", description="Post the permanent SNR staff control panel.")
+@bot.tree.command(name="snrhub_panel", description="Owner: post the permanent SNR staff control panel.")
 async def snr_panel(interaction: discord.Interaction) -> None:
-    if not await require_staff(interaction):
+    if not await require_owner(interaction):
         return
     await interaction.response.send_message("✅ Staff panel posted.", ephemeral=True)
     await interaction.channel.send(embed=panel_embed(), view=StaffPanel())
 
 
-@bot.tree.command(name='snrhub_claims_setup', description='Management: use this private staff channel for website reward alerts.')
+@bot.tree.command(name="snrhub_owner", description="Open the private SNR Owner control centre.")
+async def snr_owner(interaction: discord.Interaction) -> None:
+    if not await require_owner(interaction):
+        return
+    await interaction.response.send_message(
+        "👑 **SNR Owner Controls**\nManage memberships, shifts, finances and branding.",
+        view=OwnerAdminView(), ephemeral=True,
+    )
+
+
+@bot.tree.command(name='snrhub_claims_setup', description='Owner: use this private staff channel for website reward alerts.')
 async def claims_setup(interaction: discord.Interaction):
-    if not has_role(interaction, MANAGER_ROLE_NAME):
-        await interaction.response.send_message('SNR Management only.', ephemeral=True)
+    if not is_owner(interaction):
+        await interaction.response.send_message(f'{OWNER_ROLE_NAME} only.', ephemeral=True)
         return
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel) or (GUILD_ID and interaction.guild_id != GUILD_ID):
@@ -1153,10 +1347,10 @@ async def claims_setup(interaction: discord.Interaction):
     await interaction.response.send_message('Website pack claims enabled. New alerts will appear here, normally within 10 seconds. Customers must log in to request their own pack.', ephemeral=True)
 
 
-@bot.tree.command(name='snrhub_orders_setup', description='Management: use this private channel for website delivery orders.')
+@bot.tree.command(name='snrhub_orders_setup', description='Owner: use this private channel for website delivery orders.')
 async def orders_setup(interaction: discord.Interaction):
-    if not has_role(interaction, MANAGER_ROLE_NAME):
-        await interaction.response.send_message('SNR Management only.', ephemeral=True)
+    if not is_owner(interaction):
+        await interaction.response.send_message(f'{OWNER_ROLE_NAME} only.', ephemeral=True)
         return
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel) or (GUILD_ID and interaction.guild_id != GUILD_ID):

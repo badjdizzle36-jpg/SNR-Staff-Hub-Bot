@@ -9,6 +9,7 @@ from snr_core import (
     AVERAGE_FOOD_COST,
     SNRDatabase,
     birdy_post,
+    vip_level_for_sales,
 )
 
 
@@ -87,6 +88,25 @@ class TestSNRCore(unittest.TestCase):
         self.assertEqual(round(AVERAGE_FOOD_COST, 2), 6.65)
         self.assertEqual(round(AVERAGE_DRINK_COST, 2), 2.90)
         self.assertEqual(round(AVERAGE_DESSERT_COST, 2), 5.57)
+
+    def test_vip_levels_bonuses_and_owner_override(self):
+        self.assertEqual(vip_level_for_sales(0)["name"], "Regular")
+        self.assertEqual(vip_level_for_sales(5)["name"], "Silver")
+        self.assertEqual(vip_level_for_sales(15)["name"], "Gold")
+        self.assertEqual(vip_level_for_sales(30)["name"], "SNR VIP")
+        for _ in range(5):
+            result = self.db.record_sale("Member", "quick_fix", "1", "Staff")
+        self.assertEqual(result["customer"]["membership"]["name"], "Silver")
+        self.assertEqual(result["loyalty_awarded"], 0)
+        self.assertEqual(result["tickets_awarded"], 2)
+        customer = self.db.set_vip_override("Member", "SNR VIP", "99", "Owner")
+        self.assertTrue(customer["membership"]["manual"])
+        result = self.db.record_sale("Member", "quick_fix", "1", "Staff")
+        self.assertEqual(result["loyalty_awarded"], 1)
+        self.assertEqual(result["tickets_awarded"], 3)
+        customer = self.db.set_vip_override("Member", "Automatic", "99", "Owner")
+        self.assertEqual(customer["membership"]["name"], "Silver")
+        self.assertFalse(customer["membership"]["manual"])
 
 
 if __name__ == "__main__":

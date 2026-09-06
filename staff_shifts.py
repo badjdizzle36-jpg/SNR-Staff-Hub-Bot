@@ -57,6 +57,21 @@ class StaffShifts:
                          (row["staff_id"], row["staff_name"], row["guild_id"], "clock_out", utc_now()))
         return True
 
+    def force_clock_out(self, staff_id, owner_id, owner_name):
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM staff_shifts WHERE staff_id=?", (str(staff_id),)).fetchone()
+            if not row:
+                raise ValueError("That staff member is no longer clocked in.")
+            now = utc_now()
+            conn.execute("DELETE FROM staff_shifts WHERE staff_id=?", (str(staff_id),))
+            conn.execute("INSERT INTO staff_shift_log(staff_id,staff_name,guild_id,action,created_at) VALUES(?,?,?,?,?)",
+                         (row["staff_id"], row["staff_name"], row["guild_id"], "owner_clock_out", now))
+            conn.execute("INSERT INTO audit_log(action,staff_id,staff_name,details,created_at) VALUES(?,?,?,?,?)",
+                         ("owner_clocked_staff_off", str(owner_id), str(owner_name),
+                          f"staff_id={row['staff_id']};staff_name={row['staff_name']}", now))
+        return dict(row)
+
     def active(self, guild_id=None):
         with self.db.connect() as conn:
             conn.execute("DELETE FROM staff_shifts WHERE expires<=?", (time.time(),))

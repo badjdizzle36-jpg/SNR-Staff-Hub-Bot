@@ -80,6 +80,36 @@ DEALS: dict[str, Deal] = {
     "share_box": Deal("share_box", "SNR Share Box", 1200, 10, 10, 2, 4),
 }
 
+VIP_LEVELS = {
+    "Regular": {"minimum_sales": 0, "bonus_points": 0, "bonus_tickets": 0, "emoji": "🍔"},
+    "Silver": {"minimum_sales": 5, "bonus_points": 0, "bonus_tickets": 1, "emoji": "🥈"},
+    "Gold": {"minimum_sales": 15, "bonus_points": 1, "bonus_tickets": 1, "emoji": "🥇"},
+    "SNR VIP": {"minimum_sales": 30, "bonus_points": 1, "bonus_tickets": 2, "emoji": "👑"},
+}
+
+
+def vip_level_for_sales(lifetime_sales: int, override: str | None = None) -> dict[str, Any]:
+    if override in VIP_LEVELS:
+        name = override
+    else:
+        name = "Regular"
+        for candidate, details in VIP_LEVELS.items():
+            if int(lifetime_sales) >= details["minimum_sales"]:
+                name = candidate
+    details = dict(VIP_LEVELS[name])
+    details["name"] = name
+    details["manual"] = override in VIP_LEVELS
+    names = list(VIP_LEVELS)
+    index = names.index(name)
+    if index + 1 < len(names) and not details["manual"]:
+        next_name = names[index + 1]
+        details["next_level"] = next_name
+        details["next_at"] = VIP_LEVELS[next_name]["minimum_sales"]
+        details["remaining"] = max(0, details["next_at"] - int(lifetime_sales))
+    else:
+        details.update({"next_level": None, "next_at": None, "remaining": 0})
+    return details
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -198,6 +228,9 @@ class SNRDatabase:
                 conn.execute("ALTER TABLE sales ADD COLUMN production_cost REAL NOT NULL DEFAULT 0")
             if "source_ref" not in sales_columns:
                 conn.execute("ALTER TABLE sales ADD COLUMN source_ref TEXT")
+            customer_columns = {row["name"] for row in conn.execute("PRAGMA table_info(customers)")}
+            if "vip_override" not in customer_columns:
+                conn.execute("ALTER TABLE customers ADD COLUMN vip_override TEXT")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS unique_sale_source_ref ON sales(source_ref) WHERE source_ref IS NOT NULL"
             )
@@ -247,6 +280,42 @@ class SNRDatabase:
     def customer_names(self) -> list[str]:
         with self.connect() as conn:
             return [r["display_name"] for r in conn.execute("SELECT display_name FROM customers")]
+
+    @staticmethod
+    def membership(customer: dict[str, Any] | sqlite3.Row) -> dict[str, Any]:
+        return vip_level_for_sales(int(customer["lifetime_sales"]), customer["vip_override"])
+
+    def set_vip_override(self, name: str, level: str | None, staff_id: str, staff_name: str) -> dict[str, Any]:
+        if level in ("", "Automatic"):
+            level = None
+        if level is not None and level not in VIP_LEVELS:
+            raise ValueError("Unknown membership level.")
+        key = normalize_name(name)
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            customer = conn.execute("SELECT * FROM customers WHERE customer_key=?", (key,)).fetchone()
+            if not customer:
+                raise ValueError("Customer not found.")
+            conn.execute("UPDATE customers SET vip_override=?,updated_at=? WHERE customer_key=?",
+                         (level, utc_now(), key))
+            conn.execute(
+                "INSERT INTO audit_log(action,staff_id,staff_name,details,created_at) VALUES(?,?,?,?,?)",
+                ("vip_membership_changed", str(staff_id), staff_name,
+                 json.dumps({"customer": customer["display_name"], "level": level or "Automatic"}), utc_now()),
+            )
+        return self.get_customer(name)
+
+    def vip_counts(self) -> dict[str, int]:
+        counts = {name: 0 for name in VIP_LEVELS}
+        with self.connect() as conn:
+            for row in conn.execute("SELECT lifetime_sales,vip_override FROM customers"):
+                counts[self.membership(row)["name"]] += 1
+        return counts
+
+    def vip_membership_map(self) -> dict[str, dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT customer_key,lifetime_sales,vip_override FROM customers").fetchall()
+        return {row["customer_key"]: self.membership(row) for row in rows}
 
     def suggest_name(self, name: str, cutoff: float = 0.82) -> str | None:
         wanted = normalize_name(name)
@@ -312,7 +381,7 @@ class SNRDatabase:
         jackpot = conn.execute("SELECT * FROM jackpot WHERE id=1").fetchone()
         return {
             "transaction_id": sale["transaction_id"],
-            "customer": dict(customer),
+            "customer": {**dict(customer), "membership": self.membership(customer)},
             "deal": DEALS[sale["deal_key"]],
             "card_reward_codes": [],
             "jackpot_won": bool(sale["jackpot_won"]),
@@ -321,6 +390,8 @@ class SNRDatabase:
             "ticket_positions": [],
             "jackpot_cycle": int(jackpot["cycle"]),
             "tickets_issued_in_cycle": int(jackpot["tickets_issued"]),
+            "loyalty_awarded": int(sale["loyalty_points"]),
+            "tickets_awarded": int(sale["golden_tickets"]),
         }
 
     def record_sale(
@@ -345,7 +416,10 @@ class SNRDatabase:
             key = customer["customer_key"]
             shown = customer["display_name"]
 
-            new_points_total = int(customer["loyalty_points"]) + deal.loyalty_points
+            vip = vip_level_for_sales(int(customer["lifetime_sales"]) + 1, customer["vip_override"])
+            sale_points = deal.loyalty_points + int(vip["bonus_points"])
+            sale_tickets = deal.golden_tickets + int(vip["bonus_tickets"])
+            new_points_total = int(customer["loyalty_points"]) + sale_points
 
             cursor = conn.execute(
                 """INSERT INTO sales
@@ -355,7 +429,7 @@ class SNRDatabase:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key, shown, deal.key, deal.name, deal.price, deal.food, deal.drinks,
-                    deal.production_cost, deal.loyalty_points, deal.golden_tickets, 0,
+                    deal.production_cost, sale_points, sale_tickets, 0,
                     str(staff_id), staff_name, now, source_ref,
                 ),
             )
@@ -366,7 +440,7 @@ class SNRDatabase:
             jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
             winning_ticket = None
             ticket_positions: list[str] = []
-            for _ in range(deal.golden_tickets):
+            for _ in range(sale_tickets):
                 position = int(jackpot["tickets_issued"]) + 1
                 ticket_positions.append(f"{jackpot['cycle']}-{position:04d}")
                 if position == int(jackpot["winning_position"]):
@@ -398,7 +472,7 @@ class SNRDatabase:
                    food_sold = food_sold + ?, drinks_sold = drinks_sold + ?, updated_at = ?
                    WHERE customer_key = ?""",
                 (
-                    new_points_total, 0, deal.golden_tickets, 1 if winning_ticket else 0,
+                    new_points_total, 0, sale_tickets, 1 if winning_ticket else 0,
                     deal.price, deal.food, deal.drinks, now, key,
                 ),
             )
@@ -414,7 +488,7 @@ class SNRDatabase:
 
         return {
             "transaction_id": transaction_id,
-            "customer": dict(updated),
+            "customer": {**dict(updated), "membership": self.membership(updated)},
             "deal": deal,
             "card_reward_codes": [],
             "jackpot_won": bool(winning_ticket),
@@ -423,6 +497,8 @@ class SNRDatabase:
             "ticket_positions": ticket_positions,
             "jackpot_cycle": int(current_jackpot["cycle"]),
             "tickets_issued_in_cycle": int(current_jackpot["tickets_issued"]),
+            "loyalty_awarded": sale_points,
+            "tickets_awarded": sale_tickets,
         }
 
     def get_customer(self, name: str) -> dict[str, Any] | None:
@@ -453,6 +529,7 @@ class SNRDatabase:
             result["profit_margin"] = round(
                 (result["gross_profit"] / result["revenue"] * 100), 1
             ) if result["revenue"] else 0.0
+            result["membership"] = self.membership(customer)
             return result
 
     def unclaimed_rewards(self, name: str) -> list[dict[str, Any]]:

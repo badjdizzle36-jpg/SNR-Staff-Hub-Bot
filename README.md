@@ -4,6 +4,10 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
+- The official hub and website are branded **SNR Buns — Owned by Cody, Ash & Lola**.
+- Customer memberships progress automatically: Regular (0+ purchases), Silver (5+), Gold (15+) and SNR VIP (30+). Owners can override a level or return it to automatic mode.
+- Silver earns +1 Golden Ticket per purchase; Gold earns +1 loyalty point and +1 Golden Ticket; SNR VIP earns +1 loyalty point and +2 Golden Tickets. The bonuses are recorded in the same sale, finance, delivery and jackpot transaction.
 - Customers create a zero-point loyalty account on the website without making a purchase first.
 - New accounts activate immediately with no staff approval. Discord posts an informational alert and mentions the configured `SNR Staff` role.
 - Password resets use the customer's memorable question and answer—no setup code or staff reset is required.
@@ -49,6 +53,8 @@ Keep these Railway variables:
 - `GUILD_ID`
 - `STAFF_ROLE_NAME` = `SNR Staff`
 - `MANAGER_ROLE_NAME` = `SNR Management`
+- `OWNER_ROLE_NAME` = `SNR Owner`
+- `WEBSITE_URL` = `https://worker-production-2c48.up.railway.app`
 - `DATABASE_PATH` = `/data/snr_staff_hub.db`
 - `LEGACY_DATA_FILE` = `/data/loyalty_data.json`
 - `JACKPOT_POOL_SIZE` = `1000`
@@ -59,7 +65,9 @@ Railway supplies `PORT`; do not add it manually. The volume should remain mounte
 
 In a private orders channel, an SNR Management member runs `/snrhub_orders_setup`. The bot needs View Channel, Send Messages and Embed Links. The `SNR Staff` role must be mentionable, or the bot must have permission to mention roles, for alerts to ping it. This channel receives account-created notices; staff do not approve them.
 
-Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel. A staff member must press **Clock In** before delivery controls appear to customers.
+Create a Discord role named **SNR Owner** and assign it to Cody, Ash and Lola. Server administrators also count as owners. Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel; only an owner can post it. A staff member must press **Clock In** before delivery controls appear to customers.
+
+Open **Owner Admin** (or run `/snrhub_owner`) to use the private owner controls. Press **Set Bot Logo** once to change the bot's Discord profile picture to the supplied official SNR Buns logo. Discord may temporarily rate-limit repeated picture changes, so do not repeatedly press it.
 
 ## Staff workflow
 
@@ -71,11 +79,21 @@ Run `/snrhub_panel` again in the private staff channel to post the upgraded perm
 6. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
 7. Press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
 
+## VIP membership workflow
+
+- Every completed counter sale or paid delivery increases the customer's purchase count.
+- The qualifying purchase receives the newly unlocked level's bonus immediately.
+- The website displays the customer's level, exact bonuses and purchases remaining to the next level.
+- Discord customer cards, name dropdowns, sale receipts and delivery orders display the same current level.
+- Owners use **Owner Admin → Manage VIP Level** to set Regular, Silver, Gold or SNR VIP manually, or choose **Automatic progression**.
+- Owner overrides and forced clock-offs are written to the audit log.
+
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.
 
 ## Slash commands
 
 - `/snrhub_panel` — post the permanent staff panel
+- `/snrhub_owner` — open the owner-only control centre
 - `/snrhub_orders_setup` — set the private delivery/account-alert channel
 - `/snrhub_claims_setup` — optionally set a separate pack-claim channel
 - `/snrhub_accounts_pending` — review recent account activity and any older approval requests
