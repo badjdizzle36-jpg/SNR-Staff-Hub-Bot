@@ -127,7 +127,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("X-Robots-Tag", "noindex, nofollow")
-            self.send_header("X-Frame-Options", "DENY")
+            # This public read-only portal must embed in the in-game phone.
+            # Do not send X-Frame-Options or a restrictive frame-ancestors policy.
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
