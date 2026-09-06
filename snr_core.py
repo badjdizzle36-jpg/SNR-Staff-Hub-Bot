@@ -145,6 +145,7 @@ class SNRDatabase:
                     staff_id TEXT NOT NULL,
                     staff_name TEXT NOT NULL,
                     created_at TEXT NOT NULL,
+                    source_ref TEXT,
                     voided INTEGER NOT NULL DEFAULT 0,
                     void_reason TEXT,
                     voided_at TEXT,
@@ -195,6 +196,11 @@ class SNRDatabase:
             sales_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sales)")}
             if "production_cost" not in sales_columns:
                 conn.execute("ALTER TABLE sales ADD COLUMN production_cost REAL NOT NULL DEFAULT 0")
+            if "source_ref" not in sales_columns:
+                conn.execute("ALTER TABLE sales ADD COLUMN source_ref TEXT")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS unique_sale_source_ref ON sales(source_ref) WHERE source_ref IS NOT NULL"
+            )
 
             # Backfill any earlier sales using the same category-average model.
             for deal in DEALS.values():
@@ -293,13 +299,48 @@ class SNRDatabase:
         conn.execute("UPDATE rewards SET reward_code = ? WHERE id = ?", (code, cursor.lastrowid))
         return code
 
-    def record_sale(self, customer_name: str, deal_key: str, staff_id: str, staff_name: str) -> dict[str, Any]:
+    def _existing_sale_result(self, conn: sqlite3.Connection, sale: sqlite3.Row) -> dict[str, Any]:
+        """Rebuild the standard result for an idempotent externally sourced sale."""
+        customer = conn.execute(
+            "SELECT * FROM customers WHERE customer_key=?", (sale["customer_key"],)
+        ).fetchone()
+        reward = conn.execute(
+            """SELECT reward_code FROM rewards WHERE earned_sale_id=?
+               AND reward_type='golden_jackpot' ORDER BY id LIMIT 1""",
+            (sale["id"],),
+        ).fetchone()
+        jackpot = conn.execute("SELECT * FROM jackpot WHERE id=1").fetchone()
+        return {
+            "transaction_id": sale["transaction_id"],
+            "customer": dict(customer),
+            "deal": DEALS[sale["deal_key"]],
+            "card_reward_codes": [],
+            "jackpot_won": bool(sale["jackpot_won"]),
+            "jackpot_reward_code": reward["reward_code"] if reward else None,
+            "winning_ticket": None,
+            "ticket_positions": [],
+            "jackpot_cycle": int(jackpot["cycle"]),
+            "tickets_issued_in_cycle": int(jackpot["tickets_issued"]),
+        }
+
+    def record_sale(
+        self, customer_name: str, deal_key: str, staff_id: str, staff_name: str,
+        source_ref: str | None = None,
+    ) -> dict[str, Any]:
         if deal_key not in DEALS:
             raise ValueError("Unknown deal selected.")
+        if source_ref is not None and not 3 <= len(source_ref) <= 100:
+            raise ValueError("Invalid sale source reference.")
         deal = DEALS[deal_key]
         now = utc_now()
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            if source_ref:
+                previous = conn.execute(
+                    "SELECT * FROM sales WHERE source_ref=?", (source_ref,)
+                ).fetchone()
+                if previous:
+                    return self._existing_sale_result(conn, previous)
             customer = self._ensure_customer(conn, customer_name)
             key = customer["customer_key"]
             shown = customer["display_name"]
@@ -309,12 +350,13 @@ class SNRDatabase:
             cursor = conn.execute(
                 """INSERT INTO sales
                    (customer_key, customer_name, deal_key, deal_name, price, food, drinks, production_cost,
-                    loyalty_points, golden_tickets, card_rewards_created, staff_id, staff_name, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    loyalty_points, golden_tickets, card_rewards_created, staff_id, staff_name, created_at,
+                    source_ref)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key, shown, deal.key, deal.name, deal.price, deal.food, deal.drinks,
                     deal.production_cost, deal.loyalty_points, deal.golden_tickets, 0,
-                    str(staff_id), staff_name, now,
+                    str(staff_id), staff_name, now, source_ref,
                 ),
             )
             sale_id = int(cursor.lastrowid)
@@ -591,14 +633,15 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
         return (
             "⭐🍔 SNR BUNS LOYALTY REWARDS 🍔⭐\n\n"
             "Purchase our Mega Deal or Share Box to collect loyalty points.\n\n"
-            "Your points are saved under your character name and continue building every time you visit.\n\n"
-            "Head down to SNR Buns and keep growing your loyalty balance!"
+            "Every 4 loyalty points can be redeemed for 1 free pack containing 2 trading cards.\n\n"
+            "Log in to your loyalty webpage to check your points and request your pack, then collect it from SNR Buns!"
         )
     if kind == "delivery":
         return (
             "🚗🍔 SNR BUNS DELIVERIES ARE AVAILABLE! 🍔🚗\n\n"
-            "Hungry but can’t get to the restaurant? Call SNR Buns and let our team bring the food to you.\n\n"
-            "Fresh food • Cold drinks • Fast service"
+            "Hungry but can’t get to the restaurant? Log in through the SNR Buns loyalty webpage, choose your deal and enter your postal.\n\n"
+            "Fresh food • Cold drinks • Fast service\n\n"
+            "Pay on delivery — your loyalty points and Golden Tickets update after staff confirm payment."
         )
     if kind == "catering":
         return (

@@ -3,7 +3,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from snr_core import SNRDatabase, birdy_post
+from snr_core import (
+    AVERAGE_DESSERT_COST,
+    AVERAGE_DRINK_COST,
+    AVERAGE_FOOD_COST,
+    SNRDatabase,
+    birdy_post,
+)
 
 
 class TestSNRCore(unittest.TestCase):
@@ -24,18 +30,18 @@ class TestSNRCore(unittest.TestCase):
         self.assertEqual(customer["food_sold"], 10)
         self.assertEqual(customer["drinks_sold"], 10)
 
-    def test_four_points_create_card_reward(self):
+    def test_loyalty_points_keep_building_without_card_reward(self):
         for _ in range(4):
-            result = self.db.record_sale("Ash", "loyalty", "1", "Staff")
-        self.assertEqual(result["customer"]["loyalty_points"], 0)
-        self.assertEqual(len(result["card_reward_codes"]), 1)
+            result = self.db.record_sale("Ash", "mega_deal", "1", "Staff")
+        self.assertEqual(result["customer"]["loyalty_points"], 4)
+        self.assertEqual(len(result["card_reward_codes"]), 0)
         rewards = self.db.unclaimed_rewards("ASH")
-        self.assertEqual(rewards[0]["reward_type"], "card_pack")
+        self.assertEqual(rewards, [])
 
     def test_jackpot_is_awarded_and_resets(self):
         with self.db.connect() as conn:
             conn.execute("UPDATE jackpot SET winning_position = 1, tickets_issued = 0 WHERE id = 1")
-        result = self.db.record_sale("Lola", "loyalty", "1", "Staff")
+        result = self.db.record_sale("Lola", "mega_deal", "1", "Staff")
         self.assertTrue(result["jackpot_won"])
         self.assertEqual(result["customer"]["jackpot_wins"], 1)
         self.assertEqual(self.db.jackpot_status()["cycle"], 2)
@@ -45,12 +51,12 @@ class TestSNRCore(unittest.TestCase):
     def test_claim_reward(self):
         with self.db.connect() as conn:
             conn.execute("UPDATE jackpot SET winning_position = 1, tickets_issued = 0 WHERE id = 1")
-        result = self.db.record_sale("Jamie", "loyalty", "1", "Staff")
+        result = self.db.record_sale("Jamie", "mega_deal", "1", "Staff")
         claimed = self.db.claim_reward(result["jackpot_reward_code"], "1", "Staff")
         self.assertEqual(claimed["status"], "claimed")
 
     def test_name_suggestion(self):
-        self.db.record_sale("Cody Ortega", "loyalty", "1", "Staff")
+        self.db.record_sale("Cody Ortega", "mega_deal", "1", "Staff")
         self.assertEqual(self.db.suggest_name("cody ortega"), "Cody Ortega")
         self.assertEqual(self.db.suggest_name("cody ortga"), "Cody Ortega")
 
@@ -59,6 +65,28 @@ class TestSNRCore(unittest.TestCase):
         self.assertIn("£1,200", post)
         self.assertIn("10 FOOD + 10 DRINKS", post)
         self.assertIn("£5,000 cash jackpot", post)
+
+    def test_menu_matches_the_snr_meal_board(self):
+        from snr_core import DEALS
+
+        self.assertEqual(
+            list(DEALS),
+            ["quick_fix", "happy_meal", "sweet_treat", "mega_deal", "blue_light", "share_box"],
+        )
+
+    def test_finance_report_calculates_cost_profit_and_margin(self):
+        self.db.record_sale("Cody", "quick_fix", "1", "Staff")
+        self.db.record_sale("Cody", "sweet_treat", "1", "Staff")
+        report = self.db.report()
+        self.assertEqual(report["revenue"], 550)
+        self.assertEqual(report["production_cost"], 37.38)
+        self.assertEqual(report["gross_profit"], 512.62)
+        self.assertEqual(report["profit_margin"], 93.2)
+
+    def test_supplied_category_averages(self):
+        self.assertEqual(round(AVERAGE_FOOD_COST, 2), 6.65)
+        self.assertEqual(round(AVERAGE_DRINK_COST, 2), 2.90)
+        self.assertEqual(round(AVERAGE_DESSERT_COST, 2), 5.57)
 
 
 if __name__ == "__main__":

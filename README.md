@@ -1,15 +1,103 @@
 # SNR Buns Staff Hub
 
+## Website delivery orders (latest update)
+
+Logged-in customers can now order one of the six current SNR deals directly
+from their loyalty webpage. Every deal shows its contents, exact price, loyalty
+points and Golden Tickets. A postal or clear delivery location is required.
+
+Create a private Discord channel such as `snr-delivery-orders`, make sure
+@everyone cannot view it, and run `/snrhub_orders_setup` inside it as an SNR
+Management member. New orders normally arrive there within 10 seconds with the
+customer, selected deal, amount owed and delivery location.
+
+Staff press **Customer Paid** only after taking payment. That single action
+records the deal in the existing sales and finance system and awards its loyalty
+points and Golden Tickets. **Cancel Order** adds no sale and no rewards. The
+database uses a unique delivery reference, so restarts or repeated button clicks
+cannot count the same order twice. Customers can have one waiting order at a
+time and can follow its status on their account page.
+
+## Password-protected loyalty accounts (latest update)
+
+Every 4 available loyalty points can be exchanged for one pack containing 2
+trading cards. Existing saved points qualify. Mega Deal still earns 1 point and
+Share Box earns 2. No automatic free card is added to another meal.
+
+Upload `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`,
+`customer_accounts.py`, and the new `delivery_orders.py` together at the
+repository root. Keep `snr-logo.png` there. Do not replace the Railway database
+or volume. No new environment variables or dependencies are needed.
+
+After deployment, an SNR Management member or administrator runs
+`/snrhub_claims_setup` in the private staff text channel that should receive
+alerts. The bot needs View Channel, Send Messages and Embed Links there. The
+channel must not allow @everyone to view it. Website requests are disabled until
+this setup is complete.
+
+Run `/snrhub_panel` again to post the new **Create Web Account**, **Reset Web
+Password**, and **Pack Requests** buttons. Staff create a named account with the
+button or `/snrhub_account_create name:`. The bot privately shows a one-time
+setup code that expires after 24 hours. Staff verify the customer's in-game
+identity and privately give that code to the correct customer.
+
+On the website, the customer selects their character name, enters the setup
+code, and chooses a password between 10 and 128 characters. Passwords are
+stored only as salted PBKDF2 hashes; staff cannot see them. The customer then
+logs in to see only their own stats and redeem only their own points. Changing
+the URL or selecting another name cannot open or redeem another account.
+
+If the customer forgets their password, staff verify them and use **Reset Web
+Password** or `/snrhub_password_reset name:`. This immediately signs out every
+old session, disables the old password, and creates a new setup code. Five
+incorrect passwords or setup codes lock attempts for 15 minutes. A website
+login lasts 8 hours. Staff retain full customer lookup and reward controls in
+the private Discord hub and do not need the customer's password.
+
+When the logged-in player requests a pack, the server gets the customer identity
+from the protected login session—not from a dropdown or editable form field.
+Exactly four points are reserved transactionally. Only one pending request per
+customer is allowed. Repeat submissions do not reserve again. Staff click
+**Handed Over** after delivering the pack, or **Cancel & Return Points**. Both
+actions are audited and work only once. There is no automatic in-game delivery.
+
+Alerts normally arrive within 10 seconds while Discord is available. Requests
+are stored in SQLite and unsent alerts retry after outages/restarts. A crash
+between sending and saving the message ID can produce a duplicate alert; both
+refer to the same claim and cannot cause a second deduction or refund. Pending
+requests remain available through Pack Requests if a message is deleted.
+Customers refresh their card to see status updates; website confirmation says
+queued, not delivered to Discord. Staff actions remain private to Discord.
+
+Finance reports still show food-production gross profit; they do not subtract
+the cost of reward packs or other giveaways. Claims are audited separately.
+
+The older deployment notes below describe the original sale-entry behavior;
+this section governs the new website reward redemption workflow.
+
+## Public customer loyalty card
+
+The same Railway service runs a mobile-friendly public loyalty page. Customers
+do not need Discord. Put the public Railway link on the in-game wall. Players
+select their character name and log in to see their own visits, points, Golden
+Tickets and recent meals. The dropdown alone never reveals anyone's card.
+
+The public page never exposes revenue, costs, profit, staff identities, password
+hashes, setup codes or the hidden jackpot position. Railway supplies `PORT`
+automatically; do not add or change it manually.
+
 A private, staff-only Discord bot for recording SNR Buns sales with only the customer’s character name.
 
 The bot automatically handles:
 
-- Loyalty points: 4 points awards one free 2-card trading pack
+- Loyalty points with optional website claims: four points for one two-card pack
 - Golden Ticket entries and one hidden Mystery Ticket within every 1,000 tickets
 - An extremely rare £5,000 cash jackpot prize
 - Customer histories, rewards, revenue, food and drink totals
+- Today, 7-day, 30-day and all-time finance reports with production cost, gross profit and margin
 - Ready-to-copy Birdy posts
 - Name matching and misspelling suggestions
+- Password-protected website delivery orders with required locations
 - Importing existing `loyalty_data.json` customers without changing the original file
 
 Customers never need to join Discord.
@@ -18,9 +106,11 @@ Customers never need to join Discord.
 
 | Deal | Price | Contents | Loyalty | Golden Tickets |
 | --- | ---: | --- | ---: | ---: |
-| SNR Loyalty Deal | £500 | 4 food + 4 drinks | 1 | 1 |
-| SNR Crew Deal | £750 | 6 food + 6 drinks | 1 | 2 |
-| SNR Big Feed | £1,000 | 8 food + 8 drinks | 1 | 3 |
+| SNR Quick Fix | £150 | 1 food + 1 drink | 0 | 1 |
+| SNR Happy Meal | £300 | 2 food + 2 drinks | 0 | 1 |
+| SNR Sweet Treat Deal | £400 | 5 desserts | 0 | 1 |
+| SNR Mega Deal | £500 | 4 food + 4 drinks | 1 | 1 |
+| SNR Blue Light Deal | £600 | 8 food + 8 drinks | 0 | 1 |
 | SNR Share Box | £1,200 | 10 food + 10 drinks | 2 | 4 |
 
 ## Staff workflow
@@ -29,9 +119,42 @@ Customers never need to join Discord.
 2. Press **Record Sale**.
 3. Enter the customer’s character name.
 4. Choose the deal from the dropdown.
-5. The bot records everything and immediately checks for loyalty and jackpot rewards.
+5. The bot records everything and immediately updates loyalty and the jackpot.
 
-The panel also contains **Check Customer**, **Redeem Reward**, **Golden Jackpot**, **Birdy Post**, and **Today’s Report**.
+The panel also contains **Create Web Account**, **Reset Web Password**, **Pack
+Requests**, **Delivery Orders**, **Check Customer**, **Redeem Reward**, **Golden
+Jackpot**, **Birdy Post**, and **Finance Check**. Trading cards are awarded only when a customer
+exchanges four points for one two-card pack.
+
+## Finance Check
+
+The **Finance Check** button privately shows today’s figures in UK time:
+
+- Revenue
+- Estimated production cost
+- Gross profit
+- Profit margin percentage
+- Food, dessert and drink quantities
+- Profit and margin for every deal sold
+
+The cost model uses the supplied item prices:
+
+| Category | Item | Cost each |
+| --- | --- | ---: |
+| Food | Burger | £7.70 |
+| Food | Chicken wrap | £5.60 |
+| Drink | Cherry slush | £1.75 |
+| Drink | Lemon slush | £0.70 |
+| Drink | Pineapple slush | £6.25 |
+| Dessert | Chocolate muffin | £7.00 |
+| Dessert | Doughnut | £7.00 |
+| Dessert | Chocolate ice cream | £3.50 |
+| Dessert | Mint ice cream | £4.90 |
+| Dessert | Strawberry ice cream | £8.20 |
+| Dessert | Vanilla ice cream | £2.80 |
+
+Because a sale records the meal deal rather than every flavour chosen, finance reports use
+the category averages: **£6.65 per food, £2.90 per drink and £5.57 per dessert**.
 
 ## Railway installation
 
@@ -88,6 +211,12 @@ The panel remains usable after the bot restarts.
 - `/snrhub_panel` — post the permanent control panel
 - `/snrhub_sale name` — open the deal dropdown for a customer
 - `/snrhub_customer name` — check loyalty, sales and outstanding rewards
+- `/snrhub_account_create name` — create a web account and one-time setup code
+- `/snrhub_password_reset name` — revoke old access and issue a new setup code
+- `/snrhub_claims_setup` — choose the private staff channel for website alerts
+- `/snrhub_claims_pending` — show pending website pack requests
+- `/snrhub_orders_setup` — choose the private Discord delivery-orders channel
+- `/snrhub_orders_pending` — show orders awaiting payment
 - `/snrhub_birdy` — generate a copy-ready Birdy post
 - `/snrhub_report` — show 24-hour, 7-day, 30-day or all-time totals
 
@@ -108,4 +237,4 @@ the commands from the existing loyalty, Blue Light or raffle bots.
 
 From inside this folder:
 
-`python -m unittest -v test_snr_core.py`
+`python -m unittest -v`

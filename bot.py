@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import logging
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from snr_core import (
     AVERAGE_DESSERT_COST,
@@ -17,6 +18,9 @@ from snr_core import (
     normalize_name,
 )
 from web_portal import start_web_server
+from reward_claims import ClaimStore
+from customer_accounts import Accounts
+from delivery_orders import DeliveryStore
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -32,6 +36,9 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = SNRDatabase(DATABASE_PATH, JACKPOT_POOL_SIZE)
 db_lock = asyncio.Lock()
+claims = ClaimStore(db)
+accounts = Accounts(db)
+orders = DeliveryStore(db)
 
 
 def money(value: float | int) -> str:
@@ -64,8 +71,8 @@ def panel_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🍔 SNR BUNS — STAFF HUB",
         description=(
-            "Use the buttons below to record sales, check customers, redeem rewards, "
-            "manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
+            "Use the buttons below to record sales, manage website deliveries, check customers, "
+            "redeem rewards, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
             "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
@@ -96,6 +103,7 @@ def customer_embed(customer: dict) -> discord.Embed:
         value=f"**{customer['food_sold']} food • {customer['drinks_sold']} drinks**",
         inline=True,
     )
+    embed.add_field(name="Website Account", value=f"**{accounts.status(customer['display_name'])}**", inline=True)
     rewards = customer["unclaimed_rewards"]
     if rewards:
         lines = [f"`{r['reward_code']}` — {r['description']}" for r in rewards[:8]]
@@ -169,7 +177,7 @@ def finance_embed(stats: dict, title: str) -> discord.Embed:
     embed.set_footer(
         text=(
             f"Average costs: food {money(AVERAGE_FOOD_COST)} • drink {money(AVERAGE_DRINK_COST)} • "
-            f"dessert {money(AVERAGE_DESSERT_COST)}"
+            f"dessert {money(AVERAGE_DESSERT_COST)} • Excludes reward packs and overheads"
         )
     )
     return embed
@@ -199,6 +207,23 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
         else:
             await interaction.response.send_message(message, view=DealView(name, "sale"), ephemeral=True)
         return
+    if action == "account_create":
+        try:
+            code = accounts.issue_setup(name, str(interaction.user.id), str(interaction.user))
+            customer = db.get_customer(name)
+            message = (
+                f"✅ Website account created for **{discord.utils.escape_markdown(customer['display_name'])}**.\n"
+                f"One-time setup code: `{code}`\n"
+                "Give this code privately to that customer after checking their in-game identity. "
+                "It expires after 24 hours. They use it once to choose their own password."
+            )
+        except ValueError as exc:
+            message = f"❌ {exc}"
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+        return
     customer = db.get_customer(name)
     if not customer:
         message = "ℹ️ Customer not found. Record their first sale to create them."
@@ -207,7 +232,19 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
         else:
             await interaction.response.send_message(message, ephemeral=True)
         return
-    if action == "check":
+    if action == "account_reset":
+        code = accounts.issue_setup(name, str(interaction.user.id), str(interaction.user), reset=True)
+        message = (
+            f"🔐 Password reset for **{discord.utils.escape_markdown(customer['display_name'])}**.\n"
+            f"New one-time setup code: `{code}`\n"
+            "Their old password and website sessions are disabled. Give this privately after checking identity. "
+            "It expires after 24 hours."
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    elif action == "check":
         if interaction.response.is_done():
             await interaction.followup.send(embed=customer_embed(customer), ephemeral=True)
         else:
@@ -238,7 +275,9 @@ class NameModal(discord.ui.Modal):
     )
 
     def __init__(self, action: str):
-        super().__init__(title="Record Sale" if action == "sale" else "Find Customer")
+        titles = {"sale": "Record Sale", "account_create": "Create Website Account",
+                  "account_reset": "Reset Website Password"}
+        super().__init__(title=titles.get(action, "Find Customer"))
         self.action = action
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
@@ -385,6 +424,24 @@ class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    @discord.ui.button(label="Create Web Account", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:claim_code")
+    async def create_account(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.send_modal(NameModal("account_create"))
+
+    @discord.ui.button(label="Reset Web Password", emoji="🔐", style=discord.ButtonStyle.secondary, custom_id="snr:account_reset")
+    async def reset_account(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.send_modal(NameModal("account_reset"))
+
+    @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary, custom_id="snr:pack_requests")
+    async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_pack_requests(interaction)
+
+    @discord.ui.button(label="Delivery Orders", emoji="🚗", style=discord.ButtonStyle.success, custom_id="snr:delivery_orders")
+    async def delivery_orders(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_delivery_orders(interaction)
+
     @discord.ui.button(label="Record Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
     async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
@@ -434,14 +491,236 @@ class StaffPanel(discord.ui.View):
         )
 
 
+def pack_claim_embed(row):
+    embed = discord.Embed(title=f"🎴 PACK REQUEST #{row['id']}", colour=discord.Colour.gold())
+    embed.description = (f"Customer: **{discord.utils.escape_markdown(row['customer_name'])}**\n"
+                         "Reward: **1 pack containing 2 trading cards**\n"
+                         f"Status: **{row['status']}**\n"
+                         "Four points are reserved while pending. Hand over the pack first, then confirm. "
+                         "Cancel to return the points.")
+    return embed
+
+
+class PackClaimView(discord.ui.View):
+    def __init__(self, claim_id):
+        super().__init__(timeout=None)
+        self.claim_id = claim_id
+        for status, label, style in [('fulfilled', 'Handed Over', discord.ButtonStyle.success),
+                                     ('cancelled', 'Cancel & Return Points', discord.ButtonStyle.danger)]:
+            button = discord.ui.Button(label=label, style=style, custom_id=f'snr:pack:{claim_id}:{status}')
+            async def callback(interaction, target=status):
+                if not await require_staff(interaction):
+                    return
+                row = claims.get(self.claim_id)
+                if not row or str(interaction.guild_id) != row['guild_id']:
+                    await interaction.response.send_message('This request belongs to another server.', ephemeral=True)
+                    return
+                await interaction.response.defer(ephemeral=True)
+                try:
+                    async with db_lock:
+                        row = claims.resolve(self.claim_id, target, str(interaction.user.id), str(interaction.user))
+                except ValueError as exc:
+                    await interaction.followup.send(str(exc), ephemeral=True)
+                    return
+                await interaction.followup.send(
+                    'Pack marked as handed over.' if target=='fulfilled' else 'Cancelled. Four points returned.', ephemeral=True)
+                # Also update the canonical alert if this action came from the pending-request list.
+                try:
+                    await interaction.message.edit(embed=pack_claim_embed(row), view=None)
+                    if row['message_id'] and str(interaction.message.id) != row['message_id']:
+                        channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+                        await channel.get_partial_message(int(row['message_id'])).edit(embed=pack_claim_embed(row), view=None)
+                except discord.HTTPException:
+                    logging.exception('Claim resolved but alert refresh failed: %s', self.claim_id)
+            button.callback = callback
+            self.add_item(button)
+
+
+async def show_pack_requests(interaction):
+    if not await require_staff(interaction):
+        return
+    rows = [r for r in claims.pending() if r['guild_id']==str(interaction.guild_id)]
+    await interaction.response.send_message(
+        f'{len(rows)} pending pack request(s). Showing the oldest 10; reopen after processing to see more.', ephemeral=True)
+    for row in rows[:10]:
+        await interaction.followup.send(embed=pack_claim_embed(row), view=PackClaimView(row['id']),
+                                        ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+def delivery_order_embed(row):
+    colours = {
+        'pending': discord.Colour.orange(),
+        'processing': discord.Colour.gold(),
+        'paid': discord.Colour.green(),
+        'cancelled': discord.Colour.red(),
+    }
+    status = {
+        'pending': 'WAITING FOR PAYMENT',
+        'processing': 'PROCESSING',
+        'paid': 'PAID — SALE RECORDED',
+        'cancelled': 'CANCELLED',
+    }.get(row['status'], str(row['status']).upper())
+    deal = DEALS.get(row['deal_key'])
+    embed = discord.Embed(title=f"🚗 DELIVERY ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
+    embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
+    embed.add_field(name='Amount Owed', value=f"**{money(row['price'])}**", inline=True)
+    embed.add_field(name='Status', value=f"**{status}**", inline=True)
+    embed.add_field(name='Deal', value=f"**{discord.utils.escape_markdown(row['deal_name'])}**", inline=False)
+    if deal:
+        embed.add_field(name='Includes', value=deal.item_summary, inline=True)
+        embed.add_field(
+            name='Rewards After Payment',
+            value=f"{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)",
+            inline=True,
+        )
+    embed.add_field(
+        name='📍 Postal / Delivery Location',
+        value=f"**{discord.utils.escape_markdown(row['postal'])}**",
+        inline=False,
+    )
+    if row.get('sale_transaction_id'):
+        embed.set_footer(text=f"Sale {row['sale_transaction_id']} • Confirmed by staff")
+    else:
+        embed.set_footer(text='Confirm payment only after the customer has paid')
+    return embed
+
+
+class DeliveryOrderView(discord.ui.View):
+    def __init__(self, order_id):
+        super().__init__(timeout=None)
+        self.order_id = int(order_id)
+        paid = discord.ui.Button(
+            label='Customer Paid', emoji='💷', style=discord.ButtonStyle.success,
+            custom_id=f'snr:delivery:{self.order_id}:paid',
+        )
+        cancel = discord.ui.Button(
+            label='Cancel Order', emoji='✖️', style=discord.ButtonStyle.danger,
+            custom_id=f'snr:delivery:{self.order_id}:cancelled',
+        )
+
+        async def paid_callback(interaction):
+            await self._resolve(interaction, 'paid')
+
+        async def cancel_callback(interaction):
+            await self._resolve(interaction, 'cancelled')
+
+        paid.callback = paid_callback
+        cancel.callback = cancel_callback
+        self.add_item(paid)
+        self.add_item(cancel)
+
+    async def _resolve(self, interaction, target):
+        if not await require_staff(interaction):
+            return
+        row = orders.get(self.order_id)
+        if not row or str(interaction.guild_id) != row['guild_id']:
+            await interaction.response.send_message('This order belongs to another server.', ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            async with db_lock:
+                row, sale = orders.resolve(
+                    self.order_id, target, str(interaction.user.id), str(interaction.user)
+                )
+        except ValueError as exc:
+            await interaction.followup.send(f'❌ {exc}', ephemeral=True)
+            return
+        except Exception:
+            logging.exception('Delivery order processing failed: %s', self.order_id)
+            await interaction.followup.send(
+                '❌ The order could not be processed. Nothing was counted twice; please try again.',
+                ephemeral=True,
+            )
+            return
+        if target == 'paid':
+            await interaction.followup.send(
+                content='✅ Payment confirmed. The delivery is now included in sales, finance, loyalty and Golden Tickets.',
+                embed=sale_embed(sale), ephemeral=True,
+            )
+        else:
+            await interaction.followup.send('Order cancelled. No sale or rewards were added.', ephemeral=True)
+        try:
+            await interaction.message.edit(embed=delivery_order_embed(row), view=None)
+            if row['message_id'] and str(interaction.message.id) != row['message_id']:
+                channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+                await channel.get_partial_message(int(row['message_id'])).edit(
+                    embed=delivery_order_embed(row), view=None
+                )
+        except discord.HTTPException:
+            logging.exception('Order resolved but Discord message refresh failed: %s', self.order_id)
+
+
+async def show_delivery_orders(interaction):
+    if not await require_staff(interaction):
+        return
+    rows = [row for row in orders.pending() if row['guild_id'] == str(interaction.guild_id)]
+    await interaction.response.send_message(
+        f'{len(rows)} pending delivery order(s). Showing the oldest 10.', ephemeral=True
+    )
+    for row in rows[:10]:
+        await interaction.followup.send(
+            embed=delivery_order_embed(row), view=DeliveryOrderView(row['id']),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
+@tasks.loop(seconds=10)
+async def notify_pack_claims():
+    if not bot.is_ready():
+        return
+    for row in claims.pending(unsent=True)[:20]:
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Pack claim channel is public; awaiting a private channel: %s', row['id'])
+                continue
+            message = await channel.send(embed=pack_claim_embed(row), view=PackClaimView(row['id']),
+                                         allowed_mentions=discord.AllowedMentions.none())
+            claims.notified(row['id'], message.id)
+        except Exception:
+            # Leave the durable outbox row unsent so the next pass retries it.
+            logging.exception('Pack claim alert delivery failed; will retry: %s', row['id'])
+
+
+@tasks.loop(seconds=10)
+async def notify_delivery_orders():
+    if not bot.is_ready():
+        return
+    for row in orders.pending(unsent=True)[:20]:
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Delivery channel is public; awaiting a private channel: %s', row['id'])
+                continue
+            message = await channel.send(
+                embed=delivery_order_embed(row), view=DeliveryOrderView(row['id']),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            orders.notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Delivery alert failed; will retry: %s', row['id'])
+
+
 @bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} ({bot.user.id})")
+    if not notify_pack_claims.is_running():
+        notify_pack_claims.start()
+    if not notify_delivery_orders.is_running():
+        notify_delivery_orders.start()
 
 
 @bot.event
 async def setup_hook() -> None:
     bot.add_view(StaffPanel())
+    for row in claims.pending():
+        bot.add_view(PackClaimView(row['id']))
+    for row in orders.pending():
+        bot.add_view(DeliveryOrderView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)
     if result["imported"]:
         print(f"Imported {result['imported']} legacy customers.")
@@ -459,6 +738,71 @@ async def snr_panel(interaction: discord.Interaction) -> None:
         return
     await interaction.response.send_message("✅ Staff panel posted.", ephemeral=True)
     await interaction.channel.send(embed=panel_embed(), view=StaffPanel())
+
+
+@bot.tree.command(name='snrhub_claims_setup', description='Management: use this private staff channel for website reward alerts.')
+async def claims_setup(interaction: discord.Interaction):
+    if not has_role(interaction, MANAGER_ROLE_NAME):
+        await interaction.response.send_message('SNR Management only.', ephemeral=True)
+        return
+    channel = interaction.channel
+    if not isinstance(channel, discord.TextChannel) or (GUILD_ID and interaction.guild_id != GUILD_ID):
+        await interaction.response.send_message('Use a private text channel in your configured staff server.', ephemeral=True)
+        return
+    permissions = channel.permissions_for(channel.guild.me)
+    if channel.permissions_for(channel.guild.default_role).view_channel or not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
+        await interaction.response.send_message('Choose a private staff channel where this bot can view, send messages and embed links.', ephemeral=True)
+        return
+    claims.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
+    await interaction.response.send_message('Website pack claims enabled. New alerts will appear here, normally within 10 seconds. Customers must log in to request their own pack.', ephemeral=True)
+
+
+@bot.tree.command(name='snrhub_orders_setup', description='Management: use this private channel for website delivery orders.')
+async def orders_setup(interaction: discord.Interaction):
+    if not has_role(interaction, MANAGER_ROLE_NAME):
+        await interaction.response.send_message('SNR Management only.', ephemeral=True)
+        return
+    channel = interaction.channel
+    if not isinstance(channel, discord.TextChannel) or (GUILD_ID and interaction.guild_id != GUILD_ID):
+        await interaction.response.send_message('Use a private text channel in your configured staff server.', ephemeral=True)
+        return
+    permissions = channel.permissions_for(channel.guild.me)
+    if channel.permissions_for(channel.guild.default_role).view_channel or not (
+        permissions.view_channel and permissions.send_messages and permissions.embed_links
+    ):
+        await interaction.response.send_message(
+            'Choose a private staff orders channel where this bot can view, send messages and embed links.',
+            ephemeral=True,
+        )
+        return
+    orders.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
+    await interaction.response.send_message(
+        '✅ Website deliveries enabled. New orders will appear in this channel, normally within 10 seconds. '
+        'Press Customer Paid only after collecting payment.',
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(name='snrhub_account_create', description='Create a named website account and issue its one-time setup code.')
+async def account_create(interaction: discord.Interaction, name: str):
+    if await require_staff(interaction):
+        await send_name_result(interaction, 'account_create', name)
+
+
+@bot.tree.command(name='snrhub_password_reset', description='Reset a customer’s website password after checking their identity.')
+async def password_reset(interaction: discord.Interaction, name: str):
+    if await require_staff(interaction):
+        await send_name_result(interaction, 'account_reset', name)
+
+
+@bot.tree.command(name='snrhub_claims_pending', description='Review website pack requests awaiting handover.')
+async def claims_pending(interaction: discord.Interaction):
+    await show_pack_requests(interaction)
+
+
+@bot.tree.command(name='snrhub_orders_pending', description='Review website delivery orders awaiting payment.')
+async def orders_pending(interaction: discord.Interaction):
+    await show_delivery_orders(interaction)
 
 
 @bot.tree.command(name="snrhub_sale", description="Record an SNR sale using only the customer name.")
