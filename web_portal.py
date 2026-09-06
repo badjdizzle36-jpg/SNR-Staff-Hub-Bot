@@ -15,8 +15,9 @@ from threading import Thread
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
-from customer_accounts import Accounts
+from customer_accounts import Accounts, SECURITY_QUESTIONS
 from delivery_orders import DeliveryStore
+from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
 from snr_core import DEALS, SNRDatabase, normalize_name
 
@@ -29,8 +30,8 @@ CSS = """
 body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 10% 0%,#f02417 0,transparent 55%),radial-gradient(ellipse at 100% 45%,#9d120c 0,transparent 60%),#350708;background-attachment:fixed;color:var(--cream);font:16px/1.5 Inter,Arial,sans-serif}
 .wrap{width:min(740px,92vw);margin:auto;padding:28px 0 54px}.brand{text-align:center;margin-bottom:24px}.logo-frame{overflow:hidden;width:min(100%,620px);margin:0 auto 18px;border:2px solid var(--gold);border-radius:16px;box-shadow:0 12px 36px #1a000077}.logo-frame img{display:block;width:100%;height:auto}.tag{display:inline-block;padding:7px 22px;background:var(--gold);color:#7b1009;border-radius:99px;font-size:14px;font-weight:900;letter-spacing:2px}
 .card{background:linear-gradient(145deg,#73130f,#32090a);border:2px solid #ffd334;border-top:7px solid var(--gold);border-radius:24px;padding:clamp(22px,5vw,34px);box-shadow:0 18px 60px #21000088}.label{color:var(--gold);text-transform:uppercase;font-size:14px;font-weight:900;letter-spacing:1px}.name{font-size:clamp(28px,7vw,44px);font-weight:950;margin:6px 0 20px;overflow-wrap:anywhere}h1{font-size:clamp(27px,6vw,36px);line-height:1.15;margin:10px 0 18px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.stat{background:linear-gradient(135deg,#b52319,#70120e);border:1px solid #ffb93480;border-radius:16px;padding:17px}.num{font-size:29px;font-weight:950;margin-top:5px;color:#fff8dd}.wide{grid-column:1/-1}.jackpot{background:linear-gradient(135deg,#ffe33b,#ffa818);color:#51100a;border:2px solid #fff39c}.jackpot .label,.jackpot .muted,.jackpot strong{color:#51100a!important}
-form{display:flex;gap:10px;margin-top:18px}input,select{min-width:0;flex:1;width:100%;background:#290808;color:white;border:1px solid #ffda4e;border-radius:14px;padding:16px;font-size:16px}input:focus,select:focus{outline:3px solid var(--gold);outline-offset:3px}button{border:0;border-radius:14px;background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;padding:16px 20px;font-weight:950;font-size:15px;box-shadow:0 4px 0 #a3540b;cursor:pointer}button:hover{filter:brightness(1.1)}button:focus-visible,a:focus-visible{outline:3px solid white;outline-offset:4px}.secondary{background:#5f100d;color:#fff4db;border:1px solid #ffda4e;box-shadow:none}.panel{padding-top:22px;margin-top:22px;border-top:1px solid #ffda3544}.notice{padding:18px;border-radius:14px;background:#ffda3514;border:1px solid #ffda3544;color:#fff1d3;margin-top:18px}.muted{color:var(--muted)}.history{margin-top:22px;padding-top:16px;border-top:1px solid #ffda3533}.sale{display:flex;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #ffffff12}.sale:last-child{border:0}.sale small{font-size:14px;color:var(--muted)}.back{display:block;text-align:center;color:var(--gold);font-weight:700;margin-top:20px;text-decoration:none}footer{text-align:center;color:#f2c9b7;font-size:13px;margin-top:24px}
-.delivery{margin-top:24px;padding:22px;background:#210708aa;border:2px solid #ff8c22;border-radius:20px}.delivery h2{margin:5px 0 8px}.delivery-form{display:block}.deal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.deal-choice{display:block;position:relative}.deal-choice input{position:absolute;opacity:0;pointer-events:none}.deal-box{display:block;height:100%;padding:15px;border:2px solid #7e2b1f;border-radius:15px;background:#4a0d0c;cursor:pointer}.deal-box strong,.deal-box span{display:block}.deal-box .price{font-size:23px;color:var(--gold);font-weight:950;margin-top:7px}.deal-choice input:checked+.deal-box{border-color:var(--gold);background:#8d1b12;box-shadow:0 0 0 3px #ffda3544}.deal-choice input:focus-visible+.deal-box{outline:3px solid white}.location-row{display:flex;gap:10px}.status-paid{color:#88f29b}.status-pending{color:#ffe45f}.status-cancelled{color:#ff9f91}
+form{display:flex;gap:10px;margin-top:18px}input,select{min-width:0;flex:1;width:100%;background:#290808;color:white;border:1px solid #ffda4e;border-radius:14px;padding:16px;font-size:16px}input:focus,select:focus{outline:3px solid var(--gold);outline-offset:3px}button{border:0;border-radius:14px;background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;padding:16px 20px;font-weight:950;font-size:15px;box-shadow:0 4px 0 #a3540b;cursor:pointer}button:hover{filter:brightness(1.1)}button:focus-visible,a:focus-visible{outline:3px solid white;outline-offset:4px}.secondary{background:#5f100d;color:#fff4db;border:1px solid #ffda4e;box-shadow:none}.panel{padding-top:22px;margin-top:22px;border-top:1px solid #ffda3544}.panel form{flex-direction:column}.notice{padding:18px;border-radius:14px;background:#ffda3514;border:1px solid #ffda3544;color:#fff1d3;margin-top:18px}.muted{color:var(--muted)}.history{margin-top:22px;padding-top:16px;border-top:1px solid #ffda3533}.sale{display:flex;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #ffffff12}.sale:last-child{border:0}.sale small{font-size:14px;color:var(--muted)}.back{display:block;text-align:center;color:var(--gold);font-weight:700;margin-top:20px;text-decoration:none}footer{text-align:center;color:#f2c9b7;font-size:13px;margin-top:24px}
+.delivery{margin-top:24px;padding:22px;background:#210708aa;border:2px solid #ff8c22;border-radius:20px}.delivery h2{margin:5px 0 8px}.delivery-form{display:block}.deal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.deal-box{display:block;height:100%;padding:15px;border:2px solid #7e2b1f;border-radius:15px;background:#4a0d0c}.deal-box strong,.deal-box span{display:block}.deal-box .price{font-size:23px;color:var(--gold);font-weight:950;margin-top:7px}.quantity{display:flex;align-items:center;gap:10px;margin-top:12px}.quantity input{width:85px;flex:none;padding:10px;text-align:center}.subtotal{font-size:24px;font-weight:950;color:var(--gold);text-align:right;margin:14px 0}.location-row{display:flex;gap:10px}.status-paid{color:#88f29b}.status-pending{color:#ffe45f}.status-cancelled{color:#ff9f91}
 @media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.card{padding:22px}.grid,.deal-list{grid-template-columns:1fr}.wide{grid-column:auto}.logo-frame{border-radius:14px}.wrap{padding-top:20px}}
 """
 
@@ -40,7 +41,7 @@ def page(title: str, content: str) -> str:
 
 
 def name_options(names: list[str], selected: str = "") -> str:
-    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your name</option>']
+    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your character name</option>']
     wanted = normalize_name(selected)
     for name in sorted(set(names), key=normalize_name):
         mark = " selected" if normalize_name(name) == wanted else ""
@@ -48,10 +49,16 @@ def name_options(names: list[str], selected: str = "") -> str:
     return "".join(items)
 
 
+def question_options() -> str:
+    return "".join(f'<option value="{key}">{html.escape(label)}</option>'
+                   for key, label in SECURITY_QUESTIONS.items())
+
+
 def login_page(names: list[str], message: str = "", selected: str = "") -> str:
     notice = f'<div class="notice">{html.escape(message)}</div>' if message else ""
     options = name_options(names, selected)
-    return page("SNR Buns account login", f'''<section class="card"><div class="label">Customer login</div><h1>Open your loyalty account</h1><p class="muted">Choose your character name and enter your password.</p>{notice}<form method="post" action="/login"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required><button type="submit">Log In</button></form><div class="panel"><div class="label">Create account or forgot password</div><h2>Choose your password here</h2><p class="muted">No setup code is needed. Choose your name and password below. SNR staff will receive one approval button in Discord to protect your rewards.</p><form method="post" action="/request-access"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose password (10+ characters)" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required><button type="submit">Request My Account</button></form><p class="muted">If you already have an account, this safely requests a password reset. Your old password stays active until staff approve the request.</p></div></section>''')
+    questions = question_options()
+    return page("SNR Buns account login", f'''<section class="card"><div class="label">Customer login</div><h1>Open your loyalty account</h1><p class="muted">Choose your character name and enter your password.</p>{notice}<form method="post" action="/login"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required><button type="submit">Log In</button></form><div class="panel"><div class="label">New loyalty customer</div><h2>Create your own account</h2><p class="muted">No purchase or setup code is needed. Enter your exact in-game character name. SNR staff will verify the new account in Discord.</p><form method="post" action="/request-access"><input name="name" minlength="2" maxlength="60" autocomplete="username" placeholder="Exact character name" required><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose password (10+ characters)" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required><select name="security_question" required><option value="" disabled selected>Choose a memorable question</option>{questions}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><button type="submit">Create Loyalty Account</button></form></div><div class="panel"><div class="label">Forgot password</div><h2>Reset with your memorable answer</h2><form method="post" action="/reset-password"><select name="name" required>{options}</select><select name="security_question" required><option value="" disabled selected>Choose your memorable question</option>{questions}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose new password" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat new password" required><button type="submit">Reset My Password</button></form></div></section>''')
 
 
 def _sale_date(value: str) -> str:
@@ -78,7 +85,7 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
     return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>Reach 4 points to claim 1 pack containing 2 trading cards.</strong></p><p>{points} available points. Your login proves this is your account.</p><p class="muted">After staff hand over your pack, your loyalty points reset to 0.</p>{action}<div class="muted">{history}</div></section>'
 
 
-def delivery_section(customer: dict, orders: DeliveryStore, form_token: str) -> str:
+def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
     rows = orders.summary(customer["display_name"])
     active = next((row for row in rows if row["status"] in ("pending", "processing")), None)
     labels = {
@@ -99,20 +106,23 @@ def delivery_section(customer: dict, orders: DeliveryStore, form_token: str) -> 
         )
     else:
         choices = "".join(
-            f'''<label class="deal-choice"><input type="radio" name="deal" value="{deal.key}" required><span class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,}</span></span></label>'''
-            for deal in DEALS.values()
-        )
-        if orders.configured():
-            order_form = f'''<form class="delivery-form" method="post" action="/order"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">You pay SNR staff on delivery. Loyalty points and Golden Tickets are added only after staff confirm payment.</p></form>'''
+            f'''<div class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,} each</span><label class="quantity">Amount <input class="deal-qty" type="number" name="qty_{deal.key}" value="0" min="0" max="10" step="1" data-price="{deal.price}" aria-label="Amount of {html.escape(deal.name, quote=True)}"></label></div>'''
+            for deal in DEALS.values())
+        if orders.configured() and shifts.drivers_available():
+            order_form = f'''<form class="delivery-form" method="post" action="/order"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Subtotal: <span id="delivery-subtotal">£0</span></div><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">Choose up to 10 of each deal (20 deals total). You pay SNR staff on delivery. Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
+        elif orders.configured():
+            order_form = '<div class="notice"><strong>No drivers are currently available.</strong><br>Please try again when SNR staff have clocked in.</div>'
         else:
             order_form = f'<div class="deal-list">{choices}</div><div class="notice">Online delivery is being set up. Please contact SNR Buns for now.</div>'
-    return f'''<section class="delivery"><div class="label">🚗 SNR delivery</div><h2>Order from our current deals</h2><p class="muted">Choose one deal and tell us exactly where to deliver it.</p>{order_form}<div class="history"><div class="label">My delivery orders</div>{recent or '<p class="muted">No delivery orders yet.</p>'}</div></section>'''
+    return f'''<section class="delivery"><div class="label">🚗 SNR delivery</div><h2>Build your delivery order</h2><p class="muted">Choose the amount of every deal you want and enter where to deliver it.</p>{order_form}<div class="history"><div class="label">My delivery orders</div>{recent or '<p class="muted">No delivery orders yet.</p>'}</div></section>'''
 
 
-def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, claim_token: str, order_token: str) -> str:
+def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
+                  accounts: Accounts, claim_token: str, order_token: str, security_token: str) -> str:
     recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
     jackpot = '<strong>🏆 Jackpot winner!</strong>' if int(customer["jackpot_wins"]) else "Your Golden Tickets are automatically entered into the £5,000 jackpot."
-    return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card"><div class="label">Logged-in customer</div><div class="name">{html.escape(customer["display_name"])}</div><div class="grid"><div class="stat"><div class="label">Available points</div><div class="num">⭐ {int(customer["loyalty_points"])}</div></div><div class="stat"><div class="label">Golden tickets</div><div class="num">🎟️ {int(customer["golden_tickets"])}</div></div><div class="stat"><div class="label">Visits</div><div class="num">🍔 {int(customer["lifetime_sales"])}</div></div><div class="stat"><div class="label">Items served</div><div class="num">🥤 {int(customer["food_sold"])+int(customer["drinks_sold"])}</div></div><div class="stat wide jackpot"><div class="label">£5,000 Golden Ticket Jackpot</div><p>{jackpot}</p><small>The winning position remains hidden.</small></div></div>{delivery_section(customer, orders, order_token)}{claim_section(customer, claims, claim_token)}<div class="history"><div class="label">Recent visits</div>{recent}</div><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></section>''')
+    recovery = '' if accounts.has_security(customer['customer_key']) else f'''<section class="notice"><strong>Protect your password recovery</strong><p>This older account needs a memorable question. Set it now so you can reset your own password later.</p><form method="post" action="/set-security"><input type="hidden" name="security_request_key" value="{html.escape(security_token, quote=True)}"><select name="security_question" required><option value="" disabled selected>Choose a memorable question</option>{question_options()}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><button type="submit">Save Memorable Answer</button></form></section>'''
+    return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card"><div class="label">Logged-in customer</div><div class="name">{html.escape(customer["display_name"])}</div>{recovery}<div class="grid"><div class="stat"><div class="label">Available points</div><div class="num">⭐ {int(customer["loyalty_points"])}</div></div><div class="stat"><div class="label">Golden tickets</div><div class="num">🎟️ {int(customer["golden_tickets"])}</div></div><div class="stat"><div class="label">Visits</div><div class="num">🍔 {int(customer["lifetime_sales"])}</div></div><div class="stat"><div class="label">Items served</div><div class="num">🥤 {int(customer["food_sold"])+int(customer["drinks_sold"])}</div></div><div class="stat wide jackpot"><div class="label">£5,000 Golden Ticket Jackpot</div><p>{jackpot}</p><small>The winning position remains hidden.</small></div></div>{delivery_section(customer, orders, shifts, order_token)}{claim_section(customer, claims, claim_token)}<div class="history"><div class="label">Recent visits</div>{recent}</div><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></section>''')
 
 
 class Limiter:
@@ -131,7 +141,7 @@ class Limiter:
 
 
 def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
-    limiter, claims, orders, accounts = Limiter(), ClaimStore(db), DeliveryStore(db), Accounts(db)
+    limiter, claims, orders, accounts, shifts = Limiter(), ClaimStore(db), DeliveryStore(db), Accounts(db), StaffShifts(db)
     form_secret = secrets.token_bytes(32)
 
     def signature(owner: str, token: str) -> str:
@@ -174,7 +184,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             if self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
                 raise ValueError("Please use the form on this page.")
             self.connection.settimeout(10)
-            parsed = parse_qs(self.rfile.read(length).decode("utf-8"), max_num_fields=8)
+            parsed = parse_qs(self.rfile.read(length).decode("utf-8"), max_num_fields=16, keep_blank_values=True)
             return {key: values[0] for key, values in parsed.items()}
 
         def send_html(self, status: int, body: str, cookie: str | None = None) -> None:
@@ -184,7 +194,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             self.send_header("Content-Length", str(len(data)))
             self.send_header("X-Robots-Tag", "noindex, nofollow")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; object-src 'none'")
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'")
             self.send_header("Cache-Control", "no-store")
             if cookie is not None:
                 self.send_header("Set-Cookie", cookie)
@@ -210,7 +220,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_html(401, login_page(db.customer_names(), "Please log in to open a loyalty account."))
                 return
             self.send_html(200, customer_page(
-                customer, claims, orders, make_form_token(owner), make_form_token(owner)
+                customer, claims, orders, shifts, accounts, make_form_token(owner),
+                make_form_token(owner), make_form_token(owner)
             ))
 
         def do_GET(self) -> None:  # noqa: N802
@@ -222,6 +233,14 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Cache-Control", "public, max-age=3600")
                 self.end_headers()
                 self.wfile.write(LOGO_IMAGE)
+            elif path == "/delivery.js":
+                data = b'''document.addEventListener("DOMContentLoaded",()=>{const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal");const u=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",u));u()});'''
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(data)
             elif path == "/health":
                 data = json.dumps({"status": "ok"}).encode()
                 self.send_response(200)
@@ -249,16 +268,37 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 elif path == "/request-access":
                     if data.get("password", "") != data.get("confirm", ""):
                         raise ValueError("The two passwords do not match.")
-                    result = accounts.request_access(data.get("name", ""), data.get("password", ""))
-                    action = "password reset" if result["request_type"] == "reset" else "new account"
+                    result = accounts.request_access(
+                        data.get("name", ""), data.get("password", ""),
+                        data.get("security_question", ""), data.get("security_answer", ""),
+                    )
+                    action = "new account"
                     if result.get("already_pending"):
                         notice = "An approval is already waiting for this name. The original password chosen for that request has not been changed. If it needs replacing, ask staff to reject the waiting request and submit again."
                     else:
                         notice = "You do not need a code. After staff verify and approve you in Discord, return here and log in using the password you just chose."
                     self.send_html(200, page("Account request sent", f'''<section class="card"><div class="label">Account request sent</div><h1>One quick staff check</h1><p>Your {action} request for <strong>{html.escape(result["customer_name"])}</strong> has been sent to SNR staff.</p><div class="notice">{html.escape(notice)}</div><a class="back" href="/">Back to login</a></section>'''))
+                elif path == "/reset-password":
+                    if data.get("password", "") != data.get("confirm", ""):
+                        raise ValueError("The two passwords do not match.")
+                    accounts.reset_with_answer(
+                        data.get("name", ""), data.get("security_question", ""),
+                        data.get("security_answer", ""), data.get("password", ""),
+                    )
+                    self.send_html(200, page("Password reset", '''<section class="card"><div class="label">Password updated</div><h1>Your new password is ready</h1><p>All older website sessions were signed out for your protection.</p><a class="back" href="/">Log in</a></section>'''))
                 elif path == "/logout":
                     accounts.logout(self.session_token())
                     self.redirect("/", "snr_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned")
+                elif path == "/set-security":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("security_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This form has expired. Refresh your account and try again.")
+                    accounts.set_security_authenticated(
+                        owner, data.get("security_question", ""), data.get("security_answer", ""))
+                    self.send_html(200, page("Recovery protected", '''<section class="card"><h1>Memorable answer saved</h1><p>You can now use it from the login screen if you forget your password.</p><a class="back" href="/account">Back to my account</a></section>'''))
                 elif path == "/claim":
                     owner = self.owner()
                     if not owner:
@@ -276,10 +316,12 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                     key = data.get("order_request_key", "")
                     if not valid_form_token(owner, key):
                         raise ValueError("This order form has expired. Refresh your account and try again.")
-                    result = orders.create_authenticated(
-                        owner, data.get("deal", ""), data.get("postal", ""), key
-                    )
-                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><p><strong>{html.escape(result["deal_name"])}</strong></p><p>Amount to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p><div class="notice">SNR staff have been notified. Your loyalty points and Golden Tickets will update after staff confirm you have paid.</div><a class="back" href="/account">Back to my account</a></section>'''))
+                    if not shifts.drivers_available():
+                        raise ValueError("No drivers are currently available. Please try again when SNR staff have clocked in.")
+                    quantities = {deal_key: data.get("qty_" + deal_key, "0") for deal_key in DEALS}
+                    result = orders.create_cart_authenticated(owner, quantities, data.get("postal", ""), key)
+                    lines = "".join(f'<li>{item["quantity"]} × {html.escape(item["name"])} — £{item["line_total"]:,}</li>' for item in orders.items(result))
+                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Subtotal to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p><div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>SNR staff have been notified. Your loyalty points and Golden Tickets update after staff confirm payment.</div><a class="back" href="/account">Back to my account</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:

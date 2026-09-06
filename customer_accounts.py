@@ -8,6 +8,12 @@ from snr_core import normalize_name, utc_now
 
 ROUNDS = 600_000
 SESSION_SECONDS = 8 * 3600
+SECURITY_QUESTIONS = {
+    "first_job": "What was the name of your first job?",
+    "childhood_street": "What street did you grow up on?",
+    "first_pet": "What was the name of your first pet?",
+    "favourite_place": "What is your favourite place?",
+}
 
 
 class Accounts:
@@ -46,6 +52,18 @@ class Accounts:
                 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_account_request
                     ON customer_account_requests(customer_key) WHERE status='pending';
             ''')
+            account_columns = {row['name'] for row in conn.execute('PRAGMA table_info(customer_accounts)')}
+            for name, definition in (
+                ('security_question', 'TEXT'), ('answer_salt', 'TEXT'), ('answer_hash', 'TEXT'),
+                ('answer_failures', 'INTEGER NOT NULL DEFAULT 0'),
+                ('answer_locked_until', 'REAL NOT NULL DEFAULT 0'),
+            ):
+                if name not in account_columns:
+                    conn.execute(f'ALTER TABLE customer_accounts ADD COLUMN {name} {definition}')
+            request_columns = {row['name'] for row in conn.execute('PRAGMA table_info(customer_account_requests)')}
+            for name in ('security_question', 'answer_salt', 'answer_hash'):
+                if name not in request_columns:
+                    conn.execute(f'ALTER TABLE customer_account_requests ADD COLUMN {name} TEXT')
 
     @staticmethod
     def token_hash(token):
@@ -165,6 +183,28 @@ class Accounts:
         with self.db.connect() as conn:
             conn.execute('DELETE FROM customer_sessions WHERE token_hash=?',(self.token_hash(token),))
 
+    def has_security(self, customer_key):
+        with self.db.connect() as conn:
+            row = conn.execute('SELECT answer_hash FROM customer_accounts WHERE customer_key=?',
+                               (normalize_name(customer_key),)).fetchone()
+        return bool(row and row['answer_hash'])
+
+    def set_security_authenticated(self, customer_key, question, answer):
+        clean_answer = self._validate_security(question, answer)
+        key = normalize_name(customer_key)
+        salt = secrets.token_hex(16)
+        digest = self.password_hash(clean_answer, salt)
+        with self.db.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute('SELECT password_hash FROM customer_accounts WHERE customer_key=?', (key,)).fetchone()
+            if not row or not row['password_hash']:
+                raise ValueError('Active website account not found.')
+            conn.execute('''UPDATE customer_accounts SET security_question=?,answer_salt=?,answer_hash=?,
+                answer_failures=0,answer_locked_until=0,updated_at=? WHERE customer_key=?''',
+                (question, salt, digest, utc_now(), key))
+            conn.execute('INSERT INTO audit_log(action,details,created_at) VALUES(?,?,?)',
+                         ('website_memorable_answer_set', key, utc_now()))
+
     def status(self,name):
         with self.db.connect() as conn:
             row=conn.execute('SELECT password_hash,activation_expires FROM customer_accounts WHERE customer_key=?',
@@ -185,16 +225,26 @@ class Accounts:
             row = conn.execute('SELECT channel_id,guild_id FROM web_claim_settings WHERE id=1').fetchone()
         return row
 
-    def request_access(self, name, password):
-        """Let a customer choose a password; staff approve ownership in Discord."""
+    @staticmethod
+    def _validate_security(question, answer):
+        if question not in SECURITY_QUESTIONS:
+            raise ValueError('Choose one of the memorable questions.')
+        clean = normalize_name(answer)
+        if not 3 <= len(clean) <= 80:
+            raise ValueError('Your memorable answer must be between 3 and 80 characters.')
+        return clean
+
+    def request_access(self, name, password, security_question=None, security_answer=None):
+        """Self-create a zero-point account; staff approve the character identity."""
         if not 10 <= len(password) <= 128:
             raise ValueError('Choose a password between 10 and 128 characters.')
+        if not 2 <= len(name.strip()) <= 60:
+            raise ValueError('Use a character name between 2 and 60 characters.')
+        answer = self._validate_security(security_question, security_answer or '')
         key = normalize_name(name)
         with self.db.connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
-            customer = conn.execute('SELECT * FROM customers WHERE customer_key=?', (key,)).fetchone()
-            if not customer:
-                raise ValueError('That customer name is not on the SNR loyalty system yet.')
+            customer = self.db._ensure_customer(conn, name)
             existing = conn.execute(
                 "SELECT * FROM customer_account_requests WHERE customer_key=? AND status='pending'", (key,)
             ).fetchone()
@@ -206,15 +256,20 @@ class Accounts:
             if not route:
                 raise ValueError('Website account approvals are being set up. Please ask SNR staff.')
             account = conn.execute('SELECT password_hash FROM customer_accounts WHERE customer_key=?', (key,)).fetchone()
-            request_type = 'reset' if account and account['password_hash'] else 'create'
+            if account and account['password_hash']:
+                raise ValueError('This name already has an account. Use Forgot Password and your memorable answer.')
+            request_type = 'create'
             salt = secrets.token_hex(16)
             digest = self.password_hash(password, salt)
+            answer_salt = secrets.token_hex(16)
+            answer_digest = self.password_hash(answer, answer_salt)
             cursor = conn.execute(
                 '''INSERT INTO customer_account_requests
-                   (customer_key,customer_name,request_type,salt,password_hash,rounds,created_at,channel_id,guild_id)
-                   VALUES(?,?,?,?,?,?,?,?,?)''',
+                   (customer_key,customer_name,request_type,salt,password_hash,rounds,created_at,channel_id,guild_id,
+                    security_question,answer_salt,answer_hash)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, customer['display_name'], request_type, salt, digest, ROUNDS, utc_now(),
-                 route['channel_id'], route['guild_id']),
+                 route['channel_id'], route['guild_id'], security_question, answer_salt, answer_digest),
             )
             conn.execute(
                 'INSERT INTO audit_log(action,details,created_at) VALUES(?,?,?)',
@@ -223,6 +278,39 @@ class Accounts:
             return dict(conn.execute(
                 'SELECT * FROM customer_account_requests WHERE id=?', (cursor.lastrowid,)
             ).fetchone())
+
+    def reset_with_answer(self, name, question, answer, new_password):
+        """Reset without staff codes when the stored memorable answer matches."""
+        if not 10 <= len(new_password) <= 128:
+            raise ValueError('Choose a new password between 10 and 128 characters.')
+        clean_answer = self._validate_security(question, answer)
+        key = normalize_name(name)
+        success = False
+        with self.db.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute('SELECT * FROM customer_accounts WHERE customer_key=?', (key,)).fetchone()
+            now = time.time()
+            salt = row['answer_salt'] if row and row['answer_salt'] else '00' * 16
+            rounds = row['rounds'] if row else ROUNDS
+            digest = self.password_hash(clean_answer, salt, rounds)
+            if (row and row['password_hash'] and row['security_question'] == question
+                    and (row['answer_locked_until'] or 0) <= now and row['answer_hash']
+                    and hmac.compare_digest(digest, row['answer_hash'])):
+                password_salt = secrets.token_hex(16)
+                password_digest = self.password_hash(new_password, password_salt)
+                conn.execute('''UPDATE customer_accounts SET salt=?,password_hash=?,rounds=?,failures=0,
+                    locked_until=0,answer_failures=0,answer_locked_until=0,updated_at=? WHERE customer_key=?''',
+                    (password_salt, password_digest, ROUNDS, utc_now(), key))
+                conn.execute('DELETE FROM customer_sessions WHERE customer_key=?', (key,))
+                conn.execute('INSERT INTO audit_log(action,details,created_at) VALUES(?,?,?)',
+                             ('website_memorable_answer_reset', key, utc_now()))
+                success = True
+            elif row:
+                attempts = int(row['answer_failures'] or 0) + 1
+                conn.execute('UPDATE customer_accounts SET answer_failures=?,answer_locked_until=? WHERE customer_key=?',
+                             (0 if attempts >= 5 else attempts, now + 900 if attempts >= 5 else 0, key))
+        if not success:
+            raise ValueError('Name, question or memorable answer not accepted. After five attempts, wait 15 minutes.')
 
     def pending(self, unsent=False):
         where = "WHERE status='pending'" + (' AND message_id IS NULL' if unsent else '')
@@ -254,12 +342,16 @@ class Accounts:
                 raise ValueError('This account request has already been processed.')
             if decision == 'approved':
                 conn.execute(
-                    '''INSERT INTO customer_accounts(customer_key,salt,password_hash,rounds,updated_at)
-                       VALUES(?,?,?,?,?) ON CONFLICT(customer_key) DO UPDATE SET
+                    '''INSERT INTO customer_accounts(customer_key,salt,password_hash,rounds,updated_at,
+                       security_question,answer_salt,answer_hash)
+                       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(customer_key) DO UPDATE SET
                        salt=excluded.salt,password_hash=excluded.password_hash,rounds=excluded.rounds,
+                       security_question=excluded.security_question,answer_salt=excluded.answer_salt,
+                       answer_hash=excluded.answer_hash,answer_failures=0,answer_locked_until=0,
                        activation_hash=NULL,activation_expires=NULL,failures=0,locked_until=0,
                        updated_at=excluded.updated_at''',
-                    (row['customer_key'], row['salt'], row['password_hash'], row['rounds'], utc_now()),
+                    (row['customer_key'], row['salt'], row['password_hash'], row['rounds'], utc_now(),
+                     row['security_question'], row['answer_salt'], row['answer_hash']),
                 )
                 conn.execute('DELETE FROM customer_sessions WHERE customer_key=?', (row['customer_key'],))
             conn.execute(

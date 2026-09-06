@@ -69,20 +69,20 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.accounts.login("Cody Ortega", "long enough password")
 
-    def test_self_service_create_and_reset_require_staff_approval(self):
-        self.db.record_sale("Cody Ortega", "quick_fix", "1", "Staff")
+    def test_self_service_create_and_memorable_answer_reset(self):
         DeliveryStore(self.db).configure(100, 200, "1", "Manager")
-        request = self.accounts.request_access("Cody Ortega", "customer chosen password")
+        request = self.accounts.request_access(
+            "Cody Ortega", "customer chosen password", "first_pet", "Buster")
         self.assertEqual(request["request_type"], "create")
+        self.assertEqual(self.db.get_customer("Cody Ortega")["lifetime_sales"], 0)
         with self.assertRaises(ValueError):
             self.accounts.login("Cody Ortega", "customer chosen password")
         approved = self.accounts.resolve_request(request["id"], "approved", "1", "Staff")
         self.assertEqual(approved["status"], "approved")
         first_session = self.accounts.login("Cody Ortega", "customer chosen password")
-        reset = self.accounts.request_access("Cody Ortega", "customer new password")
-        self.assertEqual(reset["request_type"], "reset")
-        self.assertEqual(self.accounts.owner(first_session), "cody ortega")
-        self.accounts.resolve_request(reset["id"], "approved", "1", "Staff")
+        with self.assertRaises(ValueError):
+            self.accounts.reset_with_answer("Cody Ortega", "first_pet", "wrong", "customer new password")
+        self.accounts.reset_with_answer("CODY ORTEGA", "first_pet", "buster", "customer new password")
         self.assertIsNone(self.accounts.owner(first_session))
         with self.assertRaises(ValueError):
             self.accounts.login("Cody Ortega", "customer chosen password")
@@ -98,7 +98,8 @@ class AccountTests(unittest.TestCase):
     def test_rejected_self_service_request_changes_nothing(self):
         self.db.record_sale("Cody Ortega", "quick_fix", "1", "Staff")
         DeliveryStore(self.db).configure(100, 200, "1", "Manager")
-        request = self.accounts.request_access("Cody Ortega", "customer chosen password")
+        request = self.accounts.request_access(
+            "Cody Ortega", "customer chosen password", "first_pet", "Buster")
         self.accounts.resolve_request(request["id"], "rejected", "1", "Staff")
         with self.assertRaises(ValueError):
             self.accounts.login("Cody Ortega", "customer chosen password")
@@ -172,7 +173,7 @@ class AccountTests(unittest.TestCase):
         try:
             response, public = open_request("/")
             self.assertIn("Cody Ortega", public)
-            self.assertIn("No setup code is needed", public)
+            self.assertIn("No purchase or setup code is needed", public)
             self.assertNotIn("one-time setup code", public.lower())
             self.assertNotIn("Golden tickets", public)
             self.assertNotIn("Recent visits", public)
@@ -180,7 +181,8 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(response.status, 401)
             self.assertNotIn("Golden tickets", blocked)
             response, request_sent = open_request("/request-access", {
-                "name": "Cody Ortega", "password": "my safe password", "confirm": "my safe password"
+                "name": "Cody Ortega", "password": "my safe password", "confirm": "my safe password",
+                "security_question": "first_pet", "security_answer": "Buster",
             })
             self.assertEqual(response.status, 200)
             self.assertIn("You do not need a code", request_sent)

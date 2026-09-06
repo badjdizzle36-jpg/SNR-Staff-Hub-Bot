@@ -10,6 +10,7 @@ from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
 from snr_core import DEALS, SNRDatabase
 from web_portal import start_web_server
+from staff_shifts import StaffShifts
 
 
 class HiddenForm(HTMLParser):
@@ -73,10 +74,11 @@ class DeliveryTests(unittest.TestCase):
         )
         row, sale = self.orders.resolve(order["id"], "cancelled", "9", "Delivery Staff")
         self.assertEqual(row["status"], "cancelled")
-        self.assertIsNone(sale)
+        self.assertEqual(sale, [])
         self.assertEqual(self.db.report()["sales"], 0)
 
     def test_logged_in_web_delivery_flow(self):
+        StaffShifts(self.db).clock_in("9", "Delivery Staff", "200")
         server = start_web_server(self.db, 0)
         base = f"http://127.0.0.1:{server.server_port}"
 
@@ -110,7 +112,7 @@ class DeliveryTests(unittest.TestCase):
             parser.feed(body)
             values = {
                 "order_request_key": parser.values["order_request_key"],
-                "deal": "blue_light",
+                "qty_blue_light": "1",
                 "postal": "Postal 401 Mission Row",
             }
             response, confirmation = request("/order", values)
@@ -125,6 +127,17 @@ class DeliveryTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_multi_item_cart_subtotal_and_each_sale_recorded(self):
+        row = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"mega_deal": 1, "quick_fix": 2}, "Postal 1", "multi-cart-request")
+        self.assertEqual(row["price"], 800)
+        self.assertEqual(sum(item["quantity"] for item in self.orders.items(row)), 3)
+        paid, sales = self.orders.resolve(row["id"], "paid", "9", "Delivery Staff")
+        self.assertEqual(paid["status"], "paid")
+        self.assertEqual(len(sales), 3)
+        self.assertEqual(self.db.report()["sales"], 3)
+        self.assertEqual(self.db.report()["revenue"], 800)
 
 
 if __name__ == "__main__":
