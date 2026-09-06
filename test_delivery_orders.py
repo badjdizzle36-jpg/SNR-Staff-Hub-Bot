@@ -1,3 +1,5 @@
+import json
+import os
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +10,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
+from phone_pairing import PhonePairings
 from snr_core import DEALS, SNRDatabase
 from web_portal import start_web_server
 
@@ -76,55 +79,48 @@ class DeliveryTests(unittest.TestCase):
         self.assertIsNone(sale)
         self.assertEqual(self.db.report()["sales"], 0)
 
-    def test_logged_in_web_delivery_flow(self):
+    def test_lb_phone_api_delivery_flow(self):
+        old_secret = os.environ.get("LB_PHONE_API_SECRET")
+        os.environ["LB_PHONE_API_SECRET"] = "test-secret-value-with-enough-length"
+        pairs = PhonePairings(self.db)
+        pending = pairs.request("Cody Ortega", "qb:abc", "555111", "Cody Ortega", "pair-request-123")
+        pairs.resolve(pending["id"], "approved", "1", "Manager")
         server = start_web_server(self.db, 0)
         base = f"http://127.0.0.1:{server.server_port}"
 
-        class NoRedirect(HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
-
-        browser = build_opener(NoRedirect())
-        cookie = "snr_session=" + self.session
-
-        def request(path, values=None):
-            headers = {"Cookie": cookie}
-            req = Request(
-                base + path,
-                data=urlencode(values).encode() if values is not None else None,
-                headers=headers,
-            )
-            try:
-                response = browser.open(req)
-            except HTTPError as error:
-                response = error
-            return response, response.read().decode()
+        def request(path, values):
+            req = Request(base + path, data=json.dumps(values).encode(), headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-secret-value-with-enough-length",
+            })
+            response = build_opener().open(req)
+            return response, json.loads(response.read())
 
         try:
-            response, body = request("/account")
+            identity = {"character_id": "qb:abc", "phone_number": "555111", "rp_name": "Cody Ortega"}
+            response, body = request("/api/lb/state", identity)
             self.assertEqual(response.status, 200)
             for deal in DEALS.values():
-                self.assertIn(deal.name, body)
-                self.assertIn(f"£{deal.price:,}", body)
-            parser = HiddenForm()
-            parser.feed(body)
-            values = {
-                "order_request_key": parser.values["order_request_key"],
+                self.assertIn(deal.name, [row["name"] for row in body["deals"]])
+            values = {**identity,
+                "request_key": "delivery-api-request-123",
                 "deal": "blue_light",
                 "postal": "Postal 401 Mission Row",
             }
-            response, confirmation = request("/order", values)
+            response, confirmation = request("/api/lb/order", values)
             self.assertEqual(response.status, 200)
-            self.assertIn("£600", confirmation)
-            self.assertIn("Postal 401 Mission Row", confirmation)
+            self.assertEqual(600, confirmation["price"])
             self.assertEqual(self.db.report()["sales"], 0)
             self.assertEqual(len(self.orders.pending()), 1)
-            response, body = request("/account")
-            self.assertIn("Order #1 is waiting", body)
-            self.assertNotIn('action="/order"', body)
+            response, body = request("/api/lb/state", identity)
+            self.assertEqual("pending", body["orders"][0]["status"])
         finally:
             server.shutdown()
             server.server_close()
+            if old_secret is None:
+                os.environ.pop("LB_PHONE_API_SECRET", None)
+            else:
+                os.environ["LB_PHONE_API_SECRET"] = old_secret
 
 
 if __name__ == "__main__":
