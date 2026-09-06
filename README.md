@@ -17,7 +17,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Loyalty customers see a visual progress bar toward their four-point trading-card pack.
 - Website ordering is available only while at least one staff member is clocked in.
 - The hub includes **Clock In**, **Clock Off** and **Who’s Clocked In**. Shifts expire after eight hours if somebody forgets to clock off.
-- Record Sale, Check Customer and Redeem Reward automatically display every saved character name in alphabetically ordered dropdowns of 25 (Discord's fixed limit per dropdown), plus **Type / Suggest Name** for spelling correction.
+- Record Sale, Check Customer and Redeem Reward include an alphabetically ordered 25-name dropdown with **Previous Names** and **Next Names**, plus **Type / Suggest Name** for spelling correction.
 - Delivery Orders opens a dashboard showing the live queue, drivers, today’s revenue and gross profit.
 - New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
 - Paid multi-deal orders record every selected deal in sales, finance, loyalty and Golden Tickets exactly once.

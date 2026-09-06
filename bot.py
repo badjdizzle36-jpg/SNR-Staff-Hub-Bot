@@ -337,7 +337,7 @@ class CustomerSelect(discord.ui.Select):
 
 
 class CustomerPickerView(discord.ui.View):
-    def __init__(self, action, page=0, show_all=False):
+    def __init__(self, action, page=0):
         super().__init__(timeout=180)
         self.action = action
         self.names = sorted(db.customer_names(), key=normalize_name)
@@ -345,9 +345,6 @@ class CustomerPickerView(discord.ui.View):
         self.page = max(0, min(page, max(0, (len(self.names) - 1) // 25)))
         if self.names:
             self.add_item(CustomerSelect(action, self.names, self.page, self.debts))
-        if show_all:
-            self.remove_item(self.previous)
-            self.remove_item(self.next)
 
     @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
     async def previous(self, interaction, button):
@@ -372,29 +369,14 @@ class CustomerPickerView(discord.ui.View):
 
 
 async def show_customer_picker(interaction, action):
-    view = CustomerPickerView(action, show_all=True)
+    view = CustomerPickerView(action)
     count = len(view.names)
-    if not count:
-        await interaction.response.send_message(
-            "No customers are saved yet. Use **Type / Suggest Name** to enter the first customer.",
-            view=view, ephemeral=True,
-        )
-        return
-    pages = (count + 24) // 25
     await interaction.response.send_message(
-        f"**All saved customers — list 1 of {pages}**\n"
-        f"Showing names 1–{min(25, count)} of {count}. Choose a name or use **Type / Suggest Name**.",
+        f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
+        "Use **Previous Names** and **Next Names** to move through every saved customer. "
+        "Typed names still correct capitals and suggest close spellings.",
         view=view, ephemeral=True,
     )
-    for page in range(1, pages):
-        start = page * 25 + 1
-        end = min((page + 1) * 25, count)
-        await interaction.followup.send(
-            f"**All saved customers — list {page + 1} of {pages}**\nShowing names {start}–{end} of {count}.",
-            view=CustomerPickerView(action, page, show_all=True),
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
 
 
 class DealSelect(discord.ui.Select):
