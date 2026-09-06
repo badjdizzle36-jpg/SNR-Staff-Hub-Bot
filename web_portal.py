@@ -32,6 +32,7 @@ body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 10% 0%,#f02
 .card{background:linear-gradient(145deg,#73130f,#32090a);border:2px solid #ffd334;border-top:7px solid var(--gold);border-radius:24px;padding:clamp(22px,5vw,34px);box-shadow:0 18px 60px #21000088}.label{color:var(--gold);text-transform:uppercase;font-size:14px;font-weight:900;letter-spacing:1px}.name{font-size:clamp(28px,7vw,44px);font-weight:950;margin:6px 0 20px;overflow-wrap:anywhere}h1{font-size:clamp(27px,6vw,36px);line-height:1.15;margin:10px 0 18px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.stat{background:linear-gradient(135deg,#b52319,#70120e);border:1px solid #ffb93480;border-radius:16px;padding:17px}.num{font-size:29px;font-weight:950;margin-top:5px;color:#fff8dd}.wide{grid-column:1/-1}.jackpot{background:linear-gradient(135deg,#ffe33b,#ffa818);color:#51100a;border:2px solid #fff39c}.jackpot .label,.jackpot .muted,.jackpot strong{color:#51100a!important}
 form{display:flex;gap:10px;margin-top:18px}input,select{min-width:0;flex:1;width:100%;background:#290808;color:white;border:1px solid #ffda4e;border-radius:14px;padding:16px;font-size:16px}input:focus,select:focus{outline:3px solid var(--gold);outline-offset:3px}button{border:0;border-radius:14px;background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;padding:16px 20px;font-weight:950;font-size:15px;box-shadow:0 4px 0 #a3540b;cursor:pointer}button:hover{filter:brightness(1.1)}button:focus-visible,a:focus-visible{outline:3px solid white;outline-offset:4px}.secondary{background:#5f100d;color:#fff4db;border:1px solid #ffda4e;box-shadow:none}.panel{padding-top:22px;margin-top:22px;border-top:1px solid #ffda3544}.panel form{flex-direction:column}.notice{padding:18px;border-radius:14px;background:#ffda3514;border:1px solid #ffda3544;color:#fff1d3;margin-top:18px}.muted{color:var(--muted)}.history{margin-top:22px;padding-top:16px;border-top:1px solid #ffda3533}.sale{display:flex;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #ffffff12}.sale:last-child{border:0}.sale small{font-size:14px;color:var(--muted)}.back{display:block;text-align:center;color:var(--gold);font-weight:700;margin-top:20px;text-decoration:none}footer{text-align:center;color:#f2c9b7;font-size:13px;margin-top:24px}
 .delivery{margin-top:24px;padding:22px;background:#210708aa;border:2px solid #ff8c22;border-radius:20px}.delivery h2{margin:5px 0 8px}.delivery-form{display:block}.deal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.deal-box{display:block;height:100%;padding:15px;border:2px solid #7e2b1f;border-radius:15px;background:#4a0d0c}.deal-box strong,.deal-box span{display:block}.deal-box .price{font-size:23px;color:var(--gold);font-weight:950;margin-top:7px}.quantity{display:flex;align-items:center;gap:10px;margin-top:12px}.quantity input{width:85px;flex:none;padding:10px;text-align:center}.subtotal{font-size:24px;font-weight:950;color:var(--gold);text-align:right;margin:14px 0}.location-row{display:flex;gap:10px}.status-paid{color:#88f29b}.status-pending{color:#ffe45f}.status-cancelled{color:#ff9f91}
+.account-choice{display:grid;gap:12px;margin-top:20px}.account-choice details{background:#3d0a0a;border:1px solid #ffda4e66;border-radius:16px;overflow:hidden}.account-choice details[open]{border-color:var(--gold);background:#4d0d0c}.account-choice summary{cursor:pointer;padding:17px 18px;color:var(--gold);font-size:18px;font-weight:950;list-style:none}.account-choice summary::-webkit-details-marker{display:none}.account-choice summary:after{content:'+';float:right}.account-choice details[open] summary:after{content:'−'}.choice-body{padding:0 18px 18px}.choice-body p{margin:0 0 10px}.choice-body form{flex-direction:column;margin-top:10px}
 @media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.card{padding:22px}.grid,.deal-list{grid-template-columns:1fr}.wide{grid-column:auto}.logo-frame{border-radius:14px}.wrap{padding-top:20px}}
 """
 
@@ -58,7 +59,54 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
     notice = f'<div class="notice">{html.escape(message)}</div>' if message else ""
     options = name_options(names, selected)
     questions = question_options()
-    return page("SNR Buns account login", f'''<section class="card"><div class="label">Customer login</div><h1>Open your loyalty account</h1><p class="muted">Choose your character name and enter your password.</p>{notice}<form method="post" action="/login"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required><button type="submit">Log In</button></form><div class="panel"><div class="label">New loyalty customer</div><h2>Create your own account</h2><p class="muted">No purchase, setup code or staff approval is needed. Enter your exact in-game character name and your account will be ready immediately.</p><form method="post" action="/request-access"><input name="name" minlength="2" maxlength="60" autocomplete="username" placeholder="Exact character name" required><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose password (10+ characters)" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required><select name="security_question" required><option value="" disabled selected>Choose a memorable question</option>{questions}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><button type="submit">Create Loyalty Account</button></form></div><div class="panel"><div class="label">Forgot password</div><h2>Reset with your memorable answer</h2><form method="post" action="/reset-password"><select name="name" required>{options}</select><select name="security_question" required><option value="" disabled selected>Choose your memorable question</option>{questions}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose new password" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat new password" required><button type="submit">Reset My Password</button></form></div></section>''')
+    return page("SNR Buns Loyalty Card", f'''
+    <section class="card">
+      <div class="label">SNR Loyalty Card</div>
+      <h1>Manage your loyalty card</h1>
+      <p class="muted">Log in, make a new card or reset your password.</p>
+      {notice}
+      <div class="account-choice">
+        <details open>
+          <summary>Log in to my card</summary>
+          <div class="choice-body">
+            <p class="muted">Use your character name and password.</p>
+            <form method="post" action="/login">
+              <select name="name" required>{options}</select>
+              <input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required>
+              <button type="submit">Log In</button>
+            </form>
+          </div>
+        </details>
+        <details>
+          <summary>Create a new loyalty card</summary>
+          <div class="choice-body">
+            <p class="muted">Enter your exact in-game name. Your card works immediately.</p>
+            <form method="post" action="/request-access">
+              <input name="name" minlength="2" maxlength="60" autocomplete="username" placeholder="Exact character name" required>
+              <input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Create password (10+ characters)" required>
+              <input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required>
+              <select name="security_question" required><option value="" disabled selected>Choose a memorable question</option>{questions}</select>
+              <input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required>
+              <button type="submit">Create My Card</button>
+            </form>
+          </div>
+        </details>
+        <details>
+          <summary>Forgot my password</summary>
+          <div class="choice-body">
+            <p class="muted">Use the memorable answer you chose.</p>
+            <form method="post" action="/reset-password">
+              <select name="name" required>{options}</select>
+              <select name="security_question" required><option value="" disabled selected>Choose your memorable question</option>{questions}</select>
+              <input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required>
+              <input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Create new password" required>
+              <input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat new password" required>
+              <button type="submit">Reset Password</button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </section>''')
 
 
 def _sale_date(value: str) -> str:

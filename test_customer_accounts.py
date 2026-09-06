@@ -172,7 +172,10 @@ class AccountTests(unittest.TestCase):
         try:
             response, public = open_request("/")
             self.assertIn("Cody Ortega", public)
-            self.assertIn("No purchase, setup code or staff approval is needed", public)
+            self.assertIn("Log in to my card", public)
+            self.assertIn("Create a new loyalty card", public)
+            self.assertIn("Forgot my password", public)
+            self.assertNotIn("Open your loyalty account", public)
             self.assertNotIn("one-time setup code", public.lower())
             self.assertNotIn("Golden tickets", public)
             self.assertNotIn("Recent visits", public)
