@@ -424,15 +424,9 @@ class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Create Web Account", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:claim_code")
-    async def create_account(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await require_staff(interaction):
-            await interaction.response.send_modal(NameModal("account_create"))
-
-    @discord.ui.button(label="Reset Web Password", emoji="🔐", style=discord.ButtonStyle.secondary, custom_id="snr:account_reset")
-    async def reset_account(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await require_staff(interaction):
-            await interaction.response.send_modal(NameModal("account_reset"))
+    @discord.ui.button(label="Account Approvals", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
+    async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_account_requests(interaction)
 
     @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary, custom_id="snr:pack_requests")
     async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -664,6 +658,103 @@ async def show_delivery_orders(interaction):
         )
 
 
+def account_request_embed(row):
+    status = str(row['status']).upper()
+    request_label = 'PASSWORD RESET' if row['request_type'] == 'reset' else 'NEW ACCOUNT'
+    colour = {
+        'pending': discord.Colour.orange(),
+        'approved': discord.Colour.green(),
+        'rejected': discord.Colour.red(),
+    }.get(row['status'], discord.Colour.orange())
+    embed = discord.Embed(title=f"👤 WEBSITE ACCOUNT REQUEST #{row['id']}", colour=colour)
+    embed.add_field(
+        name='Customer',
+        value=f"**{discord.utils.escape_markdown(row['customer_name'])}**",
+        inline=True,
+    )
+    embed.add_field(name='Request', value=f'**{request_label}**', inline=True)
+    embed.add_field(name='Status', value=f'**{status}**', inline=True)
+    embed.description = (
+        'Confirm that this is the correct in-game customer before approving. '
+        'Their password is securely stored and is never shown to staff.'
+    )
+    if row['request_type'] == 'reset':
+        embed.set_footer(text='Approving this reset signs out all old website sessions')
+    else:
+        embed.set_footer(text='Approval unlocks this customer’s loyalty card')
+    return embed
+
+
+class AccountRequestView(discord.ui.View):
+    def __init__(self, request_id):
+        super().__init__(timeout=None)
+        self.request_id = int(request_id)
+        approve = discord.ui.Button(
+            label='Approve Account', emoji='✅', style=discord.ButtonStyle.success,
+            custom_id=f'snr:account:{self.request_id}:approved',
+        )
+        reject = discord.ui.Button(
+            label='Reject', emoji='✖️', style=discord.ButtonStyle.danger,
+            custom_id=f'snr:account:{self.request_id}:rejected',
+        )
+
+        async def approve_callback(interaction):
+            await self._resolve(interaction, 'approved')
+
+        async def reject_callback(interaction):
+            await self._resolve(interaction, 'rejected')
+
+        approve.callback = approve_callback
+        reject.callback = reject_callback
+        self.add_item(approve)
+        self.add_item(reject)
+
+    async def _resolve(self, interaction, decision):
+        if not await require_staff(interaction):
+            return
+        row = accounts.get_request(self.request_id)
+        if not row or str(interaction.guild_id) != row['guild_id']:
+            await interaction.response.send_message('This request belongs to another server.', ephemeral=True)
+            return
+        try:
+            async with db_lock:
+                row = accounts.resolve_request(
+                    self.request_id, decision, str(interaction.user.id), str(interaction.user)
+                )
+        except ValueError as exc:
+            await interaction.response.send_message(f'❌ {exc}', ephemeral=True)
+            return
+        message = (
+            '✅ Account approved. The customer can now log in using the password they chose.'
+            if decision == 'approved'
+            else 'Account request rejected. No password or account access was changed.'
+        )
+        await interaction.response.send_message(message, ephemeral=True)
+        try:
+            await interaction.message.edit(embed=account_request_embed(row), view=None)
+            if row['message_id'] and str(interaction.message.id) != row['message_id']:
+                channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+                await channel.get_partial_message(int(row['message_id'])).edit(
+                    embed=account_request_embed(row), view=None
+                )
+        except discord.HTTPException:
+            logging.exception('Account request resolved but message refresh failed: %s', self.request_id)
+
+
+async def show_account_requests(interaction):
+    if not await require_staff(interaction):
+        return
+    rows = [row for row in accounts.pending() if row['guild_id'] == str(interaction.guild_id)]
+    await interaction.response.send_message(
+        f'{len(rows)} account approval(s) waiting. Showing the oldest 10.', ephemeral=True
+    )
+    for row in rows[:10]:
+        await interaction.followup.send(
+            embed=account_request_embed(row), view=AccountRequestView(row['id']),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 @tasks.loop(seconds=10)
 async def notify_pack_claims():
     if not bot.is_ready():
@@ -705,6 +796,27 @@ async def notify_delivery_orders():
             logging.exception('Delivery alert failed; will retry: %s', row['id'])
 
 
+@tasks.loop(seconds=10)
+async def notify_account_requests():
+    if not bot.is_ready():
+        return
+    for row in accounts.pending(unsent=True)[:20]:
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Account approval channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            message = await channel.send(
+                embed=account_request_embed(row), view=AccountRequestView(row['id']),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            accounts.request_notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Account approval alert failed; will retry: %s', row['id'])
+
+
 @bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} ({bot.user.id})")
@@ -712,6 +824,8 @@ async def on_ready() -> None:
         notify_pack_claims.start()
     if not notify_delivery_orders.is_running():
         notify_delivery_orders.start()
+    if not notify_account_requests.is_running():
+        notify_account_requests.start()
 
 
 @bot.event
@@ -721,6 +835,8 @@ async def setup_hook() -> None:
         bot.add_view(PackClaimView(row['id']))
     for row in orders.pending():
         bot.add_view(DeliveryOrderView(row['id']))
+    for row in accounts.pending():
+        bot.add_view(AccountRequestView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)
     if result["imported"]:
         print(f"Imported {result['imported']} legacy customers.")
@@ -783,16 +899,9 @@ async def orders_setup(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name='snrhub_account_create', description='Create a named website account and issue its one-time setup code.')
-async def account_create(interaction: discord.Interaction, name: str):
-    if await require_staff(interaction):
-        await send_name_result(interaction, 'account_create', name)
-
-
-@bot.tree.command(name='snrhub_password_reset', description='Reset a customer’s website password after checking their identity.')
-async def password_reset(interaction: discord.Interaction, name: str):
-    if await require_staff(interaction):
-        await send_name_result(interaction, 'account_reset', name)
+@bot.tree.command(name='snrhub_accounts_pending', description='Review customer website account and password-reset requests.')
+async def accounts_pending(interaction: discord.Interaction):
+    await show_account_requests(interaction)
 
 
 @bot.tree.command(name='snrhub_claims_pending', description='Review website pack requests awaiting handover.')

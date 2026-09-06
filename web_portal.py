@@ -51,7 +51,7 @@ def name_options(names: list[str], selected: str = "") -> str:
 def login_page(names: list[str], message: str = "", selected: str = "") -> str:
     notice = f'<div class="notice">{html.escape(message)}</div>' if message else ""
     options = name_options(names, selected)
-    return page("SNR Buns account login", f'''<section class="card"><div class="label">Customer login</div><h1>Open your loyalty account</h1><p class="muted">Choose your character name and enter the password you created.</p>{notice}<form method="post" action="/login"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required><button type="submit">Log In</button></form><div class="panel"><div class="label">First visit or password reset</div><p class="muted">Staff must create your account and privately give you a one-time setup code. Use it to choose your password.</p><form method="post" action="/activate"><select name="name" required>{options}</select><input name="code" maxlength="100" autocomplete="one-time-code" placeholder="One-time setup code" required><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose password (10+ characters)" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required><button type="submit">Set My Password</button></form></div></section>''')
+    return page("SNR Buns account login", f'''<section class="card"><div class="label">Customer login</div><h1>Open your loyalty account</h1><p class="muted">Choose your character name and enter your password.</p>{notice}<form method="post" action="/login"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Your password" required><button type="submit">Log In</button></form><div class="panel"><div class="label">Create account or forgot password</div><h2>Choose your password here</h2><p class="muted">No setup code is needed. Choose your name and password below. SNR staff will receive one approval button in Discord to protect your rewards.</p><form method="post" action="/request-access"><select name="name" required>{options}</select><input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Choose password (10+ characters)" required><input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat password" required><button type="submit">Request My Account</button></form><p class="muted">If you already have an account, this safely requests a password reset. Your old password stays active until staff approve the request.</p></div></section>''')
 
 
 def _sale_date(value: str) -> str:
@@ -246,11 +246,16 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 if path == "/login":
                     token = accounts.login(data.get("name", ""), data.get("password", ""))
                     self.redirect("/account", self.session_cookie(token))
-                elif path == "/activate":
+                elif path == "/request-access":
                     if data.get("password", "") != data.get("confirm", ""):
                         raise ValueError("The two passwords do not match.")
-                    token = accounts.set_password(data.get("name", ""), data.get("code", ""), data.get("password", ""))
-                    self.redirect("/account", self.session_cookie(token))
+                    result = accounts.request_access(data.get("name", ""), data.get("password", ""))
+                    action = "password reset" if result["request_type"] == "reset" else "new account"
+                    if result.get("already_pending"):
+                        notice = "An approval is already waiting for this name. The original password chosen for that request has not been changed. If it needs replacing, ask staff to reject the waiting request and submit again."
+                    else:
+                        notice = "You do not need a code. After staff verify and approve you in Discord, return here and log in using the password you just chose."
+                    self.send_html(200, page("Account request sent", f'''<section class="card"><div class="label">Account request sent</div><h1>One quick staff check</h1><p>Your {action} request for <strong>{html.escape(result["customer_name"])}</strong> has been sent to SNR staff.</p><div class="notice">{html.escape(notice)}</div><a class="back" href="/">Back to login</a></section>'''))
                 elif path == "/logout":
                     accounts.logout(self.session_token())
                     self.redirect("/", "snr_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned")

@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from customer_accounts import Accounts
+from delivery_orders import DeliveryStore
 from reward_claims import ClaimStore
 from snr_core import SNRDatabase
 from web_portal import start_web_server
@@ -68,6 +69,40 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.accounts.login("Cody Ortega", "long enough password")
 
+    def test_self_service_create_and_reset_require_staff_approval(self):
+        self.db.record_sale("Cody Ortega", "quick_fix", "1", "Staff")
+        DeliveryStore(self.db).configure(100, 200, "1", "Manager")
+        request = self.accounts.request_access("Cody Ortega", "customer chosen password")
+        self.assertEqual(request["request_type"], "create")
+        with self.assertRaises(ValueError):
+            self.accounts.login("Cody Ortega", "customer chosen password")
+        approved = self.accounts.resolve_request(request["id"], "approved", "1", "Staff")
+        self.assertEqual(approved["status"], "approved")
+        first_session = self.accounts.login("Cody Ortega", "customer chosen password")
+        reset = self.accounts.request_access("Cody Ortega", "customer new password")
+        self.assertEqual(reset["request_type"], "reset")
+        self.assertEqual(self.accounts.owner(first_session), "cody ortega")
+        self.accounts.resolve_request(reset["id"], "approved", "1", "Staff")
+        self.assertIsNone(self.accounts.owner(first_session))
+        with self.assertRaises(ValueError):
+            self.accounts.login("Cody Ortega", "customer chosen password")
+        self.assertEqual(
+            self.accounts.owner(self.accounts.login("Cody Ortega", "customer new password")),
+            "cody ortega",
+        )
+        with self.db.connect() as conn:
+            raw = str([tuple(row) for row in conn.execute("SELECT * FROM customer_account_requests")])
+        self.assertNotIn("customer chosen password", raw)
+        self.assertNotIn("customer new password", raw)
+
+    def test_rejected_self_service_request_changes_nothing(self):
+        self.db.record_sale("Cody Ortega", "quick_fix", "1", "Staff")
+        DeliveryStore(self.db).configure(100, 200, "1", "Manager")
+        request = self.accounts.request_access("Cody Ortega", "customer chosen password")
+        self.accounts.resolve_request(request["id"], "rejected", "1", "Staff")
+        with self.assertRaises(ValueError):
+            self.accounts.login("Cody Ortega", "customer chosen password")
+
     def test_authenticated_claim_is_bound_to_session_owner(self):
         self.create("Cody Ortega")
         self.create("Other Person", "other password 123")
@@ -95,11 +130,11 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 4)
 
     def test_full_web_account_flow_and_phone_cookie(self):
-        code = self.accounts.issue_setup("Cody Ortega", "1", "Staff")
         for _ in range(2):
             self.db.record_sale("Cody Ortega", "share_box", "1", "Staff")
         claims = ClaimStore(self.db)
         claims.configure(100, 200, "1", "Manager")
+        DeliveryStore(self.db).configure(100, 200, "1", "Manager")
         server = start_web_server(self.db, 0)
         base = f"http://127.0.0.1:{server.server_port}"
         class NoRedirect(HTTPRedirectHandler):
@@ -120,13 +155,26 @@ class AccountTests(unittest.TestCase):
         try:
             response, public = open_request("/")
             self.assertIn("Cody Ortega", public)
+            self.assertIn("No setup code is needed", public)
+            self.assertNotIn("one-time setup code", public.lower())
             self.assertNotIn("Golden tickets", public)
             self.assertNotIn("Recent visits", public)
             response, blocked = open_request("/card?name=Cody+Ortega", opener=build_opener())
             self.assertEqual(response.status, 401)
             self.assertNotIn("Golden tickets", blocked)
-            response, _ = open_request("/activate", {"name": "Cody Ortega", "code": code,
-                                                          "password": "my safe password", "confirm": "my safe password"})
+            response, request_sent = open_request("/request-access", {
+                "name": "Cody Ortega", "password": "my safe password", "confirm": "my safe password"
+            })
+            self.assertEqual(response.status, 200)
+            self.assertIn("You do not need a code", request_sent)
+            pending = self.accounts.pending()
+            self.assertEqual(len(pending), 1)
+            with self.assertRaises(ValueError):
+                self.accounts.login("Cody Ortega", "my safe password")
+            self.accounts.resolve_request(pending[0]["id"], "approved", "1", "Staff")
+            response, _ = open_request("/login", {
+                "name": "Cody Ortega", "password": "my safe password"
+            })
             self.assertEqual(response.status, 303)
             raw_cookie = response.headers.get("Set-Cookie", "")
             self.assertIn("HttpOnly", raw_cookie)

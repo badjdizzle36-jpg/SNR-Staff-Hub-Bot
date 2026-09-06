@@ -35,24 +35,22 @@ alerts. The bot needs View Channel, Send Messages and Embed Links there. The
 channel must not allow @everyone to view it. Website requests are disabled until
 this setup is complete.
 
-Run `/snrhub_panel` again to post the new **Create Web Account**, **Reset Web
-Password**, and **Pack Requests** buttons. Staff create a named account with the
-button or `/snrhub_account_create name:`. The bot privately shows a one-time
-setup code that expires after 24 hours. Staff verify the customer's in-game
-identity and privately give that code to the correct customer.
+Run `/snrhub_panel` again to post the new **Account Approvals** button. No setup
+code is needed. On the same website login screen, the customer selects their
+existing character name, chooses a password between 10 and 128 characters, and
+presses **Request My Account**.
 
-On the website, the customer selects their character name, enters the setup
-code, and chooses a password between 10 and 128 characters. Passwords are
-stored only as salted PBKDF2 hashes; staff cannot see them. The customer then
-logs in to see only their own stats and redeem only their own points. Changing
-the URL or selecting another name cannot open or redeem another account.
+An approval appears automatically in the configured private delivery-orders
+channel (or the private pack-claims channel on an older setup). Staff verify the
+player in-game and click **Approve Account** or **Reject**. Approval unlocks the
+card; rejection changes nothing. Passwords are stored only as salted PBKDF2
+hashes and are never shown to staff.
 
-If the customer forgets their password, staff verify them and use **Reset Web
-Password** or `/snrhub_password_reset name:`. This immediately signs out every
-old session, disables the old password, and creates a new setup code. Five
-incorrect passwords or setup codes lock attempts for 15 minutes. A website
-login lasts 8 hours. Staff retain full customer lookup and reward controls in
-the private Discord hub and do not need the customer's password.
+The same form handles forgotten passwords. If the name already has an active
+account, it creates a password-reset approval. The old password keeps working
+until staff approve the reset. Approval immediately signs out all old sessions
+and activates the newly chosen password. Five incorrect logins lock attempts
+for 15 minutes, and a valid website login lasts 8 hours.
 
 When the logged-in player requests a pack, the server gets the customer identity
 from the protected login session—not from a dropdown or editable form field.
@@ -83,7 +81,7 @@ select their character name and log in to see their own visits, points, Golden
 Tickets and recent meals. The dropdown alone never reveals anyone's card.
 
 The public page never exposes revenue, costs, profit, staff identities, password
-hashes, setup codes or the hidden jackpot position. Railway supplies `PORT`
+hashes or the hidden jackpot position. Railway supplies `PORT`
 automatically; do not add or change it manually.
 
 A private, staff-only Discord bot for recording SNR Buns sales with only the customer’s character name.
@@ -121,8 +119,8 @@ Customers never need to join Discord.
 4. Choose the deal from the dropdown.
 5. The bot records everything and immediately updates loyalty and the jackpot.
 
-The panel also contains **Create Web Account**, **Reset Web Password**, **Pack
-Requests**, **Delivery Orders**, **Check Customer**, **Redeem Reward**, **Golden
+The panel also contains **Account Approvals**, **Pack Requests**, **Delivery
+Orders**, **Check Customer**, **Redeem Reward**, **Golden
 Jackpot**, **Birdy Post**, and **Finance Check**. Trading cards are awarded only when a customer
 exchanges four points for one two-card pack.
 
@@ -211,8 +209,7 @@ The panel remains usable after the bot restarts.
 - `/snrhub_panel` — post the permanent control panel
 - `/snrhub_sale name` — open the deal dropdown for a customer
 - `/snrhub_customer name` — check loyalty, sales and outstanding rewards
-- `/snrhub_account_create name` — create a web account and one-time setup code
-- `/snrhub_password_reset name` — revoke old access and issue a new setup code
+- `/snrhub_accounts_pending` — review new-account and password-reset approvals
 - `/snrhub_claims_setup` — choose the private staff channel for website alerts
 - `/snrhub_claims_pending` — show pending website pack requests
 - `/snrhub_orders_setup` — choose the private Discord delivery-orders channel
