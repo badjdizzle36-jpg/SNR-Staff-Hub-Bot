@@ -64,7 +64,7 @@ def _sale_date(value: str) -> str:
 def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
     rows = claims.summary(customer["display_name"])
     pending = next((row for row in rows if row["status"] == "pending"), None)
-    labels = {"pending": "Awaiting staff handover — 4 points reserved", "fulfilled": "Pack handed over", "cancelled": "Cancelled — 4 points returned"}
+    labels = {"pending": "Claim sent — awaiting staff handover", "fulfilled": "Pack handed over — points reset to 0", "cancelled": "Claim cancelled — points unchanged"}
     history = "".join(f'<p>Request #{row["id"]}: {labels[row["status"]]}</p>' for row in rows)
     points = int(customer["loyalty_points"])
     if pending:
@@ -74,8 +74,8 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
     elif points < 4:
         action = f"<p>Collect {4-points} more loyalty point(s) to request your next pack.</p>"
     else:
-        action = f'<form method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(form_token, quote=True)}"><button type="submit">Redeem 4 Points for My Pack</button></form>'
-    return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>4 points = 1 pack containing 2 trading cards.</strong></p><p>{points} available points. Your login proves this is your account.</p>{action}<div class="muted">{history}</div></section>'
+        action = f'<form method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(form_token, quote=True)}"><button type="submit">Claim Trading Card Pack</button></form>'
+    return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>Reach 4 points to claim 1 pack containing 2 trading cards.</strong></p><p>{points} available points. Your login proves this is your account.</p><p class="muted">After staff hand over your pack, your loyalty points reset to 0.</p>{action}<div class="muted">{history}</div></section>'
 
 
 def delivery_section(customer: dict, orders: DeliveryStore, form_token: str) -> str:
@@ -267,7 +267,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                     if not valid_form_token(owner, key):
                         raise ValueError("This form has expired. Refresh your account and try again.")
                     result = claims.request_authenticated(owner, key)
-                    message = {"pending": "Your request is saved for staff. Four points are reserved. Visit SNR Buns to collect your pack.", "fulfilled": "Staff already marked this pack as handed over.", "cancelled": "This request was cancelled and its four points were returned."}[result["status"]]
+                    message = {"pending": "Your claim has been sent to SNR staff. Visit SNR Buns to collect your pack. Your points reset to 0 only after staff mark it handed over.", "fulfilled": "Staff marked this pack as handed over and your points have reset to 0.", "cancelled": "This claim was cancelled and your points were not changed."}[result["status"]]
                     self.send_html(200, page("Reward request", f'<section class="card"><h1>Request #{result["id"]}</h1><p>{message}</p><a class="back" href="/account">Back to my account</a></section>'))
                 elif path == "/order":
                     owner = self.owner()

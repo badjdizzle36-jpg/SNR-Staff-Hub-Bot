@@ -20,20 +20,23 @@ time and can follow its status on their account page.
 
 ## Password-protected loyalty accounts (latest update)
 
-Every 4 available loyalty points can be exchanged for one pack containing 2
-trading cards. Existing saved points qualify. Mega Deal still earns 1 point and
-Share Box earns 2. No automatic free card is added to another meal.
+At 4 or more available loyalty points, the customer webpage shows **Claim
+Trading Card Pack**. A claim sends a private Discord notification. Points stay
+unchanged while staff prepare the pack; pressing **Handed Over** resets the
+customer's entire loyalty balance to **0**. Cancelling leaves the balance
+unchanged. Existing saved points qualify, including balances above 4. Mega Deal
+still earns 1 point and Share Box earns 2.
 
 Upload `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`,
 `customer_accounts.py`, and the new `delivery_orders.py` together at the
 repository root. Keep `snr-logo.png` there. Do not replace the Railway database
 or volume. No new environment variables or dependencies are needed.
 
-After deployment, an SNR Management member or administrator runs
-`/snrhub_claims_setup` in the private staff text channel that should receive
-alerts. The bot needs View Channel, Send Messages and Embed Links there. The
-channel must not allow @everyone to view it. Website requests are disabled until
-this setup is complete.
+If `/snrhub_orders_setup` already points at a private staff channel, pack claims
+automatically use that channel too. To send claims to a different private
+channel, an SNR Management member runs `/snrhub_claims_setup` there. The bot
+needs View Channel, Send Messages and Embed Links, and @everyone must not be
+allowed to view the channel.
 
 Run `/snrhub_panel` again to post the new **Account Approvals** button. No setup
 code is needed. On the same website login screen, the customer selects their
@@ -54,15 +57,15 @@ for 15 minutes, and a valid website login lasts 8 hours.
 
 When the logged-in player requests a pack, the server gets the customer identity
 from the protected login session—not from a dropdown or editable form field.
-Exactly four points are reserved transactionally. Only one pending request per
-customer is allowed. Repeat submissions do not reserve again. Staff click
-**Handed Over** after delivering the pack, or **Cancel & Return Points**. Both
-actions are audited and work only once. There is no automatic in-game delivery.
+Only one pending request per customer is allowed. Repeat submissions cannot
+create another claim. Staff click **Handed Over** after delivering the pack to
+reset the balance to 0, or cancel to leave the points unchanged. Both actions
+are audited and work only once. There is no automatic in-game delivery.
 
 Alerts normally arrive within 10 seconds while Discord is available. Requests
 are stored in SQLite and unsent alerts retry after outages/restarts. A crash
 between sending and saving the message ID can produce a duplicate alert; both
-refer to the same claim and cannot cause a second deduction or refund. Pending
+refer to the same claim and cannot cause a second reset. Pending
 requests remain available through Pack Requests if a message is deleted.
 Customers refresh their card to see status updates; website confirmation says
 queued, not delivered to Discord. Staff actions remain private to Discord.

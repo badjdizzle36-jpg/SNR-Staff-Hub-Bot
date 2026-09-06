@@ -113,10 +113,12 @@ class AccountTests(unittest.TestCase):
         claims.configure(100, 200, "1", "Manager")
         row = claims.request_authenticated("cody ortega", "authenticated-request-1")
         self.assertEqual(row["customer_key"], "cody ortega")
-        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 4)
         self.assertEqual(self.db.get_customer("Other Person")["loyalty_points"], 4)
         with self.assertRaises(ValueError):
             claims.request_authenticated("other person", "authenticated-request-1")
+        claims.resolve(row["id"], "fulfilled", "1", "Staff")
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
 
     def test_concurrent_claim_reserves_once(self):
         self.create()
@@ -127,6 +129,21 @@ class AccountTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=6) as pool:
             rows = list(pool.map(lambda i: claims.request_authenticated("cody ortega", f"request-key-number-{i}"), range(10)))
         self.assertEqual(len({row["id"] for row in rows}), 1)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 8)
+        claims.resolve(rows[0]["id"], "fulfilled", "1", "Staff")
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+
+    def test_claim_uses_existing_orders_channel_and_cancel_keeps_points(self):
+        self.create()
+        self.db.record_sale("Cody Ortega", "share_box", "1", "Staff")
+        self.db.record_sale("Cody Ortega", "share_box", "1", "Staff")
+        DeliveryStore(self.db).configure(321, 654, "1", "Manager")
+        claims = ClaimStore(self.db)
+        self.assertTrue(claims.configured())
+        row = claims.request_authenticated("Cody Ortega", "fallback-channel-request")
+        self.assertEqual(row["channel_id"], "321")
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 4)
+        claims.resolve(row["id"], "cancelled", "1", "Staff")
         self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 4)
 
     def test_full_web_account_flow_and_phone_cookie(self):
@@ -190,12 +207,14 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(open_request("/claim", forged, cookie=session_cookie)[0].status, 400)
             response, result = open_request("/claim", parser.values, cookie=session_cookie)
             self.assertEqual(response.status, 200)
-            self.assertIn("saved for staff", result)
-            self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+            self.assertIn("sent to SNR staff", result)
+            self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 4)
             response, body = open_request("/account", cookie=session_cookie)
-            self.assertIn("Awaiting staff handover", body)
+            self.assertIn("awaiting staff handover", body)
             self.assertNotIn('name="code"', body)
             self.assertEqual(len(claims.pending()), 1)
+            claims.resolve(claims.pending()[0]["id"], "fulfilled", "1", "Staff")
+            self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
         finally:
             server.shutdown(); server.server_close()
 

@@ -16,6 +16,10 @@ class ClaimStore:
                     id INTEGER PRIMARY KEY CHECK(id=1), channel_id TEXT NOT NULL,
                     guild_id TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS web_delivery_settings (
+                    id INTEGER PRIMARY KEY CHECK(id=1), channel_id TEXT NOT NULL,
+                    guild_id TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS web_claim_codes (
                     customer_key TEXT PRIMARY KEY REFERENCES customers(customer_key),
                     code_hash TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
@@ -28,6 +32,7 @@ class ClaimStore:
                     request_key TEXT NOT NULL UNIQUE,
                     status TEXT NOT NULL DEFAULT 'pending',
                     points INTEGER NOT NULL DEFAULT 4,
+                    points_reserved INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT,
                     channel_id TEXT NOT NULL, guild_id TEXT NOT NULL,
                     message_id TEXT
@@ -35,6 +40,13 @@ class ClaimStore:
                 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_web_pack
                     ON web_pack_claims(customer_key) WHERE status='pending';
             ''')
+            # Earlier versions deducted four points as soon as the request was
+            # submitted. Mark only those pre-upgrade pending rows so a cancel
+            # can still refund them correctly after this upgrade.
+            columns = {row['name'] for row in conn.execute('PRAGMA table_info(web_pack_claims)')}
+            if 'points_reserved' not in columns:
+                conn.execute('ALTER TABLE web_pack_claims ADD COLUMN points_reserved INTEGER NOT NULL DEFAULT 0')
+                conn.execute("UPDATE web_pack_claims SET points_reserved=1 WHERE status='pending'")
 
     @staticmethod
     def digest(code):
@@ -55,7 +67,15 @@ class ClaimStore:
 
     def configured(self):
         with self.db.connect() as conn:
-            return conn.execute('SELECT 1 FROM web_claim_settings WHERE id=1').fetchone() is not None
+            return self._route(conn) is not None
+
+    @staticmethod
+    def _route(conn):
+        """Use the dedicated claims channel, or the existing private orders channel."""
+        row = conn.execute('SELECT channel_id,guild_id FROM web_claim_settings WHERE id=1').fetchone()
+        if not row:
+            row = conn.execute('SELECT channel_id,guild_id FROM web_delivery_settings WHERE id=1').fetchone()
+        return row
 
     def issue_code(self, name, staff_id, staff_name):
         key = normalize_name(name)
@@ -103,25 +123,24 @@ class ClaimStore:
                 pending = conn.execute("SELECT * FROM web_pack_claims WHERE customer_key=? AND status='pending'", (key,)).fetchone()
                 if pending:
                     return dict(pending)
-                config = conn.execute('SELECT * FROM web_claim_settings WHERE id=1').fetchone()
+                config = self._route(conn)
                 if not config:
                     raise ValueError('Online claims are not set up yet. Please ask staff.')
-                changed = conn.execute('UPDATE customers SET loyalty_points=loyalty_points-4,updated_at=? WHERE customer_key=? AND loyalty_points>=4',
-                                       (utc_now(), key))
-                if changed.rowcount != 1:
+                eligible = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?', (key,)).fetchone()
+                if not eligible or int(eligible['loyalty_points']) < 4:
                     raise ValueError('You need four available loyalty points for a pack.')
                 customer = conn.execute('SELECT display_name FROM customers WHERE customer_key=?', (key,)).fetchone()
                 cursor = conn.execute('''INSERT INTO web_pack_claims
                     (customer_key,customer_name,request_key,created_at,channel_id,guild_id) VALUES(?,?,?,?,?,?)''',
                     (key,customer['display_name'],request_key,utc_now(),config['channel_id'],config['guild_id']))
-                self.audit(conn, 'web_pack_requested', f'claim={cursor.lastrowid};customer={key};points=4')
+                self.audit(conn, 'web_pack_requested', f'claim={cursor.lastrowid};customer={key};reset_on_handover=1')
                 result = dict(conn.execute('SELECT * FROM web_pack_claims WHERE id=?', (cursor.lastrowid,)).fetchone())
         if failure:
             raise ValueError('Name or private claim code not accepted. After five incorrect codes, wait 15 minutes or ask staff for a new code.')
         return result
 
     def request_authenticated(self, customer_key, request_key):
-        """Reserve a pack for the already authenticated website account owner."""
+        """Request a pack for the already authenticated website account owner."""
         key = normalize_name(customer_key)
         if not 10 <= len(request_key) <= 160:
             raise ValueError('Please reopen your account and try again.')
@@ -139,14 +158,11 @@ class ClaimStore:
             ).fetchone()
             if pending:
                 return dict(pending)
-            config = conn.execute('SELECT * FROM web_claim_settings WHERE id=1').fetchone()
+            config = self._route(conn)
             if not config:
                 raise ValueError('Online claims are not set up yet. Please ask staff.')
-            changed = conn.execute(
-                'UPDATE customers SET loyalty_points=loyalty_points-4,updated_at=? '
-                'WHERE customer_key=? AND loyalty_points>=4', (utc_now(), key)
-            )
-            if changed.rowcount != 1:
+            eligible = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?', (key,)).fetchone()
+            if not eligible or int(eligible['loyalty_points']) < 4:
                 raise ValueError('You need four available loyalty points for a pack.')
             customer = conn.execute(
                 'SELECT display_name FROM customers WHERE customer_key=?', (key,)
@@ -161,7 +177,7 @@ class ClaimStore:
                  config['channel_id'], config['guild_id'])
             )
             self.audit(conn, 'web_pack_requested',
-                       f'claim={cursor.lastrowid};customer={key};points=4;auth=password')
+                       f'claim={cursor.lastrowid};customer={key};reset_on_handover=1;auth=password')
             return dict(conn.execute(
                 'SELECT * FROM web_pack_claims WHERE id=?', (cursor.lastrowid,)
             ).fetchone())
@@ -193,10 +209,12 @@ class ClaimStore:
             conn.execute('UPDATE web_pack_claims SET status=?,resolved_at=?,resolved_by=? WHERE id=?',
                          (status, utc_now(), str(staff_id), claim_id))
             if status == 'cancelled':
-                conn.execute('UPDATE customers SET loyalty_points=loyalty_points+4,updated_at=? WHERE customer_key=?',
-                             (utc_now(), row['customer_key']))
+                if row['points_reserved']:
+                    conn.execute('UPDATE customers SET loyalty_points=loyalty_points+4,updated_at=? WHERE customer_key=?',
+                                 (utc_now(), row['customer_key']))
             else:
-                conn.execute('''UPDATE customers SET card_packs_earned=card_packs_earned+1,
+                conn.execute('''UPDATE customers SET loyalty_points=0,
+                    card_packs_earned=card_packs_earned+1,
                     card_packs_claimed=card_packs_claimed+1,updated_at=? WHERE customer_key=?''',
                     (utc_now(), row['customer_key']))
             self.audit(conn, 'web_pack_'+status, f'claim={claim_id};customer={row["customer_key"]}', str(staff_id), staff_name)

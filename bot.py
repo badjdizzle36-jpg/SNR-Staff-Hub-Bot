@@ -490,8 +490,8 @@ def pack_claim_embed(row):
     embed.description = (f"Customer: **{discord.utils.escape_markdown(row['customer_name'])}**\n"
                          "Reward: **1 pack containing 2 trading cards**\n"
                          f"Status: **{row['status']}**\n"
-                         "Four points are reserved while pending. Hand over the pack first, then confirm. "
-                         "Cancel to return the points.")
+                         "The customer’s points stay unchanged while pending. Hand over the pack first, then confirm. "
+                         "Confirming resets their loyalty points to **0**. Cancelling leaves their points unchanged.")
     return embed
 
 
@@ -517,7 +517,7 @@ class PackClaimView(discord.ui.View):
                     await interaction.followup.send(str(exc), ephemeral=True)
                     return
                 await interaction.followup.send(
-                    'Pack marked as handed over.' if target=='fulfilled' else 'Cancelled. Four points returned.', ephemeral=True)
+                    'Pack marked as handed over. The customer’s loyalty points are now 0.' if target=='fulfilled' else 'Cancelled. The customer’s points were not changed.', ephemeral=True)
                 # Also update the canonical alert if this action came from the pending-request list.
                 try:
                     await interaction.message.edit(embed=pack_claim_embed(row), view=None)
