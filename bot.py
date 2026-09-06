@@ -21,6 +21,7 @@ from web_portal import start_web_server
 from reward_claims import ClaimStore
 from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
+from staff_shifts import StaffShifts
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -39,6 +40,7 @@ db_lock = asyncio.Lock()
 claims = ClaimStore(db)
 accounts = Accounts(db)
 orders = DeliveryStore(db)
+shifts = StaffShifts(db)
 
 
 def money(value: float | int) -> str:
@@ -57,6 +59,13 @@ def is_staff(interaction: discord.Interaction) -> bool:
     return has_role(interaction, STAFF_ROLE_NAME) or has_role(interaction, MANAGER_ROLE_NAME)
 
 
+def staff_ping(channel):
+    role = discord.utils.get(channel.guild.roles, name=STAFF_ROLE_NAME)
+    if not role:
+        return None, discord.AllowedMentions.none()
+    return role.mention, discord.AllowedMentions(roles=[role])
+
+
 async def require_staff(interaction: discord.Interaction) -> bool:
     if is_staff(interaction):
         return True
@@ -72,12 +81,12 @@ def panel_embed() -> discord.Embed:
         title="🍔 SNR BUNS — STAFF HUB",
         description=(
             "Use the buttons below to record sales, manage website deliveries, check customers, "
-            "redeem rewards, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
+            "redeem rewards, clock delivery staff in/out, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
             "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
     )
-    embed.add_field(name="Simple sale entry", value="Enter the customer name, then choose the deal.", inline=False)
+    embed.add_field(name="Simple sale entry", value="Pick an existing customer or type a name, then choose the deal.", inline=False)
     embed.set_footer(text="SNR Buns • Staff access only")
     return embed
 
@@ -304,6 +313,60 @@ class NameChoiceView(discord.ui.View):
             await continue_action(interaction, self.action, self.entered)
 
 
+class CustomerSelect(discord.ui.Select):
+    def __init__(self, action, names, page):
+        self.action = action
+        start = page * 25
+        options = [discord.SelectOption(label=name[:100], value=name, emoji="👤")
+                   for name in names[start:start + 25]]
+        super().__init__(placeholder="Select a character name", options=options)
+
+    async def callback(self, interaction):
+        if await require_staff(interaction):
+            await continue_action(interaction, self.action, self.values[0])
+
+
+class CustomerPickerView(discord.ui.View):
+    def __init__(self, action, page=0):
+        super().__init__(timeout=180)
+        self.action = action
+        self.names = sorted(db.customer_names(), key=normalize_name)
+        self.page = max(0, min(page, max(0, (len(self.names) - 1) // 25)))
+        if self.names:
+            self.add_item(CustomerSelect(action, self.names, self.page))
+
+    @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+    async def previous(self, interaction, button):
+        if await require_staff(interaction):
+            await interaction.response.edit_message(
+                content="Choose a customer or type their name:",
+                view=CustomerPickerView(self.action, self.page - 1),
+            )
+
+    @discord.ui.button(label="Next Names", emoji="➡️", style=discord.ButtonStyle.secondary, row=1)
+    async def next(self, interaction, button):
+        if await require_staff(interaction):
+            await interaction.response.edit_message(
+                content="Choose a customer or type their name:",
+                view=CustomerPickerView(self.action, self.page + 1),
+            )
+
+    @discord.ui.button(label="Type / Suggest Name", emoji="✏️", style=discord.ButtonStyle.primary, row=1)
+    async def type_name(self, interaction, button):
+        if await require_staff(interaction):
+            await interaction.response.send_modal(NameModal(self.action))
+
+
+async def show_customer_picker(interaction, action):
+    view = CustomerPickerView(action)
+    count = len(view.names)
+    await interaction.response.send_message(
+        f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
+        "Typed names still correct capitals and suggest close spellings.",
+        view=view, ephemeral=True,
+    )
+
+
 class DealSelect(discord.ui.Select):
     def __init__(self, customer_name: str, mode: str):
         self.customer_name = customer_name
@@ -439,17 +502,46 @@ class StaffPanel(discord.ui.View):
     @discord.ui.button(label="Record Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
     async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await interaction.response.send_modal(NameModal("sale"))
+            await show_customer_picker(interaction, "sale")
 
     @discord.ui.button(label="Check Customer", emoji="🔎", style=discord.ButtonStyle.primary, custom_id="snr:check_customer")
     async def check_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await interaction.response.send_modal(NameModal("check"))
+            await show_customer_picker(interaction, "check")
 
     @discord.ui.button(label="Redeem Reward", emoji="🎁", style=discord.ButtonStyle.primary, custom_id="snr:redeem")
     async def redeem(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await interaction.response.send_modal(NameModal("redeem"))
+            await show_customer_picker(interaction, "redeem")
+
+    @discord.ui.button(label="Clock In", emoji="🟢", style=discord.ButtonStyle.success, custom_id="snr:clock_in")
+    async def clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_staff(interaction):
+            return
+        changed = shifts.clock_in(interaction.user.id, str(interaction.user), interaction.guild_id)
+        await interaction.response.send_message(
+            "🟢 You are clocked in. Website delivery ordering is now available."
+            if changed else "ℹ️ You are already clocked in.", ephemeral=True)
+
+    @discord.ui.button(label="Clock Off", emoji="🔴", style=discord.ButtonStyle.danger, custom_id="snr:clock_out")
+    async def clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_staff(interaction):
+            return
+        changed = shifts.clock_out(interaction.user.id)
+        remaining = len(shifts.active(interaction.guild_id))
+        await interaction.response.send_message(
+            (f"🔴 You are clocked off. {remaining} staff member(s) remain available for delivery."
+             if changed else "ℹ️ You were not clocked in."), ephemeral=True)
+
+    @discord.ui.button(label="Who’s Clocked In", emoji="🕒", style=discord.ButtonStyle.secondary, custom_id="snr:shift_status")
+    async def shift_status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_staff(interaction):
+            return
+        active = shifts.active(interaction.guild_id)
+        message = "\n".join(f"• {row['staff_name']} — since {row['clocked_in_at']}" for row in active)
+        await interaction.response.send_message(
+            "🟢 **Clocked in for delivery**\n" + message if active else "🔴 No delivery staff are clocked in.",
+            ephemeral=True)
 
     @discord.ui.button(label="Golden Jackpot", emoji="🎟️", style=discord.ButtonStyle.secondary, custom_id="snr:jackpot")
     async def jackpot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -523,7 +615,11 @@ class PackClaimView(discord.ui.View):
                     await interaction.message.edit(embed=pack_claim_embed(row), view=None)
                     if row['message_id'] and str(interaction.message.id) != row['message_id']:
                         channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-                        await channel.get_partial_message(int(row['message_id'])).edit(embed=pack_claim_embed(row), view=None)
+                        canonical = channel.get_partial_message(int(row['message_id']))
+                        await canonical.edit(embed=pack_claim_embed(row), view=None)
+                        await canonical.delete(delay=120)
+                    else:
+                        await interaction.message.delete(delay=120)
                 except discord.HTTPException:
                     logging.exception('Claim resolved but alert refresh failed: %s', self.claim_id)
             button.callback = callback
@@ -554,19 +650,22 @@ def delivery_order_embed(row):
         'paid': 'PAID — SALE RECORDED',
         'cancelled': 'CANCELLED',
     }.get(row['status'], str(row['status']).upper())
-    deal = DEALS.get(row['deal_key'])
     embed = discord.Embed(title=f"🚗 DELIVERY ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name='Amount Owed', value=f"**{money(row['price'])}**", inline=True)
     embed.add_field(name='Status', value=f"**{status}**", inline=True)
-    embed.add_field(name='Deal', value=f"**{discord.utils.escape_markdown(row['deal_name'])}**", inline=False)
-    if deal:
-        embed.add_field(name='Includes', value=deal.item_summary, inline=True)
-        embed.add_field(
-            name='Rewards After Payment',
-            value=f"{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)",
-            inline=True,
-        )
+    items = orders.items(row)
+    lines = []
+    loyalty = tickets = 0
+    for item in items:
+        deal = DEALS.get(item['key'])
+        lines.append(f"**{item['quantity']} × {discord.utils.escape_markdown(item['name'])}** — {money(item['line_total'])}")
+        if deal:
+            loyalty += deal.loyalty_points * int(item['quantity'])
+            tickets += deal.golden_tickets * int(item['quantity'])
+    embed.add_field(name='Order Items', value="\n".join(lines)[:1024] or row['deal_name'], inline=False)
+    embed.add_field(name='Rewards After Payment',
+                    value=f"{loyalty} loyalty point(s) • {tickets} Golden ticket(s)", inline=True)
     embed.add_field(
         name='📍 Postal / Delivery Location',
         value=f"**{discord.utils.escape_markdown(row['postal'])}**",
@@ -628,8 +727,9 @@ class DeliveryOrderView(discord.ui.View):
             return
         if target == 'paid':
             await interaction.followup.send(
-                content='✅ Payment confirmed. The delivery is now included in sales, finance, loyalty and Golden Tickets.',
-                embed=sale_embed(sale), ephemeral=True,
+                content=(f'✅ Payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
+                         'Every item is now included in sales, finance, loyalty and Golden Tickets.'),
+                ephemeral=True,
             )
         else:
             await interaction.followup.send('Order cancelled. No sale or rewards were added.', ephemeral=True)
@@ -637,9 +737,11 @@ class DeliveryOrderView(discord.ui.View):
             await interaction.message.edit(embed=delivery_order_embed(row), view=None)
             if row['message_id'] and str(interaction.message.id) != row['message_id']:
                 channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-                await channel.get_partial_message(int(row['message_id'])).edit(
-                    embed=delivery_order_embed(row), view=None
-                )
+                canonical = channel.get_partial_message(int(row['message_id']))
+                await canonical.edit(embed=delivery_order_embed(row), view=None)
+                await canonical.delete(delay=12 * 3600)
+            else:
+                await interaction.message.delete(delay=12 * 3600)
         except discord.HTTPException:
             logging.exception('Order resolved but Discord message refresh failed: %s', self.order_id)
 
@@ -734,9 +836,11 @@ class AccountRequestView(discord.ui.View):
             await interaction.message.edit(embed=account_request_embed(row), view=None)
             if row['message_id'] and str(interaction.message.id) != row['message_id']:
                 channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-                await channel.get_partial_message(int(row['message_id'])).edit(
-                    embed=account_request_embed(row), view=None
-                )
+                canonical = channel.get_partial_message(int(row['message_id']))
+                await canonical.edit(embed=account_request_embed(row), view=None)
+                await canonical.delete(delay=120)
+            else:
+                await interaction.message.delete(delay=120)
         except discord.HTTPException:
             logging.exception('Account request resolved but message refresh failed: %s', self.request_id)
 
@@ -787,10 +891,9 @@ async def notify_delivery_orders():
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Delivery channel is public; awaiting a private channel: %s', row['id'])
                 continue
-            message = await channel.send(
-                embed=delivery_order_embed(row), view=DeliveryOrderView(row['id']),
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=delivery_order_embed(row),
+                                         view=DeliveryOrderView(row['id']), allowed_mentions=allowed)
             orders.notified(row['id'], message.id)
         except Exception:
             logging.exception('Delivery alert failed; will retry: %s', row['id'])
@@ -808,10 +911,9 @@ async def notify_account_requests():
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Account approval channel is public; waiting for a private channel: %s', row['id'])
                 continue
-            message = await channel.send(
-                embed=account_request_embed(row), view=AccountRequestView(row['id']),
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=account_request_embed(row),
+                                         view=AccountRequestView(row['id']), allowed_mentions=allowed)
             accounts.request_notified(row['id'], message.id)
         except Exception:
             logging.exception('Account approval alert failed; will retry: %s', row['id'])
@@ -899,7 +1001,7 @@ async def orders_setup(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name='snrhub_accounts_pending', description='Review customer website account and password-reset requests.')
+@bot.tree.command(name='snrhub_accounts_pending', description='Review new customer website account verifications.')
 async def accounts_pending(interaction: discord.Interaction):
     await show_account_requests(interaction)
 
