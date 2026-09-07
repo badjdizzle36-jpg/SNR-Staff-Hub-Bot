@@ -97,6 +97,17 @@ async def require_staff(interaction: discord.Interaction) -> bool:
     return False
 
 
+async def dismiss_temporary_menu(interaction: discord.Interaction) -> None:
+    """Remove a clicked ephemeral menu before showing the next screen."""
+    if not interaction.message:
+        return
+    try:
+        await interaction.message.delete()
+    except (discord.NotFound, discord.HTTPException):
+        # It may already have been dismissed manually or expired.
+        pass
+
+
 def panel_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🍔 SNR BUNS — PRO STAFF HUB",
@@ -366,11 +377,13 @@ class NameChoiceView(discord.ui.View):
     @discord.ui.button(label="Use suggested customer", style=discord.ButtonStyle.success)
     async def use_suggestion(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
             await continue_action(interaction, self.action, self.suggested)
 
     @discord.ui.button(label="Create as new", style=discord.ButtonStyle.secondary)
     async def use_new(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
             await continue_action(interaction, self.action, self.entered)
 
 
@@ -390,6 +403,7 @@ class CustomerSelect(discord.ui.Select):
 
     async def callback(self, interaction):
         if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
             await continue_action(interaction, self.action, self.values[0])
 
 
@@ -619,12 +633,14 @@ class OwnerAdminView(discord.ui.View):
     @discord.ui.button(label="Manage VIP Level", emoji="👑", style=discord.ButtonStyle.primary)
     async def manage_vip(self, interaction, button):
         if await require_owner(interaction):
+            await dismiss_temporary_menu(interaction)
             await show_customer_picker(interaction, "vip")
 
     @discord.ui.button(label="Clock Staff Off", emoji="🔴", style=discord.ButtonStyle.danger)
     async def clock_staff_off(self, interaction, button):
         if not await require_owner(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         active = shifts.active(interaction.guild_id)
         if not active:
             await interaction.response.send_message("ℹ️ Nobody is currently clocked in.", ephemeral=True)
@@ -638,6 +654,7 @@ class OwnerAdminView(discord.ui.View):
     async def owner_dashboard(self, interaction, button):
         if not await require_owner(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         counts = db.vip_counts()
         active = shifts.active(interaction.guild_id)
         fees = orders.outstanding_fees(interaction.guild_id)
@@ -654,6 +671,7 @@ class OwnerAdminView(discord.ui.View):
     async def set_bot_logo(self, interaction, button):
         if not await require_owner(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         await interaction.response.defer(ephemeral=True)
         try:
             updated = await bot.user.edit(avatar=Path(__file__).with_name("snr-logo.png").read_bytes())
@@ -673,20 +691,26 @@ class CustomerToolsView(discord.ui.View):
     @discord.ui.button(label="Check Customer", emoji="🔎", style=discord.ButtonStyle.primary)
     async def check_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
             await show_customer_picker(interaction, "check")
 
     @discord.ui.button(label="Redeem Reward", emoji="🎁", style=discord.ButtonStyle.success)
     async def redeem(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
             await show_customer_picker(interaction, "redeem")
 
     @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary)
     async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_pack_requests(interaction)
+        if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
+            await show_pack_requests(interaction)
 
     @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.secondary)
     async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_account_requests(interaction)
+        if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
+            await show_account_requests(interaction)
 
 
 class ShiftToolsView(discord.ui.View):
@@ -696,6 +720,7 @@ class ShiftToolsView(discord.ui.View):
     async def clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         changed = shifts.clock_in(interaction.user.id, str(interaction.user), interaction.guild_id)
         await interaction.response.send_message(
             "🟢 You are clocked in. Website delivery ordering is now available."
@@ -705,6 +730,7 @@ class ShiftToolsView(discord.ui.View):
     async def clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         changed = shifts.clock_out(interaction.user.id)
         remaining = len(shifts.active(interaction.guild_id))
         await interaction.response.send_message(
@@ -715,6 +741,7 @@ class ShiftToolsView(discord.ui.View):
     async def shift_status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         active = shifts.active(interaction.guild_id)
         message = "\n".join(f"• {row['staff_name']} — since {row['clocked_in_at']}" for row in active)
         await interaction.response.send_message(
@@ -729,6 +756,7 @@ class MoreToolsView(discord.ui.View):
     async def report(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         stats = db.report(today=True)
         await interaction.response.send_message(
             embed=finance_embed(stats, "💷 SNR BUNS — TODAY’S FINANCE CHECK"), ephemeral=True)
@@ -737,6 +765,7 @@ class MoreToolsView(discord.ui.View):
     async def jackpot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         status = db.jackpot_status()
         embed = discord.Embed(title="🎟️ SNR GOLDEN MYSTERY TICKET", colour=discord.Colour.gold())
         embed.description = (
@@ -757,6 +786,7 @@ class MoreToolsView(discord.ui.View):
     @discord.ui.button(label="Birdy Post", emoji="📱", style=discord.ButtonStyle.secondary)
     async def birdy(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
+            await dismiss_temporary_menu(interaction)
             await interaction.response.send_message(
                 "Choose the post you want to copy into Birdy:", view=BirdyView(), ephemeral=True
             )
@@ -764,6 +794,7 @@ class MoreToolsView(discord.ui.View):
     @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger)
     async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_owner(interaction):
+            await dismiss_temporary_menu(interaction)
             await interaction.response.send_message(
                 "👑 **SNR Owner Controls**\nManage memberships, shifts, finances and branding.",
                 view=OwnerAdminView(), ephemeral=True,
