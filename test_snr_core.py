@@ -31,6 +31,22 @@ class TestSNRCore(unittest.TestCase):
         self.assertEqual(customer["food_sold"], 10)
         self.assertEqual(customer["drinks_sold"], 10)
 
+    def test_multiple_identical_deals_are_recorded_in_one_staff_action(self):
+        result = self.db.record_sale_quantity("Cody Ortega", "share_box", 2, "1", "Staff")
+        customer = result["customer"]
+        self.assertEqual(result["quantity"], 2)
+        self.assertEqual(len(result["transaction_ids"]), 2)
+        self.assertEqual(result["loyalty_awarded"], 4)
+        self.assertEqual(result["tickets_awarded"], 8)
+        self.assertEqual(customer["lifetime_sales"], 2)
+        self.assertEqual(customer["revenue"], 2400)
+        self.assertEqual(customer["food_sold"], 20)
+        self.assertEqual(customer["drinks_sold"], 20)
+        self.assertEqual(self.db.report()["sales"], 2)
+
+        with self.assertRaises(ValueError):
+            self.db.record_sale_quantity("Cody Ortega", "share_box", 0, "1", "Staff")
+
     def test_loyalty_points_keep_building_without_card_reward(self):
         for _ in range(4):
             result = self.db.record_sale("Ash", "mega_deal", "1", "Staff")

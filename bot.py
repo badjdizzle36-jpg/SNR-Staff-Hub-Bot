@@ -191,18 +191,29 @@ def sale_embed(result: dict) -> discord.Embed:
     deal = result["deal"]
     customer = result["customer"]
     won = result["jackpot_won"]
+    quantity = int(result.get("quantity", 1))
+    total_price = deal.price * quantity
+    total_cost = deal.production_cost * quantity
+    total_profit = deal.gross_profit * quantity
+    item_parts = []
+    if deal.food:
+        item_parts.append(f"{deal.food * quantity} food")
+    if deal.drinks:
+        item_parts.append(f"{deal.drinks * quantity} drinks")
+    if deal.desserts:
+        item_parts.append(f"{deal.desserts * quantity} desserts")
     embed = discord.Embed(
         title="🏆 GOLDEN TICKET FOUND!" if won else "✅ SNR SALE RECORDED",
         colour=discord.Colour.gold() if won else discord.Colour.green(),
     )
     embed.add_field(name="Customer", value=f"**{customer['display_name']}**", inline=True)
-    embed.add_field(name="Deal", value=f"**{deal.name}**", inline=True)
-    embed.add_field(name="Sale", value=f"**{money(deal.price)}**", inline=True)
-    embed.add_field(name="Items", value=deal.item_summary, inline=True)
-    embed.add_field(name="Production Cost", value=f"**{money(deal.production_cost)}**", inline=True)
+    embed.add_field(name="Deal", value=f"**{deal.name} ×{quantity}**", inline=True)
+    embed.add_field(name="Sale", value=f"**{money(total_price)}**", inline=True)
+    embed.add_field(name="Items", value=" + ".join(item_parts), inline=True)
+    embed.add_field(name="Production Cost", value=f"**{money(total_cost)}**", inline=True)
     embed.add_field(
         name="Gross Profit",
-        value=f"**{money(deal.gross_profit)}** ({deal.profit_margin:.1f}%)",
+        value=f"**{money(total_profit)}** ({deal.profit_margin:.1f}%)",
         inline=True,
     )
     awarded_points = int(result.get("loyalty_awarded", deal.loyalty_points))
@@ -222,7 +233,7 @@ def sale_embed(result: dict) -> discord.Embed:
             value=(
                 "**£5,000 CASH**\n"
                 "Extremely rare SNR Golden Mystery Ticket\n"
-                f"Reward: `{result['jackpot_reward_code']}`"
+                f"Reward: `{', '.join(result.get('jackpot_reward_codes') or [result['jackpot_reward_code']])}`"
             ),
             inline=False,
         )
@@ -234,7 +245,9 @@ def sale_embed(result: dict) -> discord.Embed:
                    "immediately changes to the £5,000 winning alert."),
             inline=False,
         )
-    embed.set_footer(text=f"Transaction {result['transaction_id']}")
+    transaction_ids = result.get("transaction_ids") or [result["transaction_id"]]
+    transaction_text = transaction_ids[0] if len(transaction_ids) == 1 else f"{transaction_ids[0]} to {transaction_ids[-1]}"
+    embed.set_footer(text=f"Transaction {transaction_text}")
     return embed
 
 
@@ -461,16 +474,46 @@ class DealSelect(discord.ui.Select):
             post = birdy_post("deal", deal_key=deal_key)
             await interaction.response.edit_message(content=f"```text\n{post}\n```", view=None, embed=None)
             return
+        deal = DEALS[deal_key]
+        await interaction.response.edit_message(
+            content=(f"Customer: **{discord.utils.escape_markdown(self.customer_name)}**\n"
+                     f"Deal: **{deal.name}**\nChoose how many were sold:"),
+            view=QuantityView(self.customer_name, deal_key), embed=None)
+
+
+class QuantitySelect(discord.ui.Select):
+    def __init__(self, customer_name: str, deal_key: str):
+        self.customer_name = customer_name
+        self.deal_key = deal_key
+        deal = DEALS[deal_key]
+        options = [discord.SelectOption(
+            label=f"×{amount}", value=str(amount),
+            description=f"{amount} {deal.name} — {money(deal.price * amount)} total",
+            emoji="🧾",
+        ) for amount in range(1, 11)]
+        super().__init__(placeholder="Choose amount: ×1 to ×10", options=options)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await require_staff(interaction):
+            return
+        quantity = int(self.values[0])
         await interaction.response.defer(ephemeral=True)
         async with db_lock:
-            result = db.record_sale(
+            result = db.record_sale_quantity(
                 self.customer_name,
-                deal_key,
+                self.deal_key,
+                quantity,
                 str(interaction.user.id),
                 str(interaction.user),
             )
         await interaction.edit_original_response(content=None, embed=sale_embed(result), view=None)
         asyncio.create_task(delete_response_later(interaction, 10))
+
+
+class QuantityView(discord.ui.View):
+    def __init__(self, customer_name: str, deal_key: str):
+        super().__init__(timeout=180)
+        self.add_item(QuantitySelect(customer_name, deal_key))
 
 
 class DealView(discord.ui.View):

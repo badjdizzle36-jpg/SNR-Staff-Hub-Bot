@@ -503,6 +503,28 @@ class SNRDatabase:
             "tickets_awarded": sale_tickets,
         }
 
+    def record_sale_quantity(
+        self, customer_name: str, deal_key: str, quantity: int, staff_id: str, staff_name: str,
+    ) -> dict[str, Any]:
+        """Record several identical deals and return one combined staff receipt."""
+        if not 1 <= int(quantity) <= 10:
+            raise ValueError("Sale amount must be between 1 and 10.")
+        results = [
+            self.record_sale(customer_name, deal_key, staff_id, staff_name)
+            for _ in range(int(quantity))
+        ]
+        winners = [result for result in results if result["jackpot_won"]]
+        return {
+            **results[-1],
+            "quantity": int(quantity),
+            "transaction_ids": [result["transaction_id"] for result in results],
+            "loyalty_awarded": sum(int(result["loyalty_awarded"]) for result in results),
+            "tickets_awarded": sum(int(result["tickets_awarded"]) for result in results),
+            "jackpot_won": bool(winners),
+            "jackpot_reward_codes": [result["jackpot_reward_code"] for result in winners],
+            "winning_tickets": [result["winning_ticket"] for result in winners],
+        }
+
     def get_customer(self, name: str) -> dict[str, Any] | None:
         key = normalize_name(name)
         with self.connect() as conn:
