@@ -97,7 +97,7 @@ Pending orders and requests are durable. If Discord or Railway restarts, unsent 
 - `/snrhub_panel` — post the permanent staff panel
 - `/snrhub_owner` — open the owner-only control centre
 - `/snrhub_orders_setup` — set the private delivery/account-alert channel
-- `/snrhub_claims_setup` — optionally set a separate pack-claim channel
+- `/snrhub_claims_setup` — optionally set a separate pack-claim channel; new claims alert and mention SNR Staff within a few seconds
 - `/snrhub_accounts_pending` — review recent account activity and any older approval requests
 - `/snrhub_claims_pending` — review pack requests
 - `/snrhub_orders_pending` — review delivery orders

@@ -196,12 +196,12 @@ def sale_embed(result: dict) -> discord.Embed:
     total_cost = deal.production_cost * quantity
     total_profit = deal.gross_profit * quantity
     item_parts = []
-    if deal.food:
+    if deal.key == "sweet_treat":
+        item_parts.append(f"{deal.food * quantity} desserts")
+    elif deal.food:
         item_parts.append(f"{deal.food * quantity} food")
     if deal.drinks:
         item_parts.append(f"{deal.drinks * quantity} drinks")
-    if deal.desserts:
-        item_parts.append(f"{deal.desserts * quantity} desserts")
     embed = discord.Embed(
         title="🏆 GOLDEN TICKET FOUND!" if won else "✅ SNR SALE RECORDED",
         colour=discord.Colour.gold() if won else discord.Colour.green(),
@@ -498,15 +498,29 @@ class QuantitySelect(discord.ui.Select):
             return
         quantity = int(self.values[0])
         await interaction.response.defer(ephemeral=True)
-        async with db_lock:
-            result = db.record_sale_quantity(
-                self.customer_name,
-                self.deal_key,
-                quantity,
-                str(interaction.user.id),
-                str(interaction.user),
-            )
-        await interaction.edit_original_response(content=None, embed=sale_embed(result), view=None)
+        try:
+            async with db_lock:
+                result = db.record_sale_quantity(
+                    self.customer_name,
+                    self.deal_key,
+                    quantity,
+                    str(interaction.user.id),
+                    str(interaction.user),
+                )
+            receipt = sale_embed(result)
+        except ValueError as exc:
+            await interaction.edit_original_response(
+                content=f"❌ Could not record this sale: {exc}", embed=None, view=None)
+            asyncio.create_task(delete_response_later(interaction, 10))
+            return
+        except Exception:
+            logging.exception("Quantity sale failed for %s ×%s", self.deal_key, quantity)
+            await interaction.edit_original_response(
+                content=("❌ Something went wrong while displaying this sale. "
+                         "Check the customer record before trying it again."),
+                embed=None, view=None)
+            return
+        await interaction.edit_original_response(content=None, embed=receipt, view=None)
         asyncio.create_task(delete_response_later(interaction, 10))
 
 
@@ -1323,7 +1337,7 @@ async def show_account_requests(interaction):
         )
 
 
-@tasks.loop(seconds=10)
+@tasks.loop(seconds=2)
 async def notify_pack_claims():
     if not bot.is_ready():
         return
@@ -1331,12 +1345,12 @@ async def notify_pack_claims():
         try:
             channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
             if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                logging.warning('Pack claim channel is unavailable or belongs to another server: %s', row['id'])
                 continue
-            if channel.permissions_for(channel.guild.default_role).view_channel:
-                logging.warning('Pack claim channel is public; awaiting a private channel: %s', row['id'])
-                continue
-            message = await channel.send(embed=pack_claim_embed(row), view=PackClaimView(row['id']),
-                                         allowed_mentions=discord.AllowedMentions.none())
+            mention, allowed = staff_ping(channel)
+            content = mention or "🎴 **New website reward claim**"
+            message = await channel.send(content=content, embed=pack_claim_embed(row),
+                                         view=PackClaimView(row['id']), allowed_mentions=allowed)
             claims.notified(row['id'], message.id)
         except Exception:
             # Leave the durable outbox row unsent so the next pass retries it.
