@@ -162,28 +162,36 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
 def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
     rows = orders.summary(customer["display_name"])
     fee = orders.outstanding_fee(customer["customer_key"])
-    active = next((row for row in rows if row["status"] in ("pending", "accepted", "on_way", "processing")), None)
+    active = next((row for row in rows if row["status"] in ("pending", "accepted", "on_way", "arrived", "processing")), None)
     labels = {
         "pending": "Waiting for a driver to accept",
         "accepted": "Accepted — your order is being prepared",
         "on_way": "Your driver is on the way",
+        "arrived": "Your driver has arrived and is waiting outside",
         "processing": "Payment is being confirmed",
         "paid": "Delivered, paid and added to loyalty",
         "cancelled": "Cancelled",
         "wasted_journey": "Wasted journey — £500 delivery fee owed",
     }
     recent = "".join(
-        f'<p>Order #{row["id"]}: <strong class="status-{"pending" if row["status"] in ("accepted", "on_way", "processing") else row["status"]}">{labels.get(row["status"], row["status"])}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
+        f'<p>Order #{row["id"]}: <strong class="status-{"pending" if row["status"] in ("accepted", "on_way", "arrived", "processing") else row["status"]}">{labels.get(row["status"], row["status"])}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
         for row in rows
     )
     if active:
         driver = (f'<br>Driver: <strong>{html.escape(active["assigned_driver_name"])}</strong>'
                   if active.get("assigned_driver_name") else "")
         note = f'<br>Your note: {html.escape(active["notes"])}' if active.get("notes") else ""
+        subtotal = int(active.get("subtotal") or active["price"])
+        delivery_fee = int(active.get("delivery_fee") or 0)
+        discount = int(active.get("discount_amount") or 0)
+        discount_line = (f'<br>Discount ({html.escape(active.get("discount_code") or "code")}): '
+                         f'<strong>−£{discount:,}</strong>' if discount else "")
         order_form = (
             f'<div class="notice order-status" data-order-id="{active["id"]}" data-order-status="{active["status"]}">'
             f'<strong>Order #{active["id"]}: {labels[active["status"]]}</strong><br>'
-            f'{html.escape(active["deal_name"])} • <strong>£{int(active["price"]):,} owed</strong><br>'
+            f'{html.escape(active["deal_name"])}<br>Food subtotal: £{subtotal:,}'
+            f'{discount_line}<br>Delivery: {"FREE" if delivery_fee == 0 else f"£{delivery_fee:,}"}'
+            f'<br><strong>Total owed: £{int(active["price"]):,}</strong><br>'
             f'Delivery location: {html.escape(active["postal"])}{driver}{note}</div><div id="status-toast" role="status"></div><script src="/delivery.js" defer></script>'
         )
     elif fee:
@@ -193,7 +201,9 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
             f'''<div class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,} each</span><label class="quantity">Amount <input class="deal-qty" type="number" name="qty_{deal.key}" value="0" min="0" max="10" step="1" data-price="{deal.price}" aria-label="Amount of {html.escape(deal.name, quote=True)}"></label></div>'''
             for deal in DEALS.values())
         if orders.configured() and shifts.drivers_available():
-            order_form = f'''<form class="delivery-form" method="post" action="/order"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Subtotal: <span id="delivery-subtotal">£0</span></div><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">Choose up to 10 of each deal (20 deals total). You pay SNR staff on delivery. Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
+            delivery_fee = int(customer["membership"]["delivery_fee"])
+            fee_text = "FREE — SNR VIP benefit" if delivery_fee == 0 else f"£{delivery_fee:,}"
+            order_form = f'''<form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small>Membership delivery: {fee_text}</small><br>Total before discount: <span id="delivery-total">£{delivery_fee:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code"><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">Choose up to 10 of each deal (20 deals total). A valid discount is confirmed on the next screen. You pay SNR staff on delivery. Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
         elif orders.configured():
             order_form = '<div class="notice"><strong>No drivers are currently available.</strong><br>Please try again when SNR staff have clocked in.</div>'
         else:
@@ -215,7 +225,9 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
     membership = customer["membership"]
     next_text = (f'''<p class="muted">Complete {membership["remaining"]} more purchase(s) to unlock {html.escape(membership["next_level"])}.</p>'''
                  if membership["next_level"] else '<p class="muted">You have reached your current highest membership level.</p>')
-    vip = f'''<div class="stat vip-card"><div class="label">SNR Customer Membership</div><div class="num">{membership["emoji"]} {html.escape(membership["name"])}</div><p class="vip-benefits">Every purchase at this level earns the normal deal rewards <strong>plus {membership["bonus_points"]} loyalty point(s) and {membership["bonus_tickets"]} Golden Ticket(s)</strong>.</p>{next_text}<small>Regular 0+ • Bronze 10+ • Silver 25+ • Gold 50+ • Platinum 100+ • SNR VIP 200+</small></div>'''
+    delivery_benefit = ("FREE delivery" if int(membership["delivery_fee"]) == 0
+                        else f'£{int(membership["delivery_fee"]):,} delivery')
+    vip = f'''<div class="stat vip-card"><div class="label">SNR Customer Membership</div><div class="num">{membership["emoji"]} {html.escape(membership["name"])}</div><p class="vip-benefits">Every purchase earns the normal rewards <strong>plus {membership["bonus_points"]} loyalty point(s) and {membership["bonus_tickets"]} Golden Ticket(s)</strong>.<br>Delivery benefit: <strong>{delivery_benefit}</strong>.</p>{next_text}<small>Regular 0+ • Bronze 10+ • Silver 25+ • Gold 50+ • Platinum 100+ • SNR VIP 200+</small></div>'''
     recovery = debt + recovery
     return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card">
       <div class="label">Logged-in customer</div><div class="name">{html.escape(customer["display_name"])}</div>
@@ -352,16 +364,16 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.wfile.write(LOGO_IMAGE)
             elif path == "/delivery.js":
                 data = b'''document.addEventListener("DOMContentLoaded",()=>{
-const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal");
-const total=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",total));total();
+const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal"),z=document.getElementById("delivery-total"),f=document.querySelector(".delivery-form"),fee=parseInt(f?.dataset.deliveryFee||"0",10);
+const total=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB");if(z)z.textContent="\\u00a3"+(t+fee).toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",total));total();
 const tracker=document.querySelector("[data-order-id]");if(!tracker)return;let current=tracker.dataset.orderStatus;
-const messages={accepted:"Your delivery has been accepted!",on_way:"Your driver is on the way!",paid:"Your delivery is complete. Your Golden Tickets were issued and entered automatically!",cancelled:"Your delivery order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
+const messages={accepted:"Your delivery has been accepted!",on_way:"Your driver is on the way!",arrived:"Your SNR Buns driver has arrived and is waiting outside!",paid:"Your delivery is complete. Your Golden Tickets were issued and entered automatically!",cancelled:"Your delivery order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
 setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=(d.status==="paid"&&d.jackpot_won)?"WINNER! One of your automatic Golden Tickets won the \\u00a35,000 jackpot! Speak to SNR staff now.":(messages[d.status]||"Your delivery status has changed.");if(d.driver&&!["cancelled","wasted_journey"].includes(d.status))message+=" Driver: "+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);setTimeout(()=>location.reload(),3500)}}catch(e){}},5000);
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "public, max-age=3600")
+                self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(data)
             elif path == "/order-status":
@@ -450,10 +462,14 @@ setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"}
                         raise ValueError("No drivers are currently available. Please try again when SNR staff have clocked in.")
                     quantities = {deal_key: data.get("qty_" + deal_key, "0") for deal_key in DEALS}
                     result = orders.create_cart_authenticated(
-                        owner, quantities, data.get("postal", ""), key, data.get("notes", ""))
+                        owner, quantities, data.get("postal", ""), key, data.get("notes", ""),
+                        data.get("discount_code", ""))
                     lines = "".join(f'<li>{item["quantity"]} × {html.escape(item["name"])} — £{item["line_total"]:,}</li>' for item in orders.items(result))
                     note = f'<p>Order note: <strong>{html.escape(result["notes"])}</strong></p>' if result.get("notes") else ""
-                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Subtotal to pay on delivery: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open for Accepted, Driver On The Way and completion updates.<br><br>After staff confirm payment, your Golden Tickets are issued, checked and entered into the £5,000 draw automatically. This page will immediately alert you if one wins.</div><a class="back" href="/account">Track my order</a></section>'''))
+                    discount_line = (f'<p>Discount ({html.escape(result["discount_code"])}): <strong>−£{int(result["discount_amount"]):,}</strong></p>'
+                                     if int(result.get("discount_amount") or 0) else "")
+                    fee_text = "FREE" if int(result.get("delivery_fee") or 0) == 0 else f'£{int(result["delivery_fee"]):,}'
+                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Food subtotal: <strong>£{int(result["subtotal"]):,}</strong></p>{discount_line}<p>{html.escape(result.get("membership_level") or "Regular")} delivery: <strong>{fee_text}</strong></p><p>Total to pay: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open for Accepted, Driver On The Way, Driver Arrived and completion updates.<br><br>After staff confirm payment, your Golden Tickets are issued, checked and entered into the £5,000 draw automatically. This page will immediately alert you if one wins.</div><a class="back" href="/account">Track my order</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:

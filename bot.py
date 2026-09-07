@@ -169,7 +169,8 @@ def customer_embed(customer: dict) -> discord.Embed:
     embed.add_field(
         name=f"{membership['emoji']} Customer Membership",
         value=(f"**{membership['name']}**\n{progress}\n"
-               f"Per purchase bonus: +{membership['bonus_points']} loyalty • +{membership['bonus_tickets']} Golden Ticket(s)"),
+               f"Per purchase bonus: +{membership['bonus_points']} loyalty • +{membership['bonus_tickets']} Golden Ticket(s)\n"
+               f"Delivery: **{'FREE' if int(membership['delivery_fee']) == 0 else money(membership['delivery_fee'])}**"),
         inline=False,
     )
     fee = orders.outstanding_fee(customer['customer_key'])
@@ -622,7 +623,8 @@ class VIPLevelSelect(discord.ui.Select):
         for name, details in VIP_LEVELS.items():
             options.append(discord.SelectOption(
                 label=name, value=name, emoji=details["emoji"],
-                description=(f"+{details['bonus_points']} loyalty and +{details['bonus_tickets']} ticket(s) per purchase")[:100],
+                description=(f"+{details['bonus_points']} loyalty • +{details['bonus_tickets']} tickets • "
+                             f"£{details['delivery_fee']} delivery")[:100],
             ))
         super().__init__(placeholder="Set membership level", options=options)
 
@@ -671,6 +673,64 @@ class OwnerClockOffView(discord.ui.View):
         self.add_item(OwnerClockOffSelect(active_staff))
 
 
+class DiscountCodeModal(discord.ui.Modal, title="Create Delivery Discount Code"):
+    code = discord.ui.TextInput(label="Code", placeholder="Example: SNR10", min_length=3, max_length=20)
+    discount_type = discord.ui.TextInput(label="Type", placeholder="percent or fixed", min_length=5, max_length=7)
+    amount = discord.ui.TextInput(label="Amount", placeholder="10 = 10% or £10", min_length=1, max_length=6)
+    max_uses = discord.ui.TextInput(label="Maximum uses", placeholder="Leave blank for unlimited", required=False, max_length=5)
+    expires_on = discord.ui.TextInput(label="Expiry date", placeholder="YYYY-MM-DD or leave blank", required=False, max_length=10)
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        try:
+            row = orders.create_discount_code(
+                self.code.value, self.discount_type.value, self.amount.value, self.max_uses.value,
+                self.expires_on.value, interaction.user.id, str(interaction.user))
+        except (ValueError, TypeError) as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        value = (f"{row['amount']}% off" if row['discount_type'] == 'percent'
+                 else f"£{row['amount']:,} off")
+        limit = f"{row['max_uses']} uses" if row['max_uses'] else "unlimited uses"
+        expiry = row['expires_on'] or "no expiry"
+        await interaction.response.send_message(
+            f"✅ Discount code **{row['code']}** created: **{value}**, {limit}, {expiry}.",
+            ephemeral=True)
+
+
+class DiscountCodeSelect(discord.ui.Select):
+    def __init__(self, rows):
+        options = []
+        for row in rows[:25]:
+            value = (f"{row['amount']}%" if row['discount_type'] == 'percent'
+                     else f"£{row['amount']:,}")
+            options.append(discord.SelectOption(
+                label=row['code'], value=row['code'], emoji="🏷️",
+                description=f"{value} off • {row['uses']}/{row['max_uses'] or '∞'} used"[:100]))
+        super().__init__(placeholder="Disable an active discount code", options=options)
+
+    async def callback(self, interaction):
+        if not await require_owner(interaction):
+            return
+        row = orders.disable_discount_code(self.values[0], interaction.user.id, str(interaction.user))
+        await interaction.response.edit_message(
+            content=f"✅ Discount code **{row['code']}** has been disabled.", view=None)
+
+
+class DiscountCodesView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        active = orders.discount_codes(active_only=True)
+        if active:
+            self.add_item(DiscountCodeSelect(active))
+
+    @discord.ui.button(label="Create Code", emoji="➕", style=discord.ButtonStyle.success, row=1)
+    async def create_code(self, interaction, button):
+        if await require_owner(interaction):
+            await interaction.response.send_modal(DiscountCodeModal())
+
+
 class OwnerAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
@@ -702,13 +762,30 @@ class OwnerAdminView(discord.ui.View):
         active = shifts.active(interaction.guild_id)
         fees = orders.outstanding_fees(interaction.guild_id)
         stats = db.report(today=True)
+        active_codes = orders.discount_codes(active_only=True)
         embed = discord.Embed(title="👑 SNR OWNER DASHBOARD", colour=discord.Colour.gold())
         embed.description = "Private business overview and administration."
         embed.add_field(name="Today", value=f"{stats['sales']} sales • {money(stats['revenue'])} revenue • {money(stats['gross_profit'])} profit", inline=False)
         embed.add_field(name="Memberships", value="\n".join(f"{VIP_LEVELS[name]['emoji']} {name}: **{total}**" for name, total in counts.items()), inline=True)
         embed.add_field(name="Delivery Staff", value=f"**{len(active)} clocked in**", inline=True)
         embed.add_field(name="Fees Owed", value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))}**", inline=True)
+        embed.add_field(name="Discount Codes", value=f"**{len(active_codes)} active**", inline=True)
         await send_ephemeral(interaction, embed=embed)
+
+    @discord.ui.button(label="Discount Codes", emoji="🏷️", style=discord.ButtonStyle.success)
+    async def discount_codes(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        active = orders.discount_codes(active_only=True)
+        lines = []
+        for row in active[:20]:
+            value = (f"{row['amount']}%" if row['discount_type'] == 'percent'
+                     else f"£{row['amount']:,}")
+            lines.append(f"• **{row['code']}** — {value} off • {row['uses']}/{row['max_uses'] or '∞'} used")
+        await send_ephemeral(
+            interaction,
+            "🏷️ **Delivery Discount Codes**\n" + ("\n".join(lines) if lines else "No active codes yet."),
+            view=DiscountCodesView())
 
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
@@ -936,6 +1013,7 @@ def delivery_order_embed(row):
         'pending': discord.Colour.orange(),
         'accepted': discord.Colour.blue(),
         'on_way': discord.Colour.purple(),
+        'arrived': discord.Colour.teal(),
         'processing': discord.Colour.gold(),
         'paid': discord.Colour.green(),
         'cancelled': discord.Colour.red(),
@@ -945,6 +1023,7 @@ def delivery_order_embed(row):
         'pending': 'WAITING FOR DRIVER',
         'accepted': 'ACCEPTED — PREPARING',
         'on_way': 'DRIVER ON THE WAY',
+        'arrived': 'DRIVER HAS ARRIVED',
         'processing': 'PROCESSING',
         'paid': 'DELIVERED & PAID — SALE RECORDED',
         'cancelled': 'CANCELLED',
@@ -952,7 +1031,7 @@ def delivery_order_embed(row):
     }.get(row['status'], str(row['status']).upper())
     embed = discord.Embed(title=f"🚗 DELIVERY ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
-    embed.add_field(name='Amount Owed', value=f"**{money(row['price'])}**", inline=True)
+    embed.add_field(name='Total Owed', value=f"**{money(row['price'])}**", inline=True)
     embed.add_field(name='Status', value=f"**{status}**", inline=True)
     customer = db.get_customer(row['customer_key'])
     if customer:
@@ -973,6 +1052,15 @@ def delivery_order_embed(row):
                 loyalty += deal.loyalty_points + int(projected_vip['bonus_points'])
                 tickets += deal.golden_tickets + int(projected_vip['bonus_tickets'])
     embed.add_field(name='Order Items', value="\n".join(lines)[:1024] or row['deal_name'], inline=False)
+    subtotal = int(row.get('subtotal') or row['price'])
+    fee = int(row.get('delivery_fee') or 0)
+    discount = int(row.get('discount_amount') or 0)
+    breakdown = [f"Food: **{money(subtotal)}**"]
+    if discount:
+        breakdown.append(f"Code **{discord.utils.escape_markdown(row.get('discount_code') or '')}**: **−{money(discount)}**")
+    breakdown.append(f"{row.get('membership_level') or 'Regular'} delivery: **{'FREE' if fee == 0 else money(fee)}**")
+    breakdown.append(f"Final total: **{money(row['price'])}**")
+    embed.add_field(name='Price Breakdown', value="\n".join(breakdown), inline=False)
     embed.add_field(name='Rewards After Payment',
                     value=(f"{loyalty} loyalty point(s) • {tickets} Golden ticket(s)\n"
                            "Tickets are issued and entered into the £5,000 draw automatically when payment is confirmed."),
@@ -1075,6 +1163,10 @@ class DeliveryOrderView(discord.ui.View):
             action = discord.ui.Button(label='Driver On The Way', emoji='🚗', style=discord.ButtonStyle.primary,
                                        custom_id=f'snr:delivery:{self.order_id}:on_way')
             target = 'on_way'
+        elif status == 'on_way':
+            action = discord.ui.Button(label='Driver Has Arrived', emoji='📍', style=discord.ButtonStyle.primary,
+                                       custom_id=f'snr:delivery:{self.order_id}:arrived')
+            target = 'arrived'
         else:
             action = discord.ui.Button(label='Delivered & Customer Paid', emoji='💷', style=discord.ButtonStyle.success,
                                        custom_id=f'snr:delivery:{self.order_id}:paid')
@@ -1094,7 +1186,7 @@ class DeliveryOrderView(discord.ui.View):
         cancel.callback = cancel_callback
         self.add_item(action)
         self.add_item(cancel)
-        if status == 'on_way':
+        if status == 'arrived':
             wasted = discord.ui.Button(label='Wasted Journey — Charge £500', emoji='⚠️',
                                        style=discord.ButtonStyle.danger,
                                        custom_id=f'snr:delivery:{self.order_id}:wasted_journey')
@@ -1122,7 +1214,7 @@ class DeliveryOrderView(discord.ui.View):
                         raise ValueError('Clock in before accepting a delivery so the customer knows a driver is available.')
                     row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
                     sales = []
-                elif target == 'on_way':
+                elif target in ('on_way', 'arrived'):
                     row = orders.advance(
                         self.order_id, target, str(interaction.user.id), str(interaction.user),
                         allow_override=can_override_driver)
@@ -1159,6 +1251,8 @@ class DeliveryOrderView(discord.ui.View):
             response = '✅ Delivery accepted and assigned to you. The customer’s webpage has been updated.'
         elif target == 'on_way':
             response = '🚗 Marked Driver On The Way. The customer’s webpage is notifying them now.'
+        elif target == 'arrived':
+            response = '📍 Marked Driver Has Arrived. The customer’s webpage is alerting them that you are outside.'
         elif target == 'paid':
             won = any(result.get('jackpot_won') for result in sales)
             response = ((f'🏆 GOLDEN TICKET WINNER! This customer won the £5,000 jackpot. '
@@ -1199,6 +1293,7 @@ def delivery_dashboard_embed(guild_id):
     embed.add_field(name='Waiting', value=f"**{counts['pending']}**", inline=True)
     embed.add_field(name='Accepted', value=f"**{counts['accepted']}**", inline=True)
     embed.add_field(name='On The Way', value=f"**{counts['on_way']}**", inline=True)
+    embed.add_field(name='Arrived', value=f"**{counts['arrived']}**", inline=True)
     embed.add_field(name='Wasted Journey Fees', value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))} owed**", inline=True)
     embed.add_field(name='Drivers Clocked In', value=f"**{len(active_staff)}**", inline=True)
     embed.add_field(name='Today’s Revenue', value=f"**{money(stats['revenue'])}**", inline=True)

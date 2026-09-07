@@ -81,12 +81,12 @@ DEALS: dict[str, Deal] = {
 }
 
 VIP_LEVELS = {
-    "Regular": {"minimum_sales": 0, "bonus_points": 0, "bonus_tickets": 0, "emoji": "🍔"},
-    "Bronze": {"minimum_sales": 10, "bonus_points": 0, "bonus_tickets": 1, "emoji": "🥉"},
-    "Silver": {"minimum_sales": 25, "bonus_points": 0, "bonus_tickets": 1, "emoji": "🥈"},
-    "Gold": {"minimum_sales": 50, "bonus_points": 1, "bonus_tickets": 1, "emoji": "🥇"},
-    "Platinum": {"minimum_sales": 100, "bonus_points": 1, "bonus_tickets": 2, "emoji": "💎"},
-    "SNR VIP": {"minimum_sales": 200, "bonus_points": 2, "bonus_tickets": 3, "emoji": "👑"},
+    "Regular": {"minimum_sales": 0, "bonus_points": 0, "bonus_tickets": 0, "delivery_fee": 100, "emoji": "🍔"},
+    "Bronze": {"minimum_sales": 10, "bonus_points": 0, "bonus_tickets": 1, "delivery_fee": 90, "emoji": "🥉"},
+    "Silver": {"minimum_sales": 25, "bonus_points": 0, "bonus_tickets": 1, "delivery_fee": 75, "emoji": "🥈"},
+    "Gold": {"minimum_sales": 50, "bonus_points": 1, "bonus_tickets": 1, "delivery_fee": 50, "emoji": "🥇"},
+    "Platinum": {"minimum_sales": 100, "bonus_points": 1, "bonus_tickets": 2, "delivery_fee": 25, "emoji": "💎"},
+    "SNR VIP": {"minimum_sales": 200, "bonus_points": 2, "bonus_tickets": 3, "delivery_fee": 0, "emoji": "👑"},
 }
 
 
@@ -398,13 +398,16 @@ class SNRDatabase:
 
     def record_sale(
         self, customer_name: str, deal_key: str, staff_id: str, staff_name: str,
-        source_ref: str | None = None,
+        source_ref: str | None = None, price_override: int | None = None,
     ) -> dict[str, Any]:
         if deal_key not in DEALS:
             raise ValueError("Unknown deal selected.")
         if source_ref is not None and not 3 <= len(source_ref) <= 100:
             raise ValueError("Invalid sale source reference.")
         deal = DEALS[deal_key]
+        charged_price = deal.price if price_override is None else int(price_override)
+        if charged_price < 0:
+            raise ValueError("Sale price cannot be negative.")
         now = utc_now()
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -430,7 +433,7 @@ class SNRDatabase:
                     source_ref)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    key, shown, deal.key, deal.name, deal.price, deal.food, deal.drinks,
+                    key, shown, deal.key, deal.name, charged_price, deal.food, deal.drinks,
                     deal.production_cost, sale_points, sale_tickets, 0,
                     str(staff_id), staff_name, now, source_ref,
                 ),
@@ -475,7 +478,7 @@ class SNRDatabase:
                    WHERE customer_key = ?""",
                 (
                     new_points_total, 0, sale_tickets, 1 if winning_ticket else 0,
-                    deal.price, deal.food, deal.drinks, now, key,
+                    charged_price, deal.food, deal.drinks, now, key,
                 ),
             )
             conn.execute(

@@ -46,7 +46,9 @@ class DeliveryTests(unittest.TestCase):
         row = self.orders.create_authenticated(
             "Cody Ortega", "share_box", "Postal  123   Legion Square", "request-key-12345"
         )
-        self.assertEqual(row["price"], 1200)
+        self.assertEqual(row["subtotal"], 1200)
+        self.assertEqual(row["delivery_fee"], 100)
+        self.assertEqual(row["price"], 1300)
         self.assertEqual(row["postal"], "Postal 123 Legion Square")
         self.assertEqual(self.db.report()["sales"], 0)
         self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
@@ -57,6 +59,7 @@ class DeliveryTests(unittest.TestCase):
         )
         self.orders.advance(order["id"], "accepted", "9", "Delivery Staff")
         self.orders.advance(order["id"], "on_way", "9", "Delivery Staff")
+        self.orders.advance(order["id"], "arrived", "9", "Delivery Staff")
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(
                 lambda _: self.orders.resolve(order["id"], "paid", "9", "Delivery Staff"),
@@ -66,7 +69,7 @@ class DeliveryTests(unittest.TestCase):
         report = self.db.report()
         customer = self.db.get_customer("Cody Ortega")
         self.assertEqual(report["sales"], 1)
-        self.assertEqual(report["revenue"], 500)
+        self.assertEqual(report["revenue"], 600)
         self.assertEqual(customer["loyalty_points"], 1)
         self.assertEqual(customer["golden_tickets"], 1)
         self.assertEqual(results[0][0]["sale_transaction_id"], results[1][0]["sale_transaction_id"])
@@ -115,10 +118,11 @@ class DeliveryTests(unittest.TestCase):
         )
         self.orders.advance(order["id"], "accepted", "9", "Driver One")
         self.orders.advance(order["id"], "on_way", "9", "Driver One")
+        self.orders.advance(order["id"], "arrived", "9", "Driver One")
 
         with self.assertRaisesRegex(ValueError, "already been accepted by Driver One"):
             self.orders.resolve(order["id"], "paid", "10", "Driver Two")
-        self.assertEqual(self.orders.get(order["id"])["status"], "on_way")
+        self.assertEqual(self.orders.get(order["id"])["status"], "arrived")
         self.assertEqual(self.db.report()["sales"], 0)
 
         paid, sales = self.orders.resolve(
@@ -126,6 +130,20 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(paid["status"], "paid")
         self.assertEqual(len(sales), 1)
         self.assertEqual(self.db.report()["sales"], 1)
+
+    def test_payment_waits_until_driver_has_arrived(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "quick_fix", "Postal 707", "arrive-before-payment"
+        )
+        self.orders.advance(order["id"], "accepted", "9", "Driver One")
+        self.orders.advance(order["id"], "on_way", "9", "Driver One")
+        with self.assertRaisesRegex(ValueError, "arrived before confirming payment"):
+            self.orders.resolve(order["id"], "paid", "9", "Driver One")
+        self.assertEqual(self.db.report()["sales"], 0)
+        self.orders.advance(order["id"], "arrived", "9", "Driver One")
+        paid, sales = self.orders.resolve(order["id"], "paid", "9", "Driver One")
+        self.assertEqual(paid["status"], "paid")
+        self.assertEqual(len(sales), 1)
 
     def test_cancelled_order_adds_nothing(self):
         order = self.orders.create_authenticated(
@@ -166,6 +184,8 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("SNR Customer Membership", body)
             self.assertIn("Regular", body)
+            self.assertIn("Membership delivery: £100", body)
+            self.assertIn('name="discount_code"', body)
             self.assertIn("entered automatically", body)
             self.assertNotIn("Owned by", body)
             for deal in DEALS.values():
@@ -181,7 +201,9 @@ class DeliveryTests(unittest.TestCase):
             }
             response, confirmation = request("/order", values)
             self.assertEqual(response.status, 200)
-            self.assertIn("£600", confirmation)
+            self.assertIn("Food subtotal: <strong>£600", confirmation)
+            self.assertIn("Regular delivery: <strong>£100", confirmation)
+            self.assertIn("Total to pay: <strong>£700", confirmation)
             self.assertIn("Postal 401 Mission Row", confirmation)
             self.assertIn("Meet outside and call me", confirmation)
             self.assertEqual(self.db.report()["sales"], 0)
@@ -196,6 +218,10 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(status["driver"], "Delivery Staff")
             self.orders.advance(1, "on_way", "9", "Delivery Staff")
             self.assertEqual(json.loads(request("/order-status")[1])["status"], "on_way")
+            self.orders.advance(1, "arrived", "9", "Delivery Staff")
+            arrived = json.loads(request("/order-status")[1])
+            self.assertEqual(arrived["status"], "arrived")
+            self.assertEqual(arrived["driver"], "Delivery Staff")
             self.orders.charge_wasted_journey(1, "9", "Delivery Staff")
             response, body = request("/account")
             self.assertEqual(response.status, 200)
@@ -210,17 +236,61 @@ class DeliveryTests(unittest.TestCase):
     def test_multi_item_cart_subtotal_and_each_sale_recorded(self):
         row = self.orders.create_cart_authenticated(
             "Cody Ortega", {"mega_deal": 1, "quick_fix": 2}, "Postal 1", "multi-cart-request")
-        self.assertEqual(row["price"], 800)
+        self.assertEqual(row["subtotal"], 800)
+        self.assertEqual(row["delivery_fee"], 100)
+        self.assertEqual(row["price"], 900)
         self.assertEqual(sum(item["quantity"] for item in self.orders.items(row)), 3)
         self.orders.advance(row["id"], "accepted", "9", "Delivery Staff")
         on_way = self.orders.advance(row["id"], "on_way", "9", "Delivery Staff")
         self.assertEqual(on_way["status"], "on_way")
+        arrived = self.orders.advance(row["id"], "arrived", "9", "Delivery Staff")
+        self.assertEqual(arrived["status"], "arrived")
         paid, sales = self.orders.resolve(row["id"], "paid", "9", "Delivery Staff")
         self.assertEqual(paid["status"], "paid")
         self.assertEqual(len(sales), 3)
         self.assertEqual(self.db.report()["sales"], 3)
-        self.assertEqual(self.db.report()["revenue"], 800)
+        self.assertEqual(self.db.report()["revenue"], 900)
         self.assertEqual(self.orders.ticket_result(row["id"])["tickets"], 3)
+
+    def test_discount_code_changes_total_and_finance(self):
+        code = self.orders.create_discount_code(
+            "SNR10", "percent", 10, 1, "", "1", "Owner")
+        self.assertEqual(code["uses"], 0)
+        row = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"mega_deal": 1}, "Postal 33", "discount-order-key",
+            discount_code="snr10")
+        self.assertEqual(row["subtotal"], 500)
+        self.assertEqual(row["discount_amount"], 50)
+        self.assertEqual(row["delivery_fee"], 100)
+        self.assertEqual(row["price"], 550)
+        self.assertEqual(self.orders.discount_code("SNR10")["uses"], 1)
+        self.orders.advance(row["id"], "accepted", "9", "Driver")
+        self.orders.advance(row["id"], "on_way", "9", "Driver")
+        self.orders.advance(row["id"], "arrived", "9", "Driver")
+        self.orders.resolve(row["id"], "paid", "9", "Driver")
+        self.assertEqual(self.db.report()["revenue"], 550)
+        with self.assertRaisesRegex(ValueError, "usage limit"):
+            self.orders.create_cart_authenticated(
+                "Cody Ortega", {"quick_fix": 1}, "Postal 34", "discount-limit-key",
+                discount_code="SNR10")
+
+    def test_disabled_discount_code_is_rejected(self):
+        self.orders.create_discount_code(
+            "SAVE50", "fixed", 50, "", "", "1", "Owner")
+        self.orders.disable_discount_code("SAVE50", "1", "Owner")
+        with self.assertRaisesRegex(ValueError, "not valid"):
+            self.orders.create_cart_authenticated(
+                "Cody Ortega", {"mega_deal": 1}, "Postal 35", "disabled-code-key",
+                discount_code="SAVE50")
+
+    def test_snr_vip_gets_free_delivery(self):
+        self.db.set_vip_override("Cody Ortega", "SNR VIP", "1", "Owner")
+        row = self.orders.create_authenticated(
+            "Cody Ortega", "quick_fix", "Postal 44", "vip-free-delivery")
+        self.assertEqual(row["membership_level"], "SNR VIP")
+        self.assertEqual(row["subtotal"], 150)
+        self.assertEqual(row["delivery_fee"], 0)
+        self.assertEqual(row["price"], 150)
 
     def test_wasted_journey_adds_fee_blocks_orders_and_adds_no_rewards(self):
         order = self.orders.create_authenticated(
@@ -228,6 +298,7 @@ class DeliveryTests(unittest.TestCase):
         )
         self.orders.advance(order["id"], "accepted", "9", "Delivery Staff")
         self.orders.advance(order["id"], "on_way", "9", "Delivery Staff")
+        self.orders.advance(order["id"], "arrived", "9", "Delivery Staff")
         wasted, fee = self.orders.charge_wasted_journey(
             order["id"], "9", "Delivery Staff"
         )
@@ -246,7 +317,7 @@ class DeliveryTests(unittest.TestCase):
         )
         self.assertEqual(replacement["status"], "pending")
 
-    def test_wasted_journey_only_allowed_after_driver_is_on_way(self):
+    def test_wasted_journey_only_allowed_after_driver_has_arrived(self):
         order = self.orders.create_authenticated(
             "Cody Ortega", "quick_fix", "Postal 22", "too-early-wasted-key"
         )

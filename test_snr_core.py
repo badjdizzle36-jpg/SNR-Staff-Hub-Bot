@@ -112,6 +112,9 @@ class TestSNRCore(unittest.TestCase):
         self.assertEqual(vip_level_for_sales(50)["name"], "Gold")
         self.assertEqual(vip_level_for_sales(100)["name"], "Platinum")
         self.assertEqual(vip_level_for_sales(200)["name"], "SNR VIP")
+        self.assertEqual(vip_level_for_sales(0)["delivery_fee"], 100)
+        self.assertEqual(vip_level_for_sales(50)["delivery_fee"], 50)
+        self.assertEqual(vip_level_for_sales(200)["delivery_fee"], 0)
         for _ in range(25):
             result = self.db.record_sale("Member", "quick_fix", "1", "Staff")
         self.assertEqual(result["customer"]["membership"]["name"], "Silver")

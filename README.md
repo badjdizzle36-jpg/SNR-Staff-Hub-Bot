@@ -8,6 +8,9 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - A new valid square SNR Buns brand poster replaces the broken wide logo file and is designed for clean Discord avatar cropping and website display.
 - Customer memberships progress automatically through Regular (0+), Bronze (10+), Silver (25+), Gold (50+), Platinum (100+) and SNR VIP (200+). Owners can override a level or return it to automatic mode.
 - Bronze and Silver earn +1 Golden Ticket per purchase; Gold earns +1 loyalty point and +1 ticket; Platinum earns +1 loyalty point and +2 tickets; SNR VIP earns +2 loyalty points and +3 tickets. Bonuses use the same sale, finance, delivery and jackpot transaction.
+- Membership delivery prices are automatic: Regular £100, Bronze £90, Silver £75, Gold £50, Platinum £25 and SNR VIP free delivery.
+- Owners can create fixed-price or percentage delivery discount codes with optional expiry dates and usage limits, then disable them from the Owner panel.
+- Delivery checkout and Discord receipts show food subtotal, discount, membership delivery fee and final total. Finance records the actual final amount paid.
 - The website and Discord now explain that meal-deal Golden Tickets are issued, checked and entered automatically. A winning ticket creates an immediate £5,000 alert for both the customer webpage and staff receipt.
 - Customers create a zero-point loyalty account on the website without making a purchase first.
 - New accounts activate immediately with no staff approval. Discord posts an informational alert and mentions the configured `SNR Staff` role.
@@ -17,7 +20,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - A live subtotal appears before checkout; the server recalculates it securely when submitted.
 - Customers can add an optional 200-character order note for meeting points or food instructions.
 - The confirmation asks customers to allow 5–7 minutes.
-- Delivery orders move through Waiting, Accepted, Driver On The Way and Delivered/Paid.
+- Delivery orders move through Waiting, Accepted, Driver On The Way, Driver Arrived and Delivered/Paid.
 - The customer page checks for delivery updates every five seconds and shows a bright status notification.
 - Loyalty customers see a visual progress bar toward their four-point trading-card pack.
 - Website ordering is available only while at least one staff member is clocked in.
@@ -27,7 +30,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Delivery Orders opens a dashboard showing the live queue, drivers, today’s revenue and gross profit.
 - New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
 - Paid multi-deal orders record every selected deal in sales, finance, loyalty and Golden Tickets exactly once.
-- After a driver is marked On The Way, staff can mark a delivery as a **Wasted Journey**. This adds a £500 account fee, closes the order without recording a sale or rewards, and blocks new web deliveries.
+- After a driver is marked Arrived, staff can mark a delivery as a **Wasted Journey**. This adds a £500 account fee, closes the order without recording a sale or rewards, and blocks new web deliveries.
 - Outstanding fees appear in red on the customer's webpage and as a warning stamp beside their name in Discord. The Delivery Orders dashboard lets staff mark a fee **Paid** or **Waived**; every action is audited.
 
 ## Current deals
@@ -76,10 +79,11 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 1. Open **Staff Shift** and press **Clock In** when accepting deliveries.
 2. For counter sales, press **Record Sale**, choose a saved character or type the name, then choose the deal.
 3. For website orders, open **Delivery Orders**, press **Accept Delivery**, then **Driver On The Way** when leaving.
-4. After delivery and payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
-5. If the driver arrives but the journey is wasted, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this, and only after **Driver On The Way**.
-6. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
-7. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
+4. At the customer's location press **Driver Has Arrived**. This alerts their live webpage.
+5. After receiving payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
+6. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
+7. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
+8. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
 
 ## VIP membership workflow
 
@@ -88,6 +92,7 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 - The website displays the customer's level, exact bonuses and purchases remaining to the next level.
 - Discord customer cards, name dropdowns, sale receipts and delivery orders display the same current level.
 - Owners use **More Tools → Owner Admin → Manage VIP Level** to choose any membership level manually, or return it to **Automatic progression**.
+- Owners use **More Tools → Owner Admin → Discount Codes** to create or disable checkout codes. Choose `percent` or `fixed`, enter the amount, and optionally set maximum uses and a `YYYY-MM-DD` expiry.
 - Owner overrides and forced clock-offs are written to the audit log.
 
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.
