@@ -71,6 +71,62 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(customer["golden_tickets"], 1)
         self.assertEqual(results[0][0]["sale_transaction_id"], results[1][0]["sale_transaction_id"])
 
+    def test_order_is_locked_to_first_driver(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "mega_deal", "Postal 505", "driver-lock-request"
+        )
+        accepted = self.orders.advance(order["id"], "accepted", "9", "Driver One")
+        self.assertEqual(accepted["assigned_driver_name"], "Driver One")
+
+        with self.assertRaisesRegex(ValueError, "already been accepted by Driver One"):
+            self.orders.advance(order["id"], "accepted", "10", "Driver Two")
+        with self.assertRaisesRegex(ValueError, "already been accepted by Driver One"):
+            self.orders.advance(order["id"], "on_way", "10", "Driver Two")
+
+        current = self.orders.get(order["id"])
+        self.assertEqual(current["status"], "accepted")
+        self.assertEqual(current["assigned_driver_id"], "9")
+
+    def test_simultaneous_accept_has_exactly_one_winning_driver(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "share_box", "Postal 808", "simultaneous-driver-lock"
+        )
+
+        def accept(driver):
+            try:
+                row = self.orders.advance(order["id"], "accepted", driver, f"Driver {driver}")
+                return ("accepted", row["assigned_driver_id"])
+            except ValueError as exc:
+                return ("blocked", str(exc))
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(accept, ("9", "10")))
+
+        self.assertEqual(sum(result[0] == "accepted" for result in results), 1)
+        self.assertEqual(sum(result[0] == "blocked" for result in results), 1)
+        current = self.orders.get(order["id"])
+        self.assertIn(current["assigned_driver_id"], ("9", "10"))
+        blocked_message = next(result[1] for result in results if result[0] == "blocked")
+        self.assertIn(current["assigned_driver_name"], blocked_message)
+
+    def test_only_assigned_driver_can_confirm_payment_but_manager_can_override(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "mega_deal", "Postal 505", "driver-payment-lock"
+        )
+        self.orders.advance(order["id"], "accepted", "9", "Driver One")
+        self.orders.advance(order["id"], "on_way", "9", "Driver One")
+
+        with self.assertRaisesRegex(ValueError, "already been accepted by Driver One"):
+            self.orders.resolve(order["id"], "paid", "10", "Driver Two")
+        self.assertEqual(self.orders.get(order["id"])["status"], "on_way")
+        self.assertEqual(self.db.report()["sales"], 0)
+
+        paid, sales = self.orders.resolve(
+            order["id"], "paid", "1", "Manager", allow_override=True)
+        self.assertEqual(paid["status"], "paid")
+        self.assertEqual(len(sales), 1)
+        self.assertEqual(self.db.report()["sales"], 1)
+
     def test_cancelled_order_adds_nothing(self):
         order = self.orders.create_authenticated(
             "Cody Ortega", "quick_fix", "Sandy Hospital", "cancel-request-key"

@@ -215,13 +215,25 @@ class DeliveryStore:
                 WHERE status='owed' GROUP BY customer_key""").fetchall()
         return {row["customer_key"]: int(row["amount"]) for row in rows}
 
-    def charge_wasted_journey(self, order_id, staff_id, staff_name):
+    @staticmethod
+    def _require_assigned_driver(row, staff_id, allow_override=False):
+        """Keep an accepted order locked to its driver for every later action."""
+        assigned_id = row["assigned_driver_id"]
+        if assigned_id and assigned_id != str(staff_id) and not allow_override:
+            driver = row["assigned_driver_name"] or "another driver"
+            raise ValueError(
+                f"This order has already been accepted by {driver}. "
+                "It is locked to that driver."
+            )
+
+    def charge_wasted_journey(self, order_id, staff_id, staff_name, allow_override=False):
         order_id = int(order_id)
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
             if not row:
                 raise ValueError("Order not found.")
+            self._require_assigned_driver(row, staff_id, allow_override)
             existing = conn.execute("SELECT * FROM delivery_fees WHERE order_id=?", (order_id,)).fetchone()
             if existing:
                 return dict(row), dict(existing)
@@ -262,7 +274,7 @@ class DeliveryStore:
             updated = conn.execute("SELECT * FROM delivery_fees WHERE id=?", (int(fee_id),)).fetchone()
         return dict(updated)
 
-    def advance(self, order_id, target, staff_id, staff_name):
+    def advance(self, order_id, target, staff_id, staff_name, allow_override=False):
         transitions = {"accepted": "pending", "on_way": "accepted"}
         if target not in transitions:
             raise ValueError("Invalid delivery update.")
@@ -272,10 +284,21 @@ class DeliveryStore:
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
             if not row:
                 raise ValueError("Order not found.")
+            if target == "accepted" and row["status"] != "pending":
+                # An old Discord button can still be clicked while another
+                # interaction is refreshing. Never let that stale click claim
+                # (or appear to claim) an order already owned by a driver.
+                self._require_assigned_driver(row, staff_id, False)
+                if row["status"] == "accepted":
+                    return dict(row)
+                raise ValueError("This delivery has already moved past the acceptance step.")
             if row["status"] == target:
+                self._require_assigned_driver(row, staff_id, allow_override)
                 return dict(row)
             if row["status"] != transitions[target]:
                 raise ValueError("That delivery step has already been completed or is not ready yet.")
+            if target == "on_way":
+                self._require_assigned_driver(row, staff_id, allow_override)
             now = utc_now()
             if target == "accepted":
                 conn.execute("""UPDATE web_delivery_orders SET status='accepted',assigned_driver_id=?,
@@ -287,7 +310,7 @@ class DeliveryStore:
             self.audit(conn, "web_delivery_" + target, f"order={order_id}", str(staff_id), staff_name)
         return self.get(order_id)
 
-    def resolve(self, order_id, status, staff_id, staff_name):
+    def resolve(self, order_id, status, staff_id, staff_name, allow_override=False):
         if status not in ("paid", "cancelled"):
             raise ValueError("Invalid order action.")
         order_id = int(order_id)
@@ -299,6 +322,7 @@ class DeliveryStore:
                     raise ValueError("Order not found.")
                 if row["status"] not in ("pending", "accepted", "on_way"):
                     raise ValueError("This order has already been processed.")
+                self._require_assigned_driver(row, staff_id, allow_override)
                 now = utc_now()
                 conn.execute("""UPDATE web_delivery_orders SET status='cancelled',resolved_at=?,resolved_by=?,
                     status_updated_at=? WHERE id=?""", (now, str(staff_id), now, order_id))
@@ -311,6 +335,7 @@ class DeliveryStore:
                 raise ValueError("Order not found.")
             if row["status"] == "cancelled":
                 raise ValueError("This order has already been processed.")
+            self._require_assigned_driver(row, staff_id, allow_override)
             already_paid = row["status"] == "paid"
             if not already_paid and row["status"] not in ("on_way", "processing"):
                 raise ValueError("Accept the delivery and mark the driver on the way before confirming payment.")

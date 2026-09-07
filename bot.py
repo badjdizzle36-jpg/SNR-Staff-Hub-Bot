@@ -23,7 +23,7 @@ from snr_core import (
 from web_portal import start_web_server
 from reward_claims import ClaimStore
 from customer_accounts import Accounts
-from delivery_orders import DeliveryStore
+from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
 
 
@@ -1115,6 +1115,7 @@ class DeliveryOrderView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         try:
             async with db_lock:
+                can_override_driver = has_role(interaction, MANAGER_ROLE_NAME) or is_owner(interaction)
                 if target == 'accepted':
                     if not any(entry['staff_id'] == str(interaction.user.id)
                                for entry in shifts.active(interaction.guild_id)):
@@ -1122,23 +1123,30 @@ class DeliveryOrderView(discord.ui.View):
                     row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
                     sales = []
                 elif target == 'on_way':
-                    if (row.get('assigned_driver_id') != str(interaction.user.id)
-                            and not has_role(interaction, MANAGER_ROLE_NAME) and not is_owner(interaction)):
-                        raise ValueError('Only the assigned driver or SNR Management can mark this order on the way.')
-                    row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
+                    row = orders.advance(
+                        self.order_id, target, str(interaction.user.id), str(interaction.user),
+                        allow_override=can_override_driver)
                     sales = []
                 elif target == 'wasted_journey':
-                    if (row.get('assigned_driver_id') != str(interaction.user.id)
-                            and not has_role(interaction, MANAGER_ROLE_NAME) and not is_owner(interaction)):
-                        raise ValueError('Only the assigned driver or SNR Management can add a Wasted Journey fee.')
                     row, fee = orders.charge_wasted_journey(
-                        self.order_id, str(interaction.user.id), str(interaction.user))
+                        self.order_id, str(interaction.user.id), str(interaction.user),
+                        allow_override=can_override_driver)
                     sales = []
                 else:
                     row, sales = orders.resolve(
-                        self.order_id, target, str(interaction.user.id), str(interaction.user))
+                        self.order_id, target, str(interaction.user.id), str(interaction.user),
+                        allow_override=can_override_driver)
         except ValueError as exc:
             await interaction.followup.send(f'❌ {exc}', ephemeral=True)
+            # Replace a stale menu with the real current step. This commonly
+            # happens when two drivers press Accept at almost the same time.
+            current = orders.get(self.order_id)
+            if current and current['status'] in ACTIVE_STATUSES:
+                try:
+                    await interaction.message.edit(
+                        embed=delivery_order_embed(current), view=DeliveryOrderView(self.order_id))
+                except discord.HTTPException:
+                    logging.exception('Could not refresh stale delivery menu: %s', self.order_id)
             return
         except Exception:
             logging.exception('Delivery order processing failed: %s', self.order_id)
