@@ -102,9 +102,23 @@ async def dismiss_temporary_menu(interaction: discord.Interaction) -> None:
     if not interaction.message:
         return
     try:
-        await interaction.message.delete()
+        # Discord's webhook endpoint is the reliable way to remove ephemeral
+        # interaction messages; Message.delete can silently fail for them.
+        await interaction.delete_original_response()
     except (discord.NotFound, discord.HTTPException):
-        # It may already have been dismissed manually or expired.
+        try:
+            await interaction.message.delete()
+        except (discord.NotFound, discord.HTTPException):
+            # It may already have been dismissed manually or expired.
+            pass
+
+
+async def delete_response_later(interaction: discord.Interaction, seconds: float) -> None:
+    """Delete an ephemeral result without blocking the bot."""
+    await asyncio.sleep(seconds)
+    try:
+        await interaction.delete_original_response()
+    except (discord.NotFound, discord.HTTPException):
         pass
 
 
@@ -364,6 +378,7 @@ class NameModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         if not await require_staff(interaction):
             return
+        await dismiss_temporary_menu(interaction)
         await send_name_result(interaction, self.action, str(self.customer_name))
 
 
@@ -483,6 +498,7 @@ class DealSelect(discord.ui.Select):
                 str(interaction.user),
             )
         await interaction.edit_original_response(content=None, embed=sale_embed(result), view=None)
+        asyncio.create_task(delete_response_later(interaction, 10))
 
 
 class DealView(discord.ui.View):
