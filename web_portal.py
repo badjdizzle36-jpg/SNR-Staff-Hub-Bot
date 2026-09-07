@@ -162,37 +162,42 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
 def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
     rows = orders.summary(customer["display_name"])
     fee = orders.outstanding_fee(customer["customer_key"])
-    active = next((row for row in rows if row["status"] in ("pending", "accepted", "on_way", "arrived", "processing")), None)
+    active = next((row for row in rows if row["status"] in ("pending", "accepted", "on_way", "arrived", "ready_for_pickup", "processing")), None)
     labels = {
         "pending": "Waiting for a driver to accept",
         "accepted": "Accepted — your order is being prepared",
         "on_way": "Your driver is on the way",
         "arrived": "Your driver has arrived and is waiting outside",
+        "ready_for_pickup": "Your order is ready for collection at SNR Buns",
         "processing": "Payment is being confirmed",
         "paid": "Delivered, paid and added to loyalty",
         "cancelled": "Cancelled",
         "wasted_journey": "Wasted journey — £500 delivery fee owed",
     }
     recent = "".join(
-        f'<p>Order #{row["id"]}: <strong class="status-{"pending" if row["status"] in ("accepted", "on_way", "arrived", "processing") else row["status"]}">{labels.get(row["status"], row["status"])}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
+        f'<p>{"🛍️ Pickup" if (row.get("fulfillment_type") or "delivery") == "pickup" else "🚗 Delivery"} #{row["id"]}: <strong class="status-{"pending" if row["status"] in ("accepted", "on_way", "arrived", "ready_for_pickup", "processing") else row["status"]}">{labels.get(row["status"], row["status"])}</strong> — {html.escape(row["deal_name"])} • £{int(row["price"]):,}</p>'
         for row in rows
     )
     if active:
-        driver = (f'<br>Driver: <strong>{html.escape(active["assigned_driver_name"])}</strong>'
+        pickup = (active.get("fulfillment_type") or "delivery") == "pickup"
+        handler_label = "Handling staff" if pickup else "Driver"
+        driver = (f'<br>{handler_label}: <strong>{html.escape(active["assigned_driver_name"])}</strong>'
                   if active.get("assigned_driver_name") else "")
         note = f'<br>Your note: {html.escape(active["notes"])}' if active.get("notes") else ""
         subtotal = int(active.get("subtotal") or active["price"])
         delivery_fee = int(active.get("delivery_fee") or 0)
         discount = int(active.get("discount_amount") or 0)
+        charge_label = "Pickup charge" if pickup else "Delivery"
         discount_line = (f'<br>Discount ({html.escape(active.get("discount_code") or "code")}): '
                          f'<strong>−£{discount:,}</strong>' if discount else "")
         order_form = (
             f'<div class="notice order-status" data-order-id="{active["id"]}" data-order-status="{active["status"]}">'
             f'<strong>Order #{active["id"]}: {labels[active["status"]]}</strong><br>'
             f'{html.escape(active["deal_name"])}<br>Food subtotal: £{subtotal:,}'
-            f'{discount_line}<br>Delivery: {"FREE" if delivery_fee == 0 else f"£{delivery_fee:,}"}'
+            f'{discount_line}<br>{charge_label}: {"FREE" if delivery_fee == 0 else f"£{delivery_fee:,}"}'
             f'<br><strong>Total owed: £{int(active["price"]):,}</strong><br>'
-            f'Delivery location: {html.escape(active["postal"])}{driver}{note}</div><div id="status-toast" role="status"></div><script src="/delivery.js" defer></script>'
+            f'{"Collection: SNR Buns" if pickup else "Delivery location: " + html.escape(active["postal"])}'
+            f'{driver}{note}</div><div id="status-toast" role="status"></div><script src="/delivery.js" defer></script>'
         )
     elif fee:
         order_form = f'''<div class="debt-warning"><strong>⚠️ £{int(fee["amount"]):,} OWED</strong><br>Wasted Journey fee from delivery order #{int(fee["order_id"])}.<br><br>New deliveries are unavailable until SNR staff mark this fee as paid or waived.</div>'''
@@ -200,16 +205,19 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
         choices = "".join(
             f'''<div class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,} each</span><label class="quantity">Amount <input class="deal-qty" type="number" name="qty_{deal.key}" value="0" min="0" max="10" step="1" data-price="{deal.price}" aria-label="Amount of {html.escape(deal.name, quote=True)}"></label></div>'''
             for deal in DEALS.values())
-        if orders.configured() and shifts.drivers_available():
+        if orders.configured():
             delivery_fee = int(customer["membership"]["delivery_fee"])
             fee_text = "FREE — SNR VIP benefit" if delivery_fee == 0 else f"£{delivery_fee:,}"
-            order_form = f'''<form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small>Membership delivery: {fee_text}</small><br>Total before discount: <span id="delivery-total">£{delivery_fee:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code"><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" required><button type="submit">Send Delivery Order</button></div><p class="muted">Choose up to 10 of each deal (20 deals total). A valid discount is confirmed on the next screen. You pay SNR staff on delivery. Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
-        elif orders.configured():
-            order_form = '<div class="notice"><strong>No drivers are currently available.</strong><br>Please try again when SNR staff have clocked in.</div>'
+            drivers = shifts.drivers_available()
+            mode_options = ('<option value="delivery" selected>🚗 Delivery</option><option value="pickup">🛍️ Pickup from SNR Buns</option>'
+                            if drivers else
+                            '<option value="pickup" selected>🛍️ Pickup from SNR Buns</option><option value="delivery" disabled>🚗 Delivery — no drivers available</option>')
+            availability = ("" if drivers else '<div class="notice"><strong>No delivery drivers are clocked in.</strong><br>Pickup ordering is still available.</div>')
+            order_form = f'''{availability}<form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><label><strong>How would you like your order?</strong><select id="fulfillment-type" name="fulfillment_type" required>{mode_options}</select></label><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small id="order-fee-label">Membership delivery: {fee_text}</small><br>Total before discount: <span id="delivery-total">£{delivery_fee if drivers else 0:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code"><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input id="delivery-location" name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" {"required" if drivers else "hidden"}><button type="submit">Place Order</button></div><p class="muted">Pickup is always free. Delivery uses your membership price. Choose up to 10 of each deal (20 deals total). Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
         else:
             order_form = f'<div class="deal-list">{choices}</div><div class="notice">Online delivery is being set up. Please contact SNR Buns for now.</div>'
     opened = " open" if active or fee else ""
-    return f'''<details class="section-drawer delivery" id="delivery"{opened}><summary>🚗 Order Food</summary><div class="drawer-body"><p class="muted">Choose your deals and delivery location.</p>{order_form}<details class="compact-info"><summary>Previous delivery orders</summary><div class="history">{recent or '<p class="muted">No delivery orders yet.</p>'}</div></details></div></details>'''
+    return f'''<details class="section-drawer delivery" id="delivery"{opened}><summary>🍔 Order Food — Delivery or Pickup</summary><div class="drawer-body"><p class="muted">Choose your deals, then select delivery or collection.</p>{order_form}<details class="compact-info"><summary>Previous orders</summary><div class="history">{recent or '<p class="muted">No orders yet.</p>'}</div></details></div></details>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -364,11 +372,11 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.wfile.write(LOGO_IMAGE)
             elif path == "/delivery.js":
                 data = b'''document.addEventListener("DOMContentLoaded",()=>{
-const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal"),z=document.getElementById("delivery-total"),f=document.querySelector(".delivery-form"),fee=parseInt(f?.dataset.deliveryFee||"0",10);
-const total=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB");if(z)z.textContent="\\u00a3"+(t+fee).toLocaleString("en-GB")};q.forEach(x=>x.addEventListener("input",total));total();
+const q=[...document.querySelectorAll(".deal-qty")],o=document.getElementById("delivery-subtotal"),z=document.getElementById("delivery-total"),f=document.querySelector(".delivery-form"),mode=document.getElementById("fulfillment-type"),loc=document.getElementById("delivery-location"),feeLabel=document.getElementById("order-fee-label"),fee=parseInt(f?.dataset.deliveryFee||"0",10);
+const currentFee=()=>mode?.value==="pickup"?0:fee;const total=()=>{let t=0;q.forEach(x=>t+=(parseInt(x.value||"0",10)||0)*parseInt(x.dataset.price,10));if(o)o.textContent="\\u00a3"+t.toLocaleString("en-GB");if(z)z.textContent="\\u00a3"+(t+currentFee()).toLocaleString("en-GB")};const syncMode=()=>{const pickup=mode?.value==="pickup";if(loc){loc.hidden=pickup;loc.required=!pickup}if(feeLabel)feeLabel.textContent=pickup?"Pickup charge: FREE":"Membership delivery: \\u00a3"+fee.toLocaleString("en-GB");total()};q.forEach(x=>x.addEventListener("input",total));mode?.addEventListener("change",syncMode);syncMode();
 const tracker=document.querySelector("[data-order-id]");if(!tracker)return;let current=tracker.dataset.orderStatus;
-const messages={accepted:"Your delivery has been accepted!",on_way:"Your driver is on the way!",arrived:"Your SNR Buns driver has arrived and is waiting outside!",paid:"Your delivery is complete. Your Golden Tickets were issued and entered automatically!",cancelled:"Your delivery order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
-setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=(d.status==="paid"&&d.jackpot_won)?"WINNER! One of your automatic Golden Tickets won the \\u00a35,000 jackpot! Speak to SNR staff now.":(messages[d.status]||"Your delivery status has changed.");if(d.driver&&!["cancelled","wasted_journey"].includes(d.status))message+=" Driver: "+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);setTimeout(()=>location.reload(),3500)}}catch(e){}},5000);
+const messages={accepted:"Your order has been accepted!",on_way:"Your driver is on the way!",arrived:"Your SNR Buns driver has arrived and is waiting outside!",ready_for_pickup:"Your order is ready for collection at SNR Buns!",paid:"Your order is complete. Your Golden Tickets were issued and entered automatically!",cancelled:"Your order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
+setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=(d.status==="paid"&&d.jackpot_won)?"WINNER! One of your automatic Golden Tickets won the \\u00a35,000 jackpot! Speak to SNR staff now.":(messages[d.status]||"Your order status has changed.");if(d.driver&&!["cancelled","wasted_journey"].includes(d.status))message+=(d.fulfillment_type==="pickup"?" Handling staff: ":" Driver: ")+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);setTimeout(()=>location.reload(),3500)}}catch(e){}},5000);
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
@@ -386,6 +394,7 @@ setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"}
                 outcome = orders.ticket_result(row["id"]) if row and row["status"] == "paid" else {"tickets": 0, "jackpot_won": False}
                 self.send_json(200, ({"id": str(row["id"]), "status": row["status"],
                                       "driver": row.get("assigned_driver_name") or "",
+                                      "fulfillment_type": row.get("fulfillment_type") or "delivery",
                                       "tickets": outcome["tickets"], "jackpot_won": outcome["jackpot_won"]}
                                      if row else {"id": None, "status": "none", "driver": ""}))
             elif path == "/health":
@@ -458,18 +467,26 @@ setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"}
                     key = data.get("order_request_key", "")
                     if not valid_form_token(owner, key):
                         raise ValueError("This order form has expired. Refresh your account and try again.")
-                    if not shifts.drivers_available():
+                    fulfillment_type = data.get("fulfillment_type", "delivery").strip().lower()
+                    if fulfillment_type == "delivery" and not shifts.drivers_available():
                         raise ValueError("No drivers are currently available. Please try again when SNR staff have clocked in.")
                     quantities = {deal_key: data.get("qty_" + deal_key, "0") for deal_key in DEALS}
                     result = orders.create_cart_authenticated(
                         owner, quantities, data.get("postal", ""), key, data.get("notes", ""),
-                        data.get("discount_code", ""))
+                        data.get("discount_code", ""), fulfillment_type)
                     lines = "".join(f'<li>{item["quantity"]} × {html.escape(item["name"])} — £{item["line_total"]:,}</li>' for item in orders.items(result))
                     note = f'<p>Order note: <strong>{html.escape(result["notes"])}</strong></p>' if result.get("notes") else ""
                     discount_line = (f'<p>Discount ({html.escape(result["discount_code"])}): <strong>−£{int(result["discount_amount"]):,}</strong></p>'
                                      if int(result.get("discount_amount") or 0) else "")
+                    pickup = (result.get("fulfillment_type") or "delivery") == "pickup"
                     fee_text = "FREE" if int(result.get("delivery_fee") or 0) == 0 else f'£{int(result["delivery_fee"]):,}'
-                    self.send_html(200, page("Delivery order received", f'''<section class="card"><div class="label">🚗 Delivery order sent</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Food subtotal: <strong>£{int(result["subtotal"]):,}</strong></p>{discount_line}<p>{html.escape(result.get("membership_level") or "Regular")} delivery: <strong>{fee_text}</strong></p><p>Total to pay: <strong>£{int(result["price"]):,}</strong></p><p>Delivery location: <strong>{html.escape(result["postal"])}</strong></p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open for Accepted, Driver On The Way, Driver Arrived and completion updates.<br><br>After staff confirm payment, your Golden Tickets are issued, checked and entered into the £5,000 draw automatically. This page will immediately alert you if one wins.</div><a class="back" href="/account">Track my order</a></section>'''))
+                    fee_label = "Pickup charge" if pickup else f'{html.escape(result.get("membership_level") or "Regular")} delivery'
+                    place = ("Collection: <strong>SNR Buns</strong>" if pickup else
+                             f'Delivery location: <strong>{html.escape(result["postal"])}</strong>')
+                    updates = ("Accepted, Ready for Collection and completion" if pickup else
+                               "Accepted, Driver On The Way, Driver Arrived and completion")
+                    icon_title = "🛍️ Pickup order sent" if pickup else "🚗 Delivery order sent"
+                    self.send_html(200, page("Order received", f'''<section class="card"><div class="label">{icon_title}</div><h1>Order #{result["id"]}</h1><ul>{lines}</ul><p>Food subtotal: <strong>£{int(result["subtotal"]):,}</strong></p>{discount_line}<p>{fee_label}: <strong>{fee_text}</strong></p><p>Total to pay: <strong>£{int(result["price"]):,}</strong></p><p>{place}</p>{note}<div class="notice"><strong>Please allow 5–7 minutes for your order to be confirmed.</strong><br>Keep this page open for {updates} updates.<br><br>After staff confirm payment, your Golden Tickets are issued, checked and entered into the £5,000 draw automatically. This page will immediately alert you if one wins.</div><a class="back" href="/account">Track my order</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:

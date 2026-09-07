@@ -17,13 +17,15 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Password resets use the customer's memorable question and answer—no setup code or staff reset is required.
 - Existing older accounts are prompted to add a memorable question after logging in.
 - Customers can order several different deals and choose 0–10 of each (20 deals maximum per order).
+- Customers choose **Delivery** or **Pickup from SNR Buns** on the same order page. Pickup is always free and remains available when no delivery driver is clocked in.
+- Pickup orders use their own Discord workflow: **Accept Pickup Order → Ready for Collection → Collected & Customer Paid**. The customer webpage alerts them when collection is ready.
 - A live subtotal appears before checkout; the server recalculates it securely when submitted.
 - Customers can add an optional 200-character order note for meeting points or food instructions.
 - The confirmation asks customers to allow 5–7 minutes.
 - Delivery orders move through Waiting, Accepted, Driver On The Way, Driver Arrived and Delivered/Paid.
 - The customer page checks for delivery updates every five seconds and shows a bright status notification.
 - Loyalty customers see a visual progress bar toward their four-point trading-card pack.
-- Website ordering is available only while at least one staff member is clocked in.
+- Website delivery is available while at least one staff member is clocked in; pickup ordering stays open without a driver.
 - The uncluttered hub has five starting buttons: **New Sale**, **Deliveries**, **Customers**, **Staff Shift** and **More Tools**. Clock controls live together inside **Staff Shift**. Shifts expire after eight hours if somebody forgets to clock off.
 - **New Sale** supports quantities from ×1 to ×10, so several identical deals can be recorded together with one combined receipt.
 - Record Sale, Check Customer and Redeem Reward include an alphabetically ordered 25-name dropdown with **Previous Names** and **Next Names**, plus **Type / Suggest Name** for spelling correction.
@@ -83,7 +85,9 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 5. After receiving payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
 6. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
 7. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
-8. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
+8. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, website delivery is disabled but customers can still place pickup orders.
+
+For pickup orders, press **Accept Pickup Order**, then **Ready for Collection** when the food is ready. The customer is alerted on their webpage. Press **Collected & Customer Paid** only after payment; that final step records finance, loyalty and Golden Tickets.
 
 ## VIP membership workflow
 

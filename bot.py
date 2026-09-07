@@ -1009,11 +1009,13 @@ async def show_pack_requests(interaction):
 
 
 def delivery_order_embed(row):
+    fulfillment = row.get('fulfillment_type') or 'delivery'
     colours = {
         'pending': discord.Colour.orange(),
         'accepted': discord.Colour.blue(),
         'on_way': discord.Colour.purple(),
         'arrived': discord.Colour.teal(),
+        'ready_for_pickup': discord.Colour.green(),
         'processing': discord.Colour.gold(),
         'paid': discord.Colour.green(),
         'cancelled': discord.Colour.red(),
@@ -1024,12 +1026,19 @@ def delivery_order_embed(row):
         'accepted': 'ACCEPTED — PREPARING',
         'on_way': 'DRIVER ON THE WAY',
         'arrived': 'DRIVER HAS ARRIVED',
+        'ready_for_pickup': 'READY FOR COLLECTION',
         'processing': 'PROCESSING',
         'paid': 'DELIVERED & PAID — SALE RECORDED',
         'cancelled': 'CANCELLED',
         'wasted_journey': 'WASTED JOURNEY — £500 FEE OWED',
     }.get(row['status'], str(row['status']).upper())
-    embed = discord.Embed(title=f"🚗 DELIVERY ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
+    if fulfillment == 'pickup' and row['status'] == 'pending':
+        status = 'WAITING FOR STAFF TO ACCEPT'
+    elif fulfillment == 'pickup' and row['status'] == 'paid':
+        status = 'COLLECTED & PAID — SALE RECORDED'
+    icon = '🛍️' if fulfillment == 'pickup' else '🚗'
+    order_type = 'PICKUP' if fulfillment == 'pickup' else 'DELIVERY'
+    embed = discord.Embed(title=f"{icon} {order_type} ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name='Total Owed', value=f"**{money(row['price'])}**", inline=True)
     embed.add_field(name='Status', value=f"**{status}**", inline=True)
@@ -1058,7 +1067,8 @@ def delivery_order_embed(row):
     breakdown = [f"Food: **{money(subtotal)}**"]
     if discount:
         breakdown.append(f"Code **{discord.utils.escape_markdown(row.get('discount_code') or '')}**: **−{money(discount)}**")
-    breakdown.append(f"{row.get('membership_level') or 'Regular'} delivery: **{'FREE' if fee == 0 else money(fee)}**")
+    fee_label = 'Pickup charge' if fulfillment == 'pickup' else f"{row.get('membership_level') or 'Regular'} delivery"
+    breakdown.append(f"{fee_label}: **{'FREE' if fee == 0 else money(fee)}**")
     breakdown.append(f"Final total: **{money(row['price'])}**")
     embed.add_field(name='Price Breakdown', value="\n".join(breakdown), inline=False)
     embed.add_field(name='Rewards After Payment',
@@ -1079,13 +1089,17 @@ def delivery_order_embed(row):
                 value=f"{outcome['tickets']} Golden Ticket(s) issued, checked and entered automatically. No winning match on this order.",
                 inline=False,
             )
-    embed.add_field(
-        name='📍 Postal / Delivery Location',
-        value=f"**{discord.utils.escape_markdown(row['postal'])}**",
-        inline=False,
-    )
+    if fulfillment == 'pickup':
+        embed.add_field(name='🛍️ Collection', value='**Customer will collect from SNR Buns**', inline=False)
+    else:
+        embed.add_field(
+            name='📍 Postal / Delivery Location',
+            value=f"**{discord.utils.escape_markdown(row['postal'])}**",
+            inline=False,
+        )
     if row.get('assigned_driver_name'):
-        embed.add_field(name='Driver', value=f"**{discord.utils.escape_markdown(row['assigned_driver_name'])}**", inline=True)
+        handler_label = 'Handling Staff' if fulfillment == 'pickup' else 'Driver'
+        embed.add_field(name=handler_label, value=f"**{discord.utils.escape_markdown(row['assigned_driver_name'])}**", inline=True)
     if row.get('notes'):
         embed.add_field(name='📝 Customer Notes', value=discord.utils.escape_markdown(row['notes'])[:1024], inline=False)
     if row.get('sale_transaction_id'):
@@ -1155,20 +1169,28 @@ class DeliveryOrderView(discord.ui.View):
         self.order_id = int(order_id)
         row = orders.get(self.order_id)
         status = row['status'] if row else 'pending'
+        fulfillment = (row.get('fulfillment_type') or 'delivery') if row else 'delivery'
         if status == 'pending':
-            action = discord.ui.Button(label='Accept Delivery', emoji='✅', style=discord.ButtonStyle.primary,
+            accept_label = 'Accept Pickup Order' if fulfillment == 'pickup' else 'Accept Delivery'
+            action = discord.ui.Button(label=accept_label, emoji='✅', style=discord.ButtonStyle.primary,
                                        custom_id=f'snr:delivery:{self.order_id}:accepted')
             target = 'accepted'
         elif status == 'accepted':
-            action = discord.ui.Button(label='Driver On The Way', emoji='🚗', style=discord.ButtonStyle.primary,
-                                       custom_id=f'snr:delivery:{self.order_id}:on_way')
-            target = 'on_way'
+            if fulfillment == 'pickup':
+                action = discord.ui.Button(label='Ready for Collection', emoji='🛍️', style=discord.ButtonStyle.success,
+                                           custom_id=f'snr:delivery:{self.order_id}:ready_for_pickup')
+                target = 'ready_for_pickup'
+            else:
+                action = discord.ui.Button(label='Driver On The Way', emoji='🚗', style=discord.ButtonStyle.primary,
+                                           custom_id=f'snr:delivery:{self.order_id}:on_way')
+                target = 'on_way'
         elif status == 'on_way':
             action = discord.ui.Button(label='Driver Has Arrived', emoji='📍', style=discord.ButtonStyle.primary,
                                        custom_id=f'snr:delivery:{self.order_id}:arrived')
             target = 'arrived'
         else:
-            action = discord.ui.Button(label='Delivered & Customer Paid', emoji='💷', style=discord.ButtonStyle.success,
+            paid_label = 'Collected & Customer Paid' if fulfillment == 'pickup' else 'Delivered & Customer Paid'
+            action = discord.ui.Button(label=paid_label, emoji='💷', style=discord.ButtonStyle.success,
                                        custom_id=f'snr:delivery:{self.order_id}:paid')
             target = 'paid'
         cancel = discord.ui.Button(
@@ -1186,7 +1208,7 @@ class DeliveryOrderView(discord.ui.View):
         cancel.callback = cancel_callback
         self.add_item(action)
         self.add_item(cancel)
-        if status == 'arrived':
+        if status == 'arrived' and fulfillment == 'delivery':
             wasted = discord.ui.Button(label='Wasted Journey — Charge £500', emoji='⚠️',
                                        style=discord.ButtonStyle.danger,
                                        custom_id=f'snr:delivery:{self.order_id}:wasted_journey')
@@ -1209,12 +1231,13 @@ class DeliveryOrderView(discord.ui.View):
             async with db_lock:
                 can_override_driver = has_role(interaction, MANAGER_ROLE_NAME) or is_owner(interaction)
                 if target == 'accepted':
-                    if not any(entry['staff_id'] == str(interaction.user.id)
-                               for entry in shifts.active(interaction.guild_id)):
+                    if ((row.get('fulfillment_type') or 'delivery') == 'delivery'
+                            and not any(entry['staff_id'] == str(interaction.user.id)
+                                        for entry in shifts.active(interaction.guild_id))):
                         raise ValueError('Clock in before accepting a delivery so the customer knows a driver is available.')
                     row = orders.advance(self.order_id, target, str(interaction.user.id), str(interaction.user))
                     sales = []
-                elif target in ('on_way', 'arrived'):
+                elif target in ('on_way', 'arrived', 'ready_for_pickup'):
                     row = orders.advance(
                         self.order_id, target, str(interaction.user.id), str(interaction.user),
                         allow_override=can_override_driver)
@@ -1248,17 +1271,23 @@ class DeliveryOrderView(discord.ui.View):
             )
             return
         if target == 'accepted':
-            response = '✅ Delivery accepted and assigned to you. The customer’s webpage has been updated.'
+            response = ('✅ Pickup order accepted and assigned to you. Mark it ready when the food can be collected.'
+                        if (row.get('fulfillment_type') or 'delivery') == 'pickup' else
+                        '✅ Delivery accepted and assigned to you. The customer’s webpage has been updated.')
         elif target == 'on_way':
             response = '🚗 Marked Driver On The Way. The customer’s webpage is notifying them now.'
         elif target == 'arrived':
             response = '📍 Marked Driver Has Arrived. The customer’s webpage is alerting them that you are outside.'
+        elif target == 'ready_for_pickup':
+            response = '🛍️ Marked Ready for Collection. The customer’s webpage is alerting them to come to SNR Buns.'
         elif target == 'paid':
             won = any(result.get('jackpot_won') for result in sales)
+            completed_word = ('Collected' if (row.get('fulfillment_type') or 'delivery') == 'pickup'
+                              else 'Delivered')
             response = ((f'🏆 GOLDEN TICKET WINNER! This customer won the £5,000 jackpot. '
                          'Their webpage is alerting them now and the reward is recorded for staff verification.')
                         if won else
-                        (f'✅ Delivered and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
+                        (f'✅ {completed_word} and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
                          'Sales, finance and loyalty are updated, and every Golden Ticket was issued and entered automatically.'))
         elif target == 'wasted_journey':
             response = ('⚠️ Wasted Journey recorded. £500 is now owed on the customer’s webpage and name, '
@@ -1286,6 +1315,7 @@ class DeliveryOrderView(discord.ui.View):
 
 def delivery_dashboard_embed(guild_id):
     counts = orders.status_counts(guild_id)
+    fulfilment = orders.fulfillment_counts(guild_id)
     active_staff = shifts.active(guild_id)
     stats = db.report(today=True)
     fees = orders.outstanding_fees(guild_id)
@@ -1294,6 +1324,8 @@ def delivery_dashboard_embed(guild_id):
     embed.add_field(name='Accepted', value=f"**{counts['accepted']}**", inline=True)
     embed.add_field(name='On The Way', value=f"**{counts['on_way']}**", inline=True)
     embed.add_field(name='Arrived', value=f"**{counts['arrived']}**", inline=True)
+    embed.add_field(name='Ready for Pickup', value=f"**{counts['ready_for_pickup']}**", inline=True)
+    embed.add_field(name='Active Types', value=f"**{fulfilment['delivery']} delivery • {fulfilment['pickup']} pickup**", inline=True)
     embed.add_field(name='Wasted Journey Fees', value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))} owed**", inline=True)
     embed.add_field(name='Drivers Clocked In', value=f"**{len(active_staff)}**", inline=True)
     embed.add_field(name='Today’s Revenue', value=f"**{money(stats['revenue'])}**", inline=True)

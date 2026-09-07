@@ -186,6 +186,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn("Regular", body)
             self.assertIn("Membership delivery: £100", body)
             self.assertIn('name="discount_code"', body)
+            self.assertIn("Pickup from SNR Buns", body)
             self.assertIn("entered automatically", body)
             self.assertNotIn("Owned by", body)
             for deal in DEALS.values():
@@ -229,6 +230,43 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn("New deliveries are unavailable", body)
             self.assertNotIn('action="/order"', body)
             self.assertEqual(json.loads(request("/order-status")[1])["status"], "wasted_journey")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_web_pickup_works_when_no_driver_is_clocked_in(self):
+        server = start_web_server(self.db, 0)
+        base = f"http://127.0.0.1:{server.server_port}"
+        cookie = "snr_session=" + self.session
+
+        def request(path, values=None):
+            req = Request(
+                base + path,
+                data=urlencode(values).encode() if values is not None else None,
+                headers={"Cookie": cookie},
+            )
+            response = build_opener().open(req)
+            return response, response.read().decode()
+
+        try:
+            response, body = request("/account")
+            self.assertEqual(response.status, 200)
+            self.assertIn("Pickup ordering is still available", body)
+            parser = HiddenForm()
+            parser.feed(body)
+            response, confirmation = request("/order", {
+                "order_request_key": parser.values["order_request_key"],
+                "fulfillment_type": "pickup",
+                "qty_quick_fix": "1",
+                "postal": "",
+            })
+            self.assertEqual(response.status, 200)
+            self.assertIn("Pickup order sent", confirmation)
+            self.assertIn("Pickup charge: <strong>FREE", confirmation)
+            self.assertIn("Collection: <strong>SNR Buns", confirmation)
+            row = self.orders.pending()[0]
+            self.assertEqual(row["fulfillment_type"], "pickup")
+            self.assertEqual(row["price"], 150)
         finally:
             server.shutdown()
             server.server_close()
@@ -291,6 +329,36 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(row["subtotal"], 150)
         self.assertEqual(row["delivery_fee"], 0)
         self.assertEqual(row["price"], 150)
+
+    def test_pickup_is_free_and_uses_collection_workflow(self):
+        row = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"mega_deal": 1}, "", "pickup-order-key",
+            fulfillment_type="pickup")
+        self.assertEqual(row["fulfillment_type"], "pickup")
+        self.assertEqual(row["postal"], "SNR Buns — customer collection")
+        self.assertEqual(row["subtotal"], 500)
+        self.assertEqual(row["delivery_fee"], 0)
+        self.assertEqual(row["price"], 500)
+        self.orders.advance(row["id"], "accepted", "11", "Counter Staff")
+        with self.assertRaisesRegex(ValueError, "Ready for Collection"):
+            self.orders.resolve(row["id"], "paid", "11", "Counter Staff")
+        ready = self.orders.advance(
+            row["id"], "ready_for_pickup", "11", "Counter Staff")
+        self.assertEqual(ready["status"], "ready_for_pickup")
+        paid, sales = self.orders.resolve(row["id"], "paid", "11", "Counter Staff")
+        self.assertEqual(paid["status"], "paid")
+        self.assertEqual(len(sales), 1)
+        self.assertEqual(self.db.report()["revenue"], 500)
+
+    def test_pickup_cannot_use_delivery_driver_steps_or_wasted_fee(self):
+        row = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"quick_fix": 1}, "", "pickup-route-lock",
+            fulfillment_type="pickup")
+        self.orders.advance(row["id"], "accepted", "11", "Counter Staff")
+        with self.assertRaisesRegex(ValueError, "Ready for Collection"):
+            self.orders.advance(row["id"], "on_way", "11", "Counter Staff")
+        with self.assertRaisesRegex(ValueError, "cannot receive"):
+            self.orders.charge_wasted_journey(row["id"], "11", "Counter Staff")
 
     def test_wasted_journey_adds_fee_blocks_orders_and_adds_no_rewards(self):
         order = self.orders.create_authenticated(

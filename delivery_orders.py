@@ -5,7 +5,7 @@ from datetime import date
 
 from snr_core import DEALS, normalize_name, utc_now
 
-ACTIVE_STATUSES = ("pending", "accepted", "on_way", "arrived", "processing")
+ACTIVE_STATUSES = ("pending", "accepted", "on_way", "arrived", "ready_for_pickup", "processing")
 
 
 class DeliveryStore:
@@ -27,7 +27,8 @@ class DeliveryStore:
                     accepted_at TEXT, on_way_at TEXT, arrived_at TEXT, status_updated_at TEXT,
                     subtotal INTEGER, delivery_fee INTEGER NOT NULL DEFAULT 0,
                     discount_amount INTEGER NOT NULL DEFAULT 0, discount_code TEXT,
-                    membership_level TEXT);
+                    membership_level TEXT, fulfillment_type TEXT NOT NULL DEFAULT 'delivery',
+                    ready_at TEXT);
                 CREATE TABLE IF NOT EXISTS delivery_discount_codes (
                     code TEXT PRIMARY KEY, discount_type TEXT NOT NULL, amount INTEGER NOT NULL,
                     max_uses INTEGER, uses INTEGER NOT NULL DEFAULT 0, expires_on TEXT,
@@ -53,6 +54,7 @@ class DeliveryStore:
                 ("subtotal", "INTEGER"), ("delivery_fee", "INTEGER NOT NULL DEFAULT 0"),
                 ("discount_amount", "INTEGER NOT NULL DEFAULT 0"), ("discount_code", "TEXT"),
                 ("membership_level", "TEXT"),
+                ("fulfillment_type", "TEXT NOT NULL DEFAULT 'delivery'"), ("ready_at", "TEXT"),
             ):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE web_delivery_orders ADD COLUMN {name} {definition}")
@@ -60,7 +62,7 @@ class DeliveryStore:
             conn.execute("UPDATE web_delivery_orders SET subtotal=price WHERE subtotal IS NULL")
             conn.execute("DROP INDEX IF EXISTS one_pending_web_delivery")
             conn.execute("""CREATE UNIQUE INDEX one_pending_web_delivery ON web_delivery_orders(customer_key)
-                WHERE status IN ('pending','accepted','on_way','arrived','processing')""")
+                WHERE status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')""")
 
     @staticmethod
     def audit(conn, action, details, staff_id=None, staff_name=None):
@@ -84,7 +86,7 @@ class DeliveryStore:
             conn.execute("INSERT OR REPLACE INTO web_delivery_settings VALUES(1,?,?)",
                          (str(channel_id), str(guild_id)))
             conn.execute("""UPDATE web_delivery_orders SET channel_id=?,message_id=NULL
-                WHERE status IN ('pending','accepted','on_way','arrived','processing') AND guild_id=? AND channel_id!=?""",
+                WHERE status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing') AND guild_id=? AND channel_id!=?""",
                 (str(channel_id), str(guild_id), str(channel_id)))
             self.audit(conn, "web_delivery_channel", str(channel_id), str(staff_id), staff_name)
 
@@ -169,12 +171,17 @@ class DeliveryStore:
         return min(subtotal, int(row["amount"]))
 
     def create_cart_authenticated(self, customer_key, quantities, postal, request_key, notes="",
-                                  discount_code=""):
+                                  discount_code="", fulfillment_type="delivery"):
         key = normalize_name(customer_key)
+        fulfillment_type = str(fulfillment_type or "delivery").strip().lower()
+        if fulfillment_type not in ("delivery", "pickup"):
+            raise ValueError("Choose Delivery or Pickup.")
         postal = " ".join(str(postal).strip().split())
         notes = " ".join(str(notes).strip().split())
-        if not 2 <= len(postal) <= 80:
+        if fulfillment_type == "delivery" and not 2 <= len(postal) <= 80:
             raise ValueError("Enter a postal or clear delivery location between 2 and 80 characters.")
+        if fulfillment_type == "pickup":
+            postal = "SNR Buns — customer collection"
         if not 10 <= len(request_key) <= 160:
             raise ValueError("Please reopen your account and try again.")
         if len(notes) > 200:
@@ -215,7 +222,7 @@ class DeliveryStore:
                     "Please pay SNR staff before placing another delivery."
                 )
             pending = conn.execute("""SELECT * FROM web_delivery_orders WHERE customer_key=?
-                AND status IN ('pending','accepted','on_way','arrived','processing')""", (key,)).fetchone()
+                AND status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')""", (key,)).fetchone()
             if pending:
                 return dict(pending)
             config = conn.execute("SELECT * FROM web_delivery_settings WHERE id=1").fetchone()
@@ -225,7 +232,7 @@ class DeliveryStore:
             if not customer:
                 raise ValueError("Customer account not found.")
             membership = self.db.membership(customer)
-            delivery_fee = int(membership["delivery_fee"])
+            delivery_fee = int(membership["delivery_fee"]) if fulfillment_type == "delivery" else 0
             entered_code = self.normalize_discount_code(discount_code)
             discount_amount = 0
             if entered_code:
@@ -243,14 +250,16 @@ class DeliveryStore:
             cursor = conn.execute("""INSERT INTO web_delivery_orders
                 (customer_key,customer_name,deal_key,deal_name,price,postal,request_key,created_at,
                  channel_id,guild_id,items_json,notes,status_updated_at,subtotal,delivery_fee,
-                 discount_amount,discount_code,membership_level) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 discount_amount,discount_code,membership_level,fulfillment_type)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (key, customer["display_name"], "cart", description, total, postal, request_key, utc_now(),
                  config["channel_id"], config["guild_id"], items_json, notes, utc_now(), subtotal,
-                 delivery_fee, discount_amount, entered_code or None, membership["name"]))
+                 delivery_fee, discount_amount, entered_code or None, membership["name"], fulfillment_type))
             self.audit(conn, "web_delivery_requested",
                        f"order={cursor.lastrowid};customer={key};items={description};subtotal={subtotal};"
                        f"delivery_fee={delivery_fee};discount={discount_amount};total={total};"
-                       f"code={entered_code};membership={membership['name']};postal={postal};notes={notes}")
+                       f"code={entered_code};membership={membership['name']};type={fulfillment_type};"
+                       f"postal={postal};notes={notes}")
             return dict(conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (cursor.lastrowid,)).fetchone())
 
     def create_authenticated(self, customer_key, deal_key, postal, request_key):
@@ -265,7 +274,7 @@ class DeliveryStore:
         return [dict(row) for row in rows]
 
     def pending(self, unsent=False):
-        where = "WHERE status IN ('pending','accepted','on_way','arrived','processing')" + (" AND message_id IS NULL" if unsent else "")
+        where = "WHERE status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')" + (" AND message_id IS NULL" if unsent else "")
         with self.db.connect() as conn:
             return [dict(row) for row in conn.execute(f"SELECT * FROM web_delivery_orders {where} ORDER BY id")]
 
@@ -290,10 +299,20 @@ class DeliveryStore:
     def status_counts(self, guild_id):
         with self.db.connect() as conn:
             rows = conn.execute("""SELECT status,COUNT(*) AS total FROM web_delivery_orders
-                WHERE guild_id=? AND status IN ('pending','accepted','on_way','arrived','processing') GROUP BY status""",
+                WHERE guild_id=? AND status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing') GROUP BY status""",
                 (str(guild_id),)).fetchall()
         counts = {name: 0 for name in ACTIVE_STATUSES}
         counts.update({row["status"]: int(row["total"]) for row in rows})
+        return counts
+
+    def fulfillment_counts(self, guild_id):
+        with self.db.connect() as conn:
+            rows = conn.execute("""SELECT fulfillment_type,COUNT(*) AS total
+                FROM web_delivery_orders WHERE guild_id=?
+                AND status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')
+                GROUP BY fulfillment_type""", (str(guild_id),)).fetchall()
+        counts = {"delivery": 0, "pickup": 0}
+        counts.update({(row["fulfillment_type"] or "delivery"): int(row["total"]) for row in rows})
         return counts
 
     def outstanding_fee(self, customer_key):
@@ -345,6 +364,8 @@ class DeliveryStore:
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
             if not row:
                 raise ValueError("Order not found.")
+            if row["fulfillment_type"] == "pickup":
+                raise ValueError("A pickup order cannot receive a Wasted Journey fee.")
             self._require_assigned_driver(row, staff_id, allow_override)
             existing = conn.execute("SELECT * FROM delivery_fees WHERE order_id=?", (order_id,)).fetchone()
             if existing:
@@ -387,7 +408,10 @@ class DeliveryStore:
         return dict(updated)
 
     def advance(self, order_id, target, staff_id, staff_name, allow_override=False):
-        transitions = {"accepted": "pending", "on_way": "accepted", "arrived": "on_way"}
+        transitions = {
+            "accepted": "pending", "on_way": "accepted", "arrived": "on_way",
+            "ready_for_pickup": "accepted",
+        }
         if target not in transitions:
             raise ValueError("Invalid delivery update.")
         order_id = int(order_id)
@@ -396,6 +420,11 @@ class DeliveryStore:
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
             if not row:
                 raise ValueError("Order not found.")
+            fulfillment = row["fulfillment_type"] or "delivery"
+            if fulfillment == "pickup" and target in ("on_way", "arrived"):
+                raise ValueError("Pickup orders must be marked Ready for Collection.")
+            if fulfillment == "delivery" and target == "ready_for_pickup":
+                raise ValueError("Delivery orders must use Driver On The Way.")
             if target == "accepted" and row["status"] != "pending":
                 # An old Discord button can still be clicked while another
                 # interaction is refreshing. Never let that stale click claim
@@ -409,7 +438,7 @@ class DeliveryStore:
                 return dict(row)
             if row["status"] != transitions[target]:
                 raise ValueError("That delivery step has already been completed or is not ready yet.")
-            if target in ("on_way", "arrived"):
+            if target in ("on_way", "arrived", "ready_for_pickup"):
                 self._require_assigned_driver(row, staff_id, allow_override)
             now = utc_now()
             if target == "accepted":
@@ -419,9 +448,12 @@ class DeliveryStore:
             elif target == "on_way":
                 conn.execute("UPDATE web_delivery_orders SET status='on_way',on_way_at=?,status_updated_at=? WHERE id=?",
                              (now, now, order_id))
-            else:
+            elif target == "arrived":
                 conn.execute("UPDATE web_delivery_orders SET status='arrived',arrived_at=?,status_updated_at=? WHERE id=?",
                              (now, now, order_id))
+            else:
+                conn.execute("""UPDATE web_delivery_orders SET status='ready_for_pickup',
+                    ready_at=?,status_updated_at=? WHERE id=?""", (now, now, order_id))
             self.audit(conn, "web_delivery_" + target, f"order={order_id}", str(staff_id), staff_name)
         return self.get(order_id)
 
@@ -435,7 +467,7 @@ class DeliveryStore:
                 row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
                 if not row:
                     raise ValueError("Order not found.")
-                if row["status"] not in ("pending", "accepted", "on_way", "arrived"):
+                if row["status"] not in ("pending", "accepted", "on_way", "arrived", "ready_for_pickup"):
                     raise ValueError("This order has already been processed.")
                 self._require_assigned_driver(row, staff_id, allow_override)
                 now = utc_now()
@@ -452,8 +484,13 @@ class DeliveryStore:
                 raise ValueError("This order has already been processed.")
             self._require_assigned_driver(row, staff_id, allow_override)
             already_paid = row["status"] == "paid"
-            if not already_paid and row["status"] not in ("arrived", "processing"):
-                raise ValueError("Mark the driver as arrived before confirming payment.")
+            fulfillment = row["fulfillment_type"] or "delivery"
+            required_status = "ready_for_pickup" if fulfillment == "pickup" else "arrived"
+            if not already_paid and row["status"] not in (required_status, "processing"):
+                message = ("Mark the order Ready for Collection before confirming payment."
+                           if fulfillment == "pickup" else
+                           "Mark the driver as arrived before confirming payment.")
+                raise ValueError(message)
             if not already_paid:
                 conn.execute("UPDATE web_delivery_orders SET status='processing',status_updated_at=? WHERE id=?",
                              (utc_now(), order_id))
@@ -479,8 +516,8 @@ class DeliveryStore:
                     source_ref=source_ref, price_override=allocation))
         except Exception:
             with self.db.connect() as conn:
-                conn.execute("UPDATE web_delivery_orders SET status='arrived',status_updated_at=? WHERE id=? AND status='processing'",
-                             (utc_now(), order_id))
+                conn.execute("UPDATE web_delivery_orders SET status=?,status_updated_at=? WHERE id=? AND status='processing'",
+                             (required_status, utc_now(), order_id))
             raise
         if already_paid:
             return self.get(order_id), results
