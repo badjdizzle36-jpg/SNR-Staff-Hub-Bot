@@ -4,6 +4,8 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- The signed-in website is now a compact app-style dashboard with **Home, Order, Rewards and Visits** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
+- Mobile spacing, logo size, dashboard cards and order controls have been tightened so the important information fits on screen faster without removing any features.
 - A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
 - A new valid square SNR Buns brand poster replaces the broken wide logo file and is designed for clean Discord avatar cropping and website display.
 - Customer memberships progress automatically through Regular (0+), Bronze (10+), Silver (25+), Gold (50+), Platinum (100+) and SNR VIP (200+). Owners can override a level or return it to automatic mode.
