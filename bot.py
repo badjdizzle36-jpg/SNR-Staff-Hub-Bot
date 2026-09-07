@@ -97,30 +97,16 @@ async def require_staff(interaction: discord.Interaction) -> bool:
     return False
 
 
-async def dismiss_temporary_menu(interaction: discord.Interaction) -> None:
-    """Remove a clicked ephemeral menu before showing the next screen."""
-    if not interaction.message:
-        return
-    # Discord must receive an acknowledgement within three seconds. Defer the
-    # component update first, then delete the ephemeral message.
-    if not interaction.response.is_done():
-        await interaction.response.defer()
-    try:
-        await interaction.delete_original_response()
-    except (discord.NotFound, discord.HTTPException):
-        try:
-            await interaction.message.delete()
-        except (discord.NotFound, discord.HTTPException):
-            # It may already have been dismissed manually or expired.
-            pass
-
-
 async def send_ephemeral(interaction: discord.Interaction, content=None, *, embed=None, view=None,
                          delete_after=None) -> None:
-    """Send after either a fresh interaction or an acknowledged menu click."""
+    """Replace a temporary menu, or send a fresh private response."""
     if interaction.response.is_done():
         await interaction.followup.send(
             content=content, embed=embed, view=view, ephemeral=True, delete_after=delete_after)
+    elif interaction.message and interaction.message.flags.ephemeral:
+        await interaction.response.edit_message(content=content, embed=embed, view=view)
+        if delete_after:
+            asyncio.create_task(delete_response_later(interaction, delete_after))
     else:
         await interaction.response.send_message(
             content=content, embed=embed, view=view, ephemeral=True, delete_after=delete_after)
@@ -288,10 +274,10 @@ async def send_name_result(interaction: discord.Interaction, action: str, entere
         return
     suggestion = db.suggest_name(entered_name)
     if suggestion and normalize_name(suggestion) != normalize_name(entered_name):
-        await interaction.response.send_message(
+        await send_ephemeral(
+            interaction,
             f"Did you mean **{suggestion}**?",
             view=NameChoiceView(action, entered_name, suggestion),
-            ephemeral=True,
         )
         return
     await continue_action(interaction, action, entered_name)
@@ -300,10 +286,7 @@ async def send_name_result(interaction: discord.Interaction, action: str, entere
 async def continue_action(interaction: discord.Interaction, action: str, name: str) -> None:
     if action == "sale":
         message = f"Customer: **{' '.join(p.capitalize() for p in name.split())}**\nChoose the deal sold:"
-        if interaction.response.is_done():
-            await interaction.followup.send(message, view=DealView(name, "sale"), ephemeral=True)
-        else:
-            await interaction.response.send_message(message, view=DealView(name, "sale"), ephemeral=True)
+        await send_ephemeral(interaction, message, view=DealView(name, "sale"))
         return
     if action == "account_create":
         try:
@@ -317,18 +300,12 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
             )
         except ValueError as exc:
             message = f"❌ {exc}"
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        await send_ephemeral(interaction, message)
         return
     customer = db.get_customer(name)
     if not customer:
         message = "ℹ️ Customer not found. Record their first sale to create them."
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        await send_ephemeral(interaction, message, delete_after=5)
         return
     if action == "account_reset":
         code = accounts.issue_setup(name, str(interaction.user.id), str(interaction.user), reset=True)
@@ -338,40 +315,25 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
             "Their old password and website sessions are disabled. Give this privately after checking identity. "
             "It expires after 24 hours."
         )
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        await send_ephemeral(interaction, message)
     elif action == "check":
-        if interaction.response.is_done():
-            await interaction.followup.send(embed=customer_embed(customer), ephemeral=True)
-        else:
-            await interaction.response.send_message(embed=customer_embed(customer), ephemeral=True)
+        await send_ephemeral(interaction, embed=customer_embed(customer))
     elif action == "vip":
         if not await require_owner(interaction):
             return
         message = (f"Manage membership for **{discord.utils.escape_markdown(customer['display_name'])}**.\n"
                    f"Current level: {customer['membership']['emoji']} **{customer['membership']['name']}**")
         view = VIPLevelView(customer['display_name'])
-        if interaction.response.is_done():
-            await interaction.followup.send(message, view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, view=view, ephemeral=True)
+        await send_ephemeral(interaction, message, view=view)
     elif action == "redeem":
         rewards = customer["unclaimed_rewards"]
         if not rewards:
             message = f"ℹ️ **{customer['display_name']}** has no unclaimed rewards."
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, ephemeral=True)
+            await send_ephemeral(interaction, message, delete_after=5)
         else:
             message = f"Choose the reward being given to **{customer['display_name']}**:"
             view = RewardView(rewards)
-            if interaction.response.is_done():
-                await interaction.followup.send(message, view=view, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, view=view, ephemeral=True)
+            await send_ephemeral(interaction, message, view=view)
 
 
 class NameModal(discord.ui.Modal):
@@ -391,7 +353,6 @@ class NameModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         if not await require_staff(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         await send_name_result(interaction, self.action, str(self.customer_name))
 
 
@@ -405,13 +366,11 @@ class NameChoiceView(discord.ui.View):
     @discord.ui.button(label="Use suggested customer", style=discord.ButtonStyle.success)
     async def use_suggestion(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await continue_action(interaction, self.action, self.suggested)
 
     @discord.ui.button(label="Create as new", style=discord.ButtonStyle.secondary)
     async def use_new(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await continue_action(interaction, self.action, self.entered)
 
 
@@ -431,7 +390,6 @@ class CustomerSelect(discord.ui.Select):
 
     async def callback(self, interaction):
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await continue_action(interaction, self.action, self.values[0])
 
 
@@ -663,14 +621,12 @@ class OwnerAdminView(discord.ui.View):
     @discord.ui.button(label="Manage VIP Level", emoji="👑", style=discord.ButtonStyle.primary)
     async def manage_vip(self, interaction, button):
         if await require_owner(interaction):
-            await dismiss_temporary_menu(interaction)
             await show_customer_picker(interaction, "vip")
 
     @discord.ui.button(label="Clock Staff Off", emoji="🔴", style=discord.ButtonStyle.danger)
     async def clock_staff_off(self, interaction, button):
         if not await require_owner(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         active = shifts.active(interaction.guild_id)
         if not active:
             await send_ephemeral(interaction, "ℹ️ Nobody is currently clocked in.", delete_after=5)
@@ -685,7 +641,6 @@ class OwnerAdminView(discord.ui.View):
     async def owner_dashboard(self, interaction, button):
         if not await require_owner(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         counts = db.vip_counts()
         active = shifts.active(interaction.guild_id)
         fees = orders.outstanding_fees(interaction.guild_id)
@@ -702,17 +657,16 @@ class OwnerAdminView(discord.ui.View):
     async def set_bot_logo(self, interaction, button):
         if not await require_owner(interaction):
             return
-        await dismiss_temporary_menu(interaction)
+        await interaction.response.edit_message(content="🖼️ Updating the bot logo…", embed=None, view=None)
         try:
             updated = await bot.user.edit(avatar=Path(__file__).with_name("snr-logo.png").read_bytes())
-            await interaction.followup.send(
-                f"✅ The main Discord picture for **{updated.name}** is now the official SNR Buns logo.",
-                ephemeral=True,
-            )
+            await interaction.edit_original_response(
+                content=f"✅ The main Discord picture for **{updated.name}** is now the official SNR Buns logo.")
         except discord.HTTPException:
             logging.exception("Discord rejected bot avatar update")
-            await interaction.followup.send(
-                "❌ Discord could not update the picture right now. Wait an hour and try once more.", ephemeral=True)
+            await interaction.edit_original_response(
+                content="❌ Discord could not update the picture right now. Wait an hour and try once more.")
+        asyncio.create_task(delete_response_later(interaction, 5))
 
 
 class CustomerToolsView(discord.ui.View):
@@ -721,25 +675,21 @@ class CustomerToolsView(discord.ui.View):
     @discord.ui.button(label="Check Customer", emoji="🔎", style=discord.ButtonStyle.primary)
     async def check_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await show_customer_picker(interaction, "check")
 
     @discord.ui.button(label="Redeem Reward", emoji="🎁", style=discord.ButtonStyle.success)
     async def redeem(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await show_customer_picker(interaction, "redeem")
 
     @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary)
     async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await show_pack_requests(interaction)
 
     @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.secondary)
     async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await show_account_requests(interaction)
 
 
@@ -750,7 +700,6 @@ class ShiftToolsView(discord.ui.View):
     async def clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         changed = shifts.clock_in(interaction.user.id, str(interaction.user), interaction.guild_id)
         await send_ephemeral(
             interaction,
@@ -761,7 +710,6 @@ class ShiftToolsView(discord.ui.View):
     async def clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         changed = shifts.clock_out(interaction.user.id)
         remaining = len(shifts.active(interaction.guild_id))
         await send_ephemeral(
@@ -773,7 +721,6 @@ class ShiftToolsView(discord.ui.View):
     async def shift_status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         active = shifts.active(interaction.guild_id)
         message = "\n".join(f"• {row['staff_name']} — since {row['clocked_in_at']}" for row in active)
         await send_ephemeral(
@@ -789,7 +736,6 @@ class MoreToolsView(discord.ui.View):
     async def report(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         stats = db.report(today=True)
         await send_ephemeral(
             interaction, embed=finance_embed(stats, "💷 SNR BUNS — TODAY’S FINANCE CHECK"))
@@ -798,7 +744,6 @@ class MoreToolsView(discord.ui.View):
     async def jackpot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
-        await dismiss_temporary_menu(interaction)
         status = db.jackpot_status()
         embed = discord.Embed(title="🎟️ SNR GOLDEN MYSTERY TICKET", colour=discord.Colour.gold())
         embed.description = (
@@ -819,14 +764,12 @@ class MoreToolsView(discord.ui.View):
     @discord.ui.button(label="Birdy Post", emoji="📱", style=discord.ButtonStyle.secondary)
     async def birdy(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await dismiss_temporary_menu(interaction)
             await send_ephemeral(
                 interaction, "Choose the post you want to copy into Birdy:", view=BirdyView())
 
     @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger)
     async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_owner(interaction):
-            await dismiss_temporary_menu(interaction)
             await send_ephemeral(
                 interaction,
                 "👑 **SNR Owner Controls**\nManage memberships, shifts, finances and branding.",
