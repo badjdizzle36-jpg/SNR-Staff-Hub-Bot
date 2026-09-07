@@ -101,13 +101,17 @@ def panel_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🍔 SNR BUNS — PRO STAFF HUB",
         description=(
-            "Use the buttons below to record sales, manage website deliveries, check customers, "
-            "redeem rewards, clock delivery staff in/out, manage the Golden Ticket Jackpot, check finances and generate Birdy posts.\n\n"
+            "Everything starts with one of the five buttons below.\n\n"
+            "💷 **New Sale** — record a purchase\n"
+            "🚗 **Deliveries** — manage active orders\n"
+            "👥 **Customers** — accounts and rewards\n"
+            "🕒 **Staff Shift** — clock in or off\n"
+            "🧰 **More Tools** — finance, jackpot, Birdy and owner controls\n\n"
             "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
     )
-    embed.add_field(name="Simple sale entry", value="Pick an existing customer or type a name, then choose the deal.", inline=False)
+    embed.add_field(name="Fastest job", value="Tap **New Sale**, choose the customer, then choose the deal.", inline=False)
     embed.set_thumbnail(url=f"{WEBSITE_URL}/snr-logo.png")
     embed.set_footer(text=f"SNR Buns • Staff access only • Owner controls: {OWNER_ROLE_NAME}")
     return embed
@@ -663,46 +667,32 @@ class OwnerAdminView(discord.ui.View):
                 "❌ Discord could not update the picture right now. Wait an hour and try once more.", ephemeral=True)
 
 
-class StaffPanel(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+class CustomerToolsView(discord.ui.View):
+    """Customer jobs grouped away from the everyday sale and delivery buttons."""
 
-    @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger, custom_id="snr:owner_admin")
-    async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await require_owner(interaction):
-            await interaction.response.send_message(
-                "👑 **SNR Owner Controls**\nManage memberships, shifts, finances and branding.",
-                view=OwnerAdminView(), ephemeral=True,
-            )
-
-    @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.primary, custom_id="snr:account_requests")
-    async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_account_requests(interaction)
-
-    @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary, custom_id="snr:pack_requests")
-    async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_pack_requests(interaction)
-
-    @discord.ui.button(label="Delivery Orders", emoji="🚗", style=discord.ButtonStyle.success, custom_id="snr:delivery_orders")
-    async def delivery_orders(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_delivery_orders(interaction)
-
-    @discord.ui.button(label="Record Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
-    async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await require_staff(interaction):
-            await show_customer_picker(interaction, "sale")
-
-    @discord.ui.button(label="Check Customer", emoji="🔎", style=discord.ButtonStyle.primary, custom_id="snr:check_customer")
+    @discord.ui.button(label="Check Customer", emoji="🔎", style=discord.ButtonStyle.primary)
     async def check_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await show_customer_picker(interaction, "check")
 
-    @discord.ui.button(label="Redeem Reward", emoji="🎁", style=discord.ButtonStyle.primary, custom_id="snr:redeem")
+    @discord.ui.button(label="Redeem Reward", emoji="🎁", style=discord.ButtonStyle.success)
     async def redeem(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await show_customer_picker(interaction, "redeem")
 
-    @discord.ui.button(label="Clock In", emoji="🟢", style=discord.ButtonStyle.success, custom_id="snr:clock_in")
+    @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary)
+    async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_pack_requests(interaction)
+
+    @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.secondary)
+    async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_account_requests(interaction)
+
+
+class ShiftToolsView(discord.ui.View):
+    """All delivery shift actions on one small screen."""
+
+    @discord.ui.button(label="Clock In", emoji="🟢", style=discord.ButtonStyle.success)
     async def clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
@@ -711,7 +701,7 @@ class StaffPanel(discord.ui.View):
             "🟢 You are clocked in. Website delivery ordering is now available."
             if changed else "ℹ️ You are already clocked in.", ephemeral=True)
 
-    @discord.ui.button(label="Clock Off", emoji="🔴", style=discord.ButtonStyle.danger, custom_id="snr:clock_out")
+    @discord.ui.button(label="Clock Off", emoji="🔴", style=discord.ButtonStyle.danger)
     async def clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
@@ -721,7 +711,7 @@ class StaffPanel(discord.ui.View):
             (f"🔴 You are clocked off. {remaining} staff member(s) remain available for delivery."
              if changed else "ℹ️ You were not clocked in."), ephemeral=True)
 
-    @discord.ui.button(label="Who’s Clocked In", emoji="🕒", style=discord.ButtonStyle.secondary, custom_id="snr:shift_status")
+    @discord.ui.button(label="Who’s Clocked In", emoji="🕒", style=discord.ButtonStyle.secondary)
     async def shift_status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
@@ -731,7 +721,19 @@ class StaffPanel(discord.ui.View):
             "🟢 **Clocked in for delivery**\n" + message if active else "🔴 No delivery staff are clocked in.",
             ephemeral=True)
 
-    @discord.ui.button(label="Golden Jackpot", emoji="🎟️", style=discord.ButtonStyle.secondary, custom_id="snr:jackpot")
+
+class MoreToolsView(discord.ui.View):
+    """Occasional staff tools, kept off the everyday hub."""
+
+    @discord.ui.button(label="Finance Today", emoji="📊", style=discord.ButtonStyle.primary)
+    async def report(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_staff(interaction):
+            return
+        stats = db.report(today=True)
+        await interaction.response.send_message(
+            embed=finance_embed(stats, "💷 SNR BUNS — TODAY’S FINANCE CHECK"), ephemeral=True)
+
+    @discord.ui.button(label="Golden Jackpot", emoji="🎟️", style=discord.ButtonStyle.secondary)
     async def jackpot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await require_staff(interaction):
             return
@@ -752,22 +754,55 @@ class StaffPanel(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Birdy Post", emoji="📱", style=discord.ButtonStyle.secondary, custom_id="snr:birdy")
+    @discord.ui.button(label="Birdy Post", emoji="📱", style=discord.ButtonStyle.secondary)
     async def birdy(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await interaction.response.send_message(
                 "Choose the post you want to copy into Birdy:", view=BirdyView(), ephemeral=True
             )
 
-    @discord.ui.button(label="Finance Check", emoji="📊", style=discord.ButtonStyle.secondary, custom_id="snr:report")
-    async def report(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await require_staff(interaction):
-            return
-        stats = db.report(today=True)
-        await interaction.response.send_message(
-            embed=finance_embed(stats, "💷 SNR BUNS — TODAY’S FINANCE CHECK"),
-            ephemeral=True,
-        )
+    @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger)
+    async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_owner(interaction):
+            await interaction.response.send_message(
+                "👑 **SNR Owner Controls**\nManage memberships, shifts, finances and branding.",
+                view=OwnerAdminView(), ephemeral=True,
+            )
+
+
+class StaffPanel(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="New Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
+    async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await show_customer_picker(interaction, "sale")
+
+    @discord.ui.button(label="Deliveries", emoji="🚗", style=discord.ButtonStyle.success, custom_id="snr:delivery_orders")
+    async def delivery_orders(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_delivery_orders(interaction)
+
+    @discord.ui.button(label="Customers", emoji="👥", style=discord.ButtonStyle.primary, custom_id="snr:customers")
+    async def customers(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.send_message(
+                "👥 **Customer Tools**\nCheck an account, hand over a reward, or view requests.",
+                view=CustomerToolsView(), ephemeral=True)
+
+    @discord.ui.button(label="Staff Shift", emoji="🕒", style=discord.ButtonStyle.primary, custom_id="snr:staff_shift")
+    async def staff_shift(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.send_message(
+                "🕒 **Delivery Shift**\nClock in to open website orders. Clock off when you finish.",
+                view=ShiftToolsView(), ephemeral=True)
+
+    @discord.ui.button(label="More Tools", emoji="🧰", style=discord.ButtonStyle.secondary, custom_id="snr:more_tools")
+    async def more_tools(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.send_message(
+                "🧰 **More Tools**\nFinance, Golden Tickets, Birdy posts and owner controls.",
+                view=MoreToolsView(), ephemeral=True)
 
 
 def pack_claim_embed(row):

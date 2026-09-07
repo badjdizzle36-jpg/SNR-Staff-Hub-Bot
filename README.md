@@ -21,7 +21,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - The customer page checks for delivery updates every five seconds and shows a bright status notification.
 - Loyalty customers see a visual progress bar toward their four-point trading-card pack.
 - Website ordering is available only while at least one staff member is clocked in.
-- The hub includes **Clock In**, **Clock Off** and **Who’s Clocked In**. Shifts expire after eight hours if somebody forgets to clock off.
+- The uncluttered hub has five starting buttons: **New Sale**, **Deliveries**, **Customers**, **Staff Shift** and **More Tools**. Clock controls live together inside **Staff Shift**. Shifts expire after eight hours if somebody forgets to clock off.
 - Record Sale, Check Customer and Redeem Reward include an alphabetically ordered 25-name dropdown with **Previous Names** and **Next Names**, plus **Type / Suggest Name** for spelling correction.
 - Delivery Orders opens a dashboard showing the live queue, drivers, today’s revenue and gross profit.
 - New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
@@ -68,17 +68,17 @@ In a private orders channel, an SNR Management member runs `/snrhub_orders_setup
 
 Create a Discord role named **SNR Owner** and assign it to the appropriate business owners. Server administrators also count as owners. Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel; only an owner can post it. A staff member must press **Clock In** before delivery controls appear to customers.
 
-Open **Owner Admin** (or run `/snrhub_owner`) to use the private owner controls. Press **Set Bot Logo** once to change the bot's Discord profile picture to the supplied official SNR Buns logo. Discord may temporarily rate-limit repeated picture changes, so do not repeatedly press it.
+Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private owner controls. Press **Set Bot Logo** once to change the bot's Discord profile picture to the supplied official SNR Buns logo. Discord may temporarily rate-limit repeated picture changes, so do not repeatedly press it.
 
 ## Staff workflow
 
-1. Press **Clock In** when accepting deliveries.
+1. Open **Staff Shift** and press **Clock In** when accepting deliveries.
 2. For counter sales, press **Record Sale**, choose a saved character or type the name, then choose the deal.
 3. For website orders, open **Delivery Orders**, press **Accept Delivery**, then **Driver On The Way** when leaving.
 4. After delivery and payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
 5. If the driver arrives but the journey is wasted, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this, and only after **Driver On The Way**.
 6. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
-7. Press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
+7. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, the website immediately shows “No drivers are currently available.”
 
 ## VIP membership workflow
 
@@ -86,7 +86,7 @@ Open **Owner Admin** (or run `/snrhub_owner`) to use the private owner controls.
 - The qualifying purchase receives the newly unlocked level's bonus immediately.
 - The website displays the customer's level, exact bonuses and purchases remaining to the next level.
 - Discord customer cards, name dropdowns, sale receipts and delivery orders display the same current level.
-- Owners use **Owner Admin → Manage VIP Level** to set Regular, Silver, Gold or SNR VIP manually, or choose **Automatic progression**.
+- Owners use **More Tools → Owner Admin → Manage VIP Level** to choose any membership level manually, or return it to **Automatic progression**.
 - Owner overrides and forced clock-offs are written to the audit log.
 
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.

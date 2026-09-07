@@ -34,7 +34,8 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 .delivery{margin-top:24px;padding:22px;background:#210708aa;border:2px solid #ff8c22;border-radius:20px}.delivery h2{margin:5px 0 8px}.delivery-form{display:block}.deal-list{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.deal-box{display:block;height:100%;padding:15px;border:2px solid #7e2b1f;border-radius:15px;background:#4a0d0c}.deal-box strong,.deal-box span{display:block}.deal-box .price{font-size:23px;color:var(--gold);font-weight:950;margin-top:7px}.quantity{display:flex;align-items:center;gap:10px;margin-top:12px}.quantity input{width:85px;flex:none;padding:10px;text-align:center}.subtotal{font-size:24px;font-weight:950;color:var(--gold);text-align:right;margin:14px 0}.location-row{display:flex;gap:10px}.status-paid{color:#88f29b}.status-pending{color:#ffe45f}.status-cancelled,.status-wasted_journey{color:#ff9f91}.debt-warning{padding:20px;margin:16px 0;border:3px solid #ff5b4c;border-radius:16px;background:linear-gradient(135deg,#a31313,#4a0707);box-shadow:0 0 24px #ff2b1f55}.debt-warning strong{font-size:22px;color:#fff06a}
 .account-choice{display:grid;gap:12px;margin-top:20px}.account-choice details{background:#3d0a0a;border:1px solid #ffda4e66;border-radius:16px;overflow:hidden}.account-choice details[open]{border-color:var(--gold);background:#4d0d0c}.account-choice summary{cursor:pointer;padding:17px 18px;color:var(--gold);font-size:18px;font-weight:950;list-style:none}.account-choice summary::-webkit-details-marker{display:none}.account-choice summary:after{content:'+';float:right}.account-choice details[open] summary:after{content:'−'}.choice-body{padding:0 18px 18px}.choice-body p{margin:0 0 10px}.choice-body form{flex-direction:column;margin-top:10px}
 .loyalty-progress{margin:15px 0}.progress-track{height:20px;border-radius:99px;background:#250606;border:1px solid #ffda4e;overflow:hidden}.progress-fill{height:100%;background:linear-gradient(90deg,#ff9e19,#fff05b);border-radius:99px;transition:width .4s}.progress-text{display:flex;justify-content:space-between;margin-top:7px;font-weight:800}.vip-card{grid-column:1/-1;background:linear-gradient(135deg,#151515,#7b150c);border:2px solid var(--gold);box-shadow:inset 0 0 22px #ffbc2340}.vip-card .num{color:var(--gold)}.vip-benefits{margin:8px 0 0;color:#fff5d4}.ownership{margin-top:9px;color:#fff3b0;font-weight:900;letter-spacing:.5px}.order-status{border:2px solid var(--gold);background:linear-gradient(135deg,#7e180f,#4b0b0a)}#status-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,130%);width:min(560px,90vw);padding:18px;background:#ffe33b;color:#4d0b08;border-radius:16px;font-weight:950;text-align:center;box-shadow:0 12px 40px #000a;z-index:10;transition:transform .25s}#status-toast.show{transform:translate(-50%,0)}
-@media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.card{padding:22px}.grid,.deal-list{grid-template-columns:1fr}.wide{grid-column:auto}.logo-frame{border-radius:14px}.wrap{padding-top:20px}}
+.quick-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:20px 0}.quick-nav a{display:flex;align-items:center;justify-content:center;min-height:58px;padding:10px;border-radius:14px;background:#fff04f;color:#5b0d08;font-weight:950;text-align:center;text-decoration:none;box-shadow:0 4px 0 #a3540b}.section-drawer{margin-top:18px;border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.section-drawer>summary{padding:18px;cursor:pointer;list-style:none;color:var(--gold);font-size:20px;font-weight:950}.section-drawer>summary::-webkit-details-marker{display:none}.section-drawer>summary:after{content:'+';float:right;font-size:25px}.section-drawer[open]>summary:after{content:'−'}.drawer-body{padding:0 20px 22px}.section-drawer.delivery{padding:0}.section-drawer .history{margin-top:18px}.compact-info{margin-top:16px}.compact-info summary{cursor:pointer;color:var(--gold);font-weight:900}
+@media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.card{padding:22px}.grid,.deal-list,.quick-nav{grid-template-columns:1fr}.wide{grid-column:auto}.logo-frame{border-radius:14px}.wrap{padding-top:20px}.quick-nav a{min-height:50px}}
 """
 
 
@@ -107,7 +108,8 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
           </div>
         </details>
       </div>
-      <section class="notice">
+      <details class="section-drawer compact-info">
+        <summary>Membership levels</summary><div class="drawer-body">
         <div class="label">👑 SNR Membership Levels</div>
         <p><strong>Regular</strong> from your first purchase<br>
         <strong>🥉 Bronze</strong> at 10 purchases — +1 Golden Ticket every purchase<br>
@@ -116,12 +118,15 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
         <strong>💎 Platinum</strong> at 100 purchases — +1 loyalty point and +2 Golden Tickets<br>
         <strong>👑 SNR VIP</strong> at 200 purchases — +2 loyalty points and +3 Golden Tickets</p>
         <p class="muted">Membership upgrades automatically. Log in to see your current level and progress.</p>
-      </section>
-      <section class="notice jackpot">
+        </div>
+      </details>
+      <details class="section-drawer compact-info">
+        <summary>How Golden Tickets work</summary><div class="drawer-body">
         <div class="label">🎟️ £5,000 Golden Ticket Draw</div>
         <p><strong>Every SNR meal deal automatically issues its listed Golden Ticket(s).</strong></p>
         <p>The tickets enter the live draw automatically and are checked instantly against one secret winner hidden among 1,000 tickets. You never need to enter a number yourself. If you win, your account and the staff sale receipt display a clear £5,000 winner alert.</p>
-      </section>
+        </div>
+      </details>
     </section>''')
 
 
@@ -149,7 +154,9 @@ def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
         action = f"<p>Collect {4-points} more loyalty point(s) to request your next pack.</p>"
     else:
         action = f'<form method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(form_token, quote=True)}"><button type="submit">Claim Trading Card Pack</button></form>'
-    return f'<section class="history"><div class="label">Free trading-card packs</div><p><strong>Reach 4 points to claim 1 pack containing 2 trading cards.</strong></p>{progress_bar}<p>{points} available points.</p><p class="muted">After staff hand over your pack, your loyalty points reset to 0.</p>{action}<div class="muted">{history}</div></section>'
+    opened = " open" if pending or points >= 4 else ""
+    badge = " — READY" if points >= 4 else f" — {points}/4 points"
+    return f'<details class="section-drawer" id="rewards"{opened}><summary>🎁 Claim Reward{badge}</summary><div class="drawer-body"><p><strong>Reach 4 points to claim 1 pack containing 2 trading cards.</strong></p>{progress_bar}<p>{points} available points.</p><p class="muted">After staff hand over your pack, your loyalty points reset to 0.</p>{action}<div class="muted">{history}</div></div></details>'
 
 
 def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
@@ -191,7 +198,8 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
             order_form = '<div class="notice"><strong>No drivers are currently available.</strong><br>Please try again when SNR staff have clocked in.</div>'
         else:
             order_form = f'<div class="deal-list">{choices}</div><div class="notice">Online delivery is being set up. Please contact SNR Buns for now.</div>'
-    return f'''<section class="delivery"><div class="label">🚗 SNR delivery</div><h2>Build your delivery order</h2><p class="muted">Choose the amount of every deal you want and enter where to deliver it.</p>{order_form}<div class="history"><div class="label">My delivery orders</div>{recent or '<p class="muted">No delivery orders yet.</p>'}</div></section>'''
+    opened = " open" if active or fee else ""
+    return f'''<details class="section-drawer delivery" id="delivery"{opened}><summary>🚗 Order Food</summary><div class="drawer-body"><p class="muted">Choose your deals and delivery location.</p>{order_form}<details class="compact-info"><summary>Previous delivery orders</summary><div class="history">{recent or '<p class="muted">No delivery orders yet.</p>'}</div></details></div></details>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -199,7 +207,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
     recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
     jackpot = ('''<strong>🏆 YOU HAVE A WINNING GOLDEN TICKET!</strong><br>Your account has won the £5,000 jackpot. Speak to SNR staff to verify and collect the prize.'''
                if int(customer["jackpot_wins"]) else
-               f'''<strong>Your {int(customer["golden_tickets"])} Golden Ticket(s) were entered automatically.</strong><br>Every meal deal issues its listed ticket(s). The system checks each one instantly against one secret winner hidden among 1,000 tickets. You do not need to enter anything—this box and the staff receipt will clearly announce if you win.''')
+               f'''<details class="compact-info"><summary>My {int(customer["golden_tickets"])} automatic Golden Ticket(s)</summary><p>Every meal deal issues its listed ticket(s). They are entered automatically, then each ticket is checked instantly against one secret winner hidden among 1,000 tickets. You do not need to enter anything.</p></details>''')
     recovery = '' if accounts.has_security(customer['customer_key']) else f'''<section class="notice"><strong>Protect your password recovery</strong><p>This older account needs a memorable question. Set it now so you can reset your own password later.</p><form method="post" action="/set-security"><input type="hidden" name="security_request_key" value="{html.escape(security_token, quote=True)}"><select name="security_question" required><option value="" disabled selected>Choose a memorable question</option>{question_options()}</select><input type="password" name="security_answer" minlength="3" maxlength="80" autocomplete="off" placeholder="Your memorable answer" required><button type="submit">Save Memorable Answer</button></form></section>'''
     fee = orders.outstanding_fee(customer["customer_key"])
     debt = (f'''<div class="debt-warning"><strong>⚠️ DELIVERY ACCOUNT: £{int(fee["amount"]):,} OWED</strong><br>Wasted Journey fee. Please speak to SNR staff. New delivery orders are blocked until it is paid or waived.</div>'''
@@ -211,14 +219,15 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
     recovery = debt + recovery
     return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card">
       <div class="label">Logged-in customer</div><div class="name">{html.escape(customer["display_name"])}</div>
+      <nav class="quick-nav" aria-label="Account shortcuts"><a href="#delivery" onclick="document.getElementById('delivery').open=true">🚗 Order Food</a><a href="#rewards" onclick="document.getElementById('rewards').open=true">🎁 Claim Reward</a><a href="#history" onclick="document.getElementById('history').open=true">📋 My Visits</a></nav>
       {recovery}<div class="grid">{vip}
         <div class="stat"><div class="label">Available points</div><div class="num">⭐ {int(customer["loyalty_points"])}</div></div>
         <div class="stat"><div class="label">Golden tickets</div><div class="num">🎟️ {int(customer["golden_tickets"])}</div></div>
         <div class="stat"><div class="label">Visits</div><div class="num">🍔 {int(customer["lifetime_sales"])}</div></div>
         <div class="stat"><div class="label">Items served</div><div class="num">🥤 {int(customer["food_sold"])+int(customer["drinks_sold"])}</div></div>
-        <div class="stat wide jackpot"><div class="label">£5,000 Golden Ticket Jackpot</div><p>{jackpot}</p><small>The winning position remains hidden.</small></div>
+        <div class="stat wide jackpot"><div class="label">£5,000 Golden Ticket Jackpot</div><div>{jackpot}</div><small>The winning position remains hidden.</small></div>
       </div>{delivery_section(customer, orders, shifts, order_token)}{claim_section(customer, claims, claim_token)}
-      <div class="history"><div class="label">Recent visits</div>{recent}</div>
+      <details class="section-drawer" id="history"><summary>📋 My Recent Visits</summary><div class="drawer-body">{recent}</div></details>
       <form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form>
     </section>''')
 
