@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import random
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -283,6 +284,14 @@ class SNRDatabase:
         with self.connect() as conn:
             return [r["display_name"] for r in conn.execute("SELECT display_name FROM customers")]
 
+    def recent_customer_names(self, limit: int = 10) -> list[str]:
+        """Return recently served customers once each, newest first."""
+        with self.connect() as conn:
+            rows = conn.execute("""SELECT customer_name,MAX(id) AS latest FROM sales
+                WHERE voided=0 GROUP BY customer_key,customer_name
+                ORDER BY latest DESC LIMIT ?""", (max(1, min(int(limit), 25)),)).fetchall()
+        return [row["customer_name"] for row in rows]
+
     @staticmethod
     def membership(customer: dict[str, Any] | sqlite3.Row) -> dict[str, Any]:
         return vip_level_for_sales(int(customer["lifetime_sales"]), customer["vip_override"])
@@ -515,10 +524,11 @@ class SNRDatabase:
             raise ValueError("Sale amount must be between 1 and 10.")
         if deal_key not in DEALS:
             raise ValueError("Unknown deal selected.")
-        results = [
-            self.record_sale(customer_name, deal_key, staff_id, staff_name)
-            for _ in range(amount)
-        ]
+        batch_ref = secrets.token_hex(8)
+        results = [self.record_sale(
+            customer_name, deal_key, staff_id, staff_name,
+            source_ref=f"staff:{batch_ref}:{index + 1}")
+            for index in range(amount)]
         winners = [result for result in results if result["jackpot_won"]]
         total_points = sum(int(result["loyalty_awarded"]) for result in results)
         base_points = DEALS[deal_key].loyalty_points * amount
@@ -535,7 +545,111 @@ class SNRDatabase:
             "jackpot_won": bool(winners),
             "jackpot_reward_codes": [result["jackpot_reward_code"] for result in winners],
             "winning_tickets": [result["winning_ticket"] for result in winners],
+            "batch_ref": batch_ref,
         }
+
+    def latest_counter_sale_batch(self) -> dict[str, Any] | None:
+        """Find the most recent Discord counter-sale action, grouping its quantity rows."""
+        with self.connect() as conn:
+            latest = conn.execute("""SELECT * FROM sales WHERE voided=0
+                AND (source_ref IS NULL OR source_ref LIKE 'staff:%') ORDER BY id DESC LIMIT 1""").fetchone()
+            if not latest:
+                return None
+            source_ref = latest["source_ref"] or ""
+            batch_ref = source_ref.split(":")[1] if source_ref.startswith("staff:") else ""
+            if batch_ref:
+                rows = conn.execute("""SELECT * FROM sales WHERE voided=0
+                    AND source_ref LIKE ? ORDER BY id""", (f"staff:{batch_ref}:%",)).fetchall()
+            else:
+                rows = [latest]
+        return {
+            "batch_ref": batch_ref,
+            "sale_ids": [int(row["id"]) for row in rows],
+            "transaction_ids": [row["transaction_id"] for row in rows],
+            "customer_key": latest["customer_key"],
+            "customer_name": latest["customer_name"],
+            "deal_key": latest["deal_key"],
+            "deal_name": latest["deal_name"],
+            "quantity": len(rows),
+            "revenue": sum(int(row["price"]) for row in rows),
+            "loyalty_points": sum(int(row["loyalty_points"]) for row in rows),
+            "golden_tickets": sum(int(row["golden_tickets"]) for row in rows),
+            "has_jackpot_winner": any(bool(row["jackpot_won"]) for row in rows),
+        }
+
+    def undo_counter_sale_batch(self, batch_ref: str, sale_ids: list[int],
+                                staff_id: str, staff_name: str) -> dict[str, Any]:
+        """Owner-only caller reverses one counter-sale action without deleting its audit trail."""
+        wanted_ids = sorted({int(value) for value in sale_ids})
+        if not wanted_ids:
+            raise ValueError("There is no sale to undo.")
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            marks = ",".join("?" for _ in wanted_ids)
+            rows = conn.execute(
+                f"SELECT * FROM sales WHERE id IN ({marks}) AND voided=0 ORDER BY id", wanted_ids
+            ).fetchall()
+            if len(rows) != len(wanted_ids):
+                raise ValueError("That sale has already been undone or changed.")
+            expected_ref = str(batch_ref or "")
+            for row in rows:
+                actual_ref = row["source_ref"] or ""
+                actual_batch = actual_ref.split(":")[1] if actual_ref.startswith("staff:") else ""
+                if actual_batch != expected_ref or actual_ref.startswith("delivery:"):
+                    raise ValueError("That sale selection is no longer valid.")
+            if any(bool(row["jackpot_won"]) for row in rows):
+                raise ValueError("A jackpot-winning transaction cannot be undone from the quick button. Check it manually with management.")
+            customer_key = rows[0]["customer_key"]
+            if any(row["customer_key"] != customer_key for row in rows):
+                raise ValueError("The sale group is not valid.")
+            quantity = len(rows)
+            revenue = sum(int(row["price"]) for row in rows)
+            points = sum(int(row["loyalty_points"]) for row in rows)
+            tickets = sum(int(row["golden_tickets"]) for row in rows)
+            food = sum(int(row["food"]) for row in rows)
+            drinks = sum(int(row["drinks"]) for row in rows)
+            now = utc_now()
+            conn.execute(f"""UPDATE sales SET voided=1,void_reason='Owner undid mistaken counter sale',
+                voided_at=?,voided_by=? WHERE id IN ({marks})""", [now, str(staff_id), *wanted_ids])
+            conn.execute("""UPDATE customers SET
+                loyalty_points=MAX(0,loyalty_points-?),
+                lifetime_sales=MAX(0,lifetime_sales-?),
+                golden_tickets=MAX(0,golden_tickets-?),
+                revenue=MAX(0,revenue-?),food_sold=MAX(0,food_sold-?),
+                drinks_sold=MAX(0,drinks_sold-?),updated_at=? WHERE customer_key=?""",
+                (points, quantity, tickets, revenue, food, drinks, now, customer_key))
+            remaining_points = int(conn.execute(
+                "SELECT loyalty_points FROM customers WHERE customer_key=?", (customer_key,)
+            ).fetchone()["loyalty_points"])
+            cancelled_claims = 0
+            claims_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='web_pack_claims'"
+            ).fetchone()
+            if remaining_points < 4 and claims_table:
+                cursor = conn.execute("""UPDATE web_pack_claims SET status='cancelled',resolved_at=?,
+                    resolved_by=? WHERE customer_key=? AND status='pending'""",
+                    (now, str(staff_id), customer_key))
+                cancelled_claims = int(cursor.rowcount)
+            latest_active = conn.execute("SELECT MAX(id) AS id FROM sales WHERE voided=0").fetchone()["id"]
+            rewound = False
+            if latest_active is None or int(latest_active) < min(wanted_ids):
+                jackpot = conn.execute("SELECT * FROM jackpot WHERE id=1").fetchone()
+                if int(jackpot["tickets_issued"]) >= tickets:
+                    conn.execute("UPDATE jackpot SET tickets_issued=tickets_issued-? WHERE id=1", (tickets,))
+                    rewound = True
+            conn.execute("""INSERT INTO audit_log(action,staff_id,staff_name,details,created_at)
+                VALUES(?,?,?,?,?)""", ("counter_sale_undone", str(staff_id), staff_name,
+                json.dumps({"transactions": [row["transaction_id"] for row in rows],
+                            "customer": rows[0]["customer_name"], "quantity": quantity,
+                            "points_removed": points, "tickets_removed": tickets,
+                            "jackpot_positions_rewound": rewound,
+                            "invalid_pack_claims_cancelled": cancelled_claims}), now))
+        customer = self.get_customer(rows[0]["customer_name"])
+        return {"customer": customer, "deal_name": rows[0]["deal_name"], "quantity": quantity,
+                "revenue": revenue, "points_removed": points, "tickets_removed": tickets,
+                "transaction_ids": [row["transaction_id"] for row in rows],
+                "jackpot_positions_rewound": rewound,
+                "invalid_pack_claims_cancelled": cancelled_claims}
 
     def get_customer(self, name: str) -> dict[str, Any] | None:
         key = normalize_name(name)

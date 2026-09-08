@@ -4,6 +4,11 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Express Sale** removes the unnecessary quantity screen from normal counter sales. Choose the customer, then tap one of the six meal buttons to record ×1 immediately; the receipt remains visible for ten seconds.
+- **Multiple Items** keeps the full ×1–×10 quantity route for larger orders. Back buttons return to the meal or customer screen without recording anything.
+- The customer picker now shows up to ten **recently served customers** above the complete alphabetical 25-name pages, while typed names retain capital correction and close-spelling suggestions.
+- **Owner Admin → Undo Last Counter Sale** shows a confirmation before reversing the newest Discord counter-sale action. A quantity sale is reversed as one group, correcting finance, visits, loyalty and customer Golden Ticket totals while retaining a permanent audit record. Jackpot-winning transactions are locked from quick undo for safety.
+
 - Owners can switch the customer website between **Open, Busy, Pickup Only, Deliveries Paused and Closed** from **More Tools → Owner Admin → Website Service Mode**. Busy mode keeps orders open with longer estimates; paused modes still allow pickup; Closed blocks new orders safely.
 - Active orders now display a **live ETA and real queue position**. The estimate refreshes automatically from the order's actual status and pending position without the customer reloading the page.
 - A **1–2 star rating rescue flow** asks what went wrong, alerts SNR Management, and creates a durable case with a **Mark Customer Helped** button. Higher ratings continue through the quick normal flow.
@@ -103,7 +108,7 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 ## Staff workflow
 
 1. Open **Staff Shift** and press **Clock In** when accepting deliveries.
-2. For counter sales, press **Record Sale**, choose a saved character or type the name, then choose the deal.
+2. For counter sales, press **New Sale**, choose a recent/saved character or type the name, then tap the meal. A normal ×1 sale records immediately and its receipt disappears after ten seconds. Use **Multiple Items** only for ×2–×10.
 3. For website orders, open **Delivery Orders**, press **Accept Delivery**, then **Driver On The Way** when leaving.
 4. At the customer's location press **Driver Has Arrived**. This alerts their live webpage.
 5. After receiving payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
@@ -125,6 +130,7 @@ For pickup orders, press **Accept Pickup Order**, then **Ready for Collection** 
 - Owners use **More Tools → Owner Admin → Manage VIP Level** to choose any membership level manually, or return it to **Automatic progression**.
 - Owners use **More Tools → Owner Admin → Discount Codes** to create or disable checkout codes. Choose `percent` or `fixed`, enter the amount, and optionally set maximum uses and a `YYYY-MM-DD` expiry.
 - Owner overrides and forced clock-offs are written to the audit log.
+- If staff record the wrong counter sale, owners use **More Tools → Owner Admin → Undo Last Counter Sale**, carefully check the preview, then confirm. Jackpot-winning sales require manual management review and cannot be quick-undone.
 
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.
 

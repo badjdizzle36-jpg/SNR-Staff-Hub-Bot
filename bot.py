@@ -143,7 +143,10 @@ def panel_embed() -> discord.Embed:
         ),
         colour=discord.Colour.gold(),
     )
-    embed.add_field(name="Fastest job", value="Tap **New Sale**, choose the customer, then choose the deal.", inline=False)
+    embed.add_field(
+        name="Express Sale",
+        value="Tap **New Sale**, choose the customer, then tap their meal. Normal ×1 sales record immediately.",
+        inline=False)
     embed.set_thumbnail(url=f"{WEBSITE_URL}/snr-logo.png")
     embed.set_footer(text=f"SNR Buns • Staff access only • Owner controls: {OWNER_ROLE_NAME}")
     return embed
@@ -342,8 +345,10 @@ async def send_name_result(interaction: discord.Interaction, action: str, entere
 
 async def continue_action(interaction: discord.Interaction, action: str, name: str) -> None:
     if action == "sale":
-        message = f"Customer: **{' '.join(p.capitalize() for p in name.split())}**\nChoose the deal sold:"
-        await send_ephemeral(interaction, message, view=DealView(name, "sale"))
+        shown = ' '.join(p.capitalize() for p in name.split())
+        message = (f"Customer: **{discord.utils.escape_markdown(shown)}**\n"
+                   "Tap a meal to record **×1 immediately**, or choose **Multiple Items**.")
+        await send_ephemeral(interaction, message, view=ExpressSaleView(name))
         return
     if action == "account_create":
         try:
@@ -432,7 +437,8 @@ class NameChoiceView(discord.ui.View):
 
 
 class CustomerSelect(discord.ui.Select):
-    def __init__(self, action, names, page, debts, memberships):
+    def __init__(self, action, names, page, debts, memberships, *, row=0,
+                 placeholder="Select a character name"):
         self.action = action
         start = page * 25
         options = [discord.SelectOption(
@@ -443,7 +449,7 @@ class CustomerSelect(discord.ui.Select):
                          else f"{memberships[normalize_name(name)]['name']} member"),
             emoji=("⚠️" if debts.get(normalize_name(name)) else "👤"),
         ) for name in names[start:start + 25]]
-        super().__init__(placeholder="Select a character name", options=options)
+        super().__init__(placeholder=placeholder, options=options, row=row)
 
     async def callback(self, interaction):
         if await require_staff(interaction):
@@ -458,8 +464,23 @@ class CustomerPickerView(discord.ui.View):
         self.debts = orders.outstanding_debt_map()
         self.memberships = db.vip_membership_map()
         self.page = max(0, min(page, max(0, (len(self.names) - 1) // 25)))
+        row = 0
+        if action == "sale":
+            recent = db.recent_customer_names(10)
+            if recent:
+                self.add_item(CustomerSelect(
+                    action, recent, 0, self.debts, self.memberships, row=0,
+                    placeholder="⚡ Recent customers — fastest",
+                ))
+                row = 1
         if self.names:
-            self.add_item(CustomerSelect(action, self.names, self.page, self.debts, self.memberships))
+            self.add_item(CustomerSelect(
+                action, self.names, self.page, self.debts, self.memberships, row=row,
+                placeholder="All customers — alphabetical",
+            ))
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.row = row + 1
 
     @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
     async def previous(self, interaction, button):
@@ -489,6 +510,7 @@ async def show_customer_picker(interaction, action):
     await send_ephemeral(
         interaction,
         f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
+        + ("Use **Recent customers** at the top for the quickest sale. " if action == "sale" else "") +
         "Use **Previous Names** and **Next Names** to move through every saved customer. "
         "Typed names still correct capitals and suggest close spellings.",
         view=view,
@@ -525,6 +547,76 @@ class DealSelect(discord.ui.Select):
             view=QuantityView(self.customer_name, deal_key), embed=None)
 
 
+async def record_express_sale(interaction: discord.Interaction, customer_name: str,
+                              deal_key: str, quantity: int = 1) -> None:
+    """Record one staff action, show its receipt for ten seconds, and never double-submit."""
+    await interaction.response.defer(ephemeral=True)
+    await interaction.edit_original_response(content="⏳ Recording sale…", embed=None, view=None)
+    try:
+        async with db_lock:
+            result = db.record_sale_quantity(
+                customer_name, deal_key, quantity,
+                str(interaction.user.id), str(interaction.user))
+        receipt = sale_embed(result)
+    except ValueError as exc:
+        await interaction.edit_original_response(
+            content=f"❌ Could not record this sale: {exc}", embed=None, view=None)
+        asyncio.create_task(delete_response_later(interaction, 10))
+        return
+    except Exception:
+        logging.exception("Express sale failed for %s ×%s", deal_key, quantity)
+        await interaction.edit_original_response(
+            content="❌ The sale could not be completed. Check the customer before trying again.",
+            embed=None, view=None)
+        return
+    await interaction.edit_original_response(content=None, embed=receipt, view=None)
+    asyncio.create_task(delete_response_later(interaction, 10))
+
+
+class ExpressSaleView(discord.ui.View):
+    def __init__(self, customer_name: str):
+        super().__init__(timeout=180)
+        self.customer_name = customer_name
+        short_labels = {
+            "quick_fix": "Quick Fix", "happy_meal": "Happy Meal",
+            "sweet_treat": "Sweet Treat", "mega_deal": "Mega Deal",
+            "blue_light": "Blue Light", "share_box": "Share Box",
+        }
+        for index, deal in enumerate(DEALS.values()):
+            button = discord.ui.Button(
+                label=short_labels.get(deal.key, deal.name), emoji="🍔",
+                style=discord.ButtonStyle.success, row=0 if index < 3 else 1)
+
+            async def callback(interaction, selected=deal.key):
+                if await require_staff(interaction):
+                    await record_express_sale(interaction, self.customer_name, selected, 1)
+
+            button.callback = callback
+            self.add_item(button)
+        multiple = discord.ui.Button(label="Multiple Items", emoji="🧾",
+                                     style=discord.ButtonStyle.primary, row=2)
+        back = discord.ui.Button(label="Back to Customers", emoji="⬅️",
+                                 style=discord.ButtonStyle.secondary, row=2)
+
+        async def multiple_callback(interaction):
+            if await require_staff(interaction):
+                await interaction.response.edit_message(
+                    content=(f"Customer: **{discord.utils.escape_markdown(self.customer_name)}**\n"
+                             "Choose the meal you sold more than once:"),
+                    embed=None, view=DealView(self.customer_name, "bulk_sale"))
+
+        async def back_callback(interaction):
+            if await require_staff(interaction):
+                await interaction.response.edit_message(
+                    content="Choose a customer or type their name:",
+                    embed=None, view=CustomerPickerView("sale"))
+
+        multiple.callback = multiple_callback
+        back.callback = back_callback
+        self.add_item(multiple)
+        self.add_item(back)
+
+
 class QuantitySelect(discord.ui.Select):
     def __init__(self, customer_name: str, deal_key: str):
         self.customer_name = customer_name
@@ -541,43 +633,44 @@ class QuantitySelect(discord.ui.Select):
         if not await require_staff(interaction):
             return
         quantity = int(self.values[0])
-        await interaction.response.defer(ephemeral=True)
-        try:
-            async with db_lock:
-                result = db.record_sale_quantity(
-                    self.customer_name,
-                    self.deal_key,
-                    quantity,
-                    str(interaction.user.id),
-                    str(interaction.user),
-                )
-            receipt = sale_embed(result)
-        except ValueError as exc:
-            await interaction.edit_original_response(
-                content=f"❌ Could not record this sale: {exc}", embed=None, view=None)
-            asyncio.create_task(delete_response_later(interaction, 10))
-            return
-        except Exception:
-            logging.exception("Quantity sale failed for %s ×%s", self.deal_key, quantity)
-            await interaction.edit_original_response(
-                content=("❌ Something went wrong while displaying this sale. "
-                         "Check the customer record before trying it again."),
-                embed=None, view=None)
-            return
-        await interaction.edit_original_response(content=None, embed=receipt, view=None)
-        asyncio.create_task(delete_response_later(interaction, 10))
+        await record_express_sale(interaction, self.customer_name, self.deal_key, quantity)
 
 
 class QuantityView(discord.ui.View):
     def __init__(self, customer_name: str, deal_key: str):
         super().__init__(timeout=180)
         self.add_item(QuantitySelect(customer_name, deal_key))
+        back = discord.ui.Button(label="Back to Meals", emoji="⬅️",
+                                 style=discord.ButtonStyle.secondary, row=1)
+
+        async def callback(interaction):
+            if await require_staff(interaction):
+                await interaction.response.edit_message(
+                    content=(f"Customer: **{discord.utils.escape_markdown(customer_name)}**\n"
+                             "Choose the meal you sold more than once:"),
+                    embed=None, view=DealView(customer_name, "bulk_sale"))
+
+        back.callback = callback
+        self.add_item(back)
 
 
 class DealView(discord.ui.View):
     def __init__(self, customer_name: str = "", mode: str = "sale"):
         super().__init__(timeout=180)
         self.add_item(DealSelect(customer_name, mode))
+        if mode == "bulk_sale":
+            back = discord.ui.Button(label="Back to Express Sale", emoji="⬅️",
+                                     style=discord.ButtonStyle.secondary, row=1)
+
+            async def callback(interaction):
+                if await require_staff(interaction):
+                    await interaction.response.edit_message(
+                        content=(f"Customer: **{discord.utils.escape_markdown(customer_name)}**\n"
+                                 "Tap a meal to record **×1 immediately**, or choose **Multiple Items**."),
+                        embed=None, view=ExpressSaleView(customer_name))
+
+            back.callback = callback
+            self.add_item(back)
 
 
 class RewardSelect(discord.ui.Select):
@@ -819,6 +912,40 @@ class BirthdayCorrectionModal(discord.ui.Modal, title="Set or Correct Customer B
             f"✅ Birthday for **{result['customer_name']}** set to **{result['date']}**.", ephemeral=True)
 
 
+class UndoSaleConfirmView(discord.ui.View):
+    def __init__(self, sale_batch):
+        super().__init__(timeout=90)
+        self.sale_batch = sale_batch
+
+    @discord.ui.button(label="Yes — Undo Sale", emoji="↩️", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            async with db_lock:
+                result = db.undo_counter_sale_batch(
+                    self.sale_batch["batch_ref"], self.sale_batch["sale_ids"],
+                    str(interaction.user.id), str(interaction.user))
+        except ValueError as exc:
+            await interaction.edit_original_response(content=f"❌ {exc}", embed=None, view=None)
+            asyncio.create_task(delete_response_later(interaction, 10))
+            return
+        await interaction.edit_original_response(
+            content=(f"✅ **COUNTER SALE UNDONE**\n"
+                     f"Customer: **{discord.utils.escape_markdown(result['customer']['display_name'])}**\n"
+                     f"Reversed: **{self.sale_batch['deal_name']} ×{self.sale_batch['quantity']}**\n"
+                     f"Finance, visits, loyalty and customer ticket totals have been corrected."),
+            embed=None, view=None)
+        asyncio.create_task(delete_response_later(interaction, 10))
+
+    @discord.ui.button(label="Keep Sale", emoji="✖️", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction, button):
+        if await require_owner(interaction):
+            await interaction.response.edit_message(content="No changes made.", embed=None, view=None)
+            asyncio.create_task(delete_response_later(interaction, 3))
+
+
 class OwnerAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
@@ -908,6 +1035,33 @@ class OwnerAdminView(discord.ui.View):
             interaction,
             f"🚦 Current website mode: **{current['label']}**\nChoose the mode customers should see now:",
             view=ServiceModeView(),
+        )
+
+    @discord.ui.button(label="Undo Last Counter Sale", emoji="↩️",
+                       style=discord.ButtonStyle.danger, row=2)
+    async def undo_sale(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        latest = db.latest_counter_sale_batch()
+        if not latest:
+            await send_ephemeral(interaction, "ℹ️ There is no counter sale available to undo.", delete_after=5)
+            return
+        if latest["has_jackpot_winner"]:
+            await send_ephemeral(
+                interaction,
+                "⚠️ The latest counter sale contains a £5,000 jackpot winner, so quick undo is locked. "
+                "This protects the jackpot record.", delete_after=10)
+            return
+        transaction = (latest["transaction_ids"][0] if latest["quantity"] == 1 else
+                       f"{latest['transaction_ids'][0]} to {latest['transaction_ids'][-1]}")
+        await send_ephemeral(
+            interaction,
+            f"⚠️ **UNDO THIS COUNTER SALE?**\n"
+            f"Customer: **{discord.utils.escape_markdown(latest['customer_name'])}**\n"
+            f"Sale: **{discord.utils.escape_markdown(latest['deal_name'])} ×{latest['quantity']}**\n"
+            f"Value: **{money(latest['revenue'])}**\nTransaction: `{transaction}`\n\n"
+            "This reverses finance, visits, loyalty points and the customer’s Golden Ticket total.",
+            view=UndoSaleConfirmView(latest),
         )
 
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)

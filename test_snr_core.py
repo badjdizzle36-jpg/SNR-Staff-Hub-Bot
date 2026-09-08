@@ -47,6 +47,39 @@ class TestSNRCore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.record_sale_quantity("Cody Ortega", "share_box", 0, "1", "Staff")
 
+    def test_recent_customers_and_owner_undo_reverse_one_quantity_action(self):
+        with self.db.connect() as conn:
+            conn.execute("UPDATE jackpot SET winning_position=1000,tickets_issued=0 WHERE id=1")
+        self.db.record_sale_quantity("First Customer", "quick_fix", 1, "1", "Staff")
+        result = self.db.record_sale_quantity("Recent Customer", "share_box", 2, "1", "Staff")
+        self.assertEqual(self.db.recent_customer_names(2), ["Recent Customer", "First Customer"])
+        latest = self.db.latest_counter_sale_batch()
+        self.assertEqual(latest["quantity"], 2)
+        self.assertEqual(latest["deal_key"], "share_box")
+        self.assertEqual(latest["sale_ids"], [int(value.split("-")[1]) for value in result["transaction_ids"]])
+        undone = self.db.undo_counter_sale_batch(
+            latest["batch_ref"], latest["sale_ids"], "99", "Owner")
+        self.assertEqual(undone["quantity"], 2)
+        customer = self.db.get_customer("Recent Customer")
+        self.assertEqual(customer["loyalty_points"], 0)
+        self.assertEqual(customer["golden_tickets"], 0)
+        self.assertEqual(customer["lifetime_sales"], 0)
+        self.assertEqual(customer["revenue"], 0)
+        self.assertEqual(self.db.report()["sales"], 1)
+        with self.assertRaisesRegex(ValueError, "already been undone"):
+            self.db.undo_counter_sale_batch(
+                latest["batch_ref"], latest["sale_ids"], "99", "Owner")
+
+    def test_owner_quick_undo_refuses_a_jackpot_winner(self):
+        with self.db.connect() as conn:
+            conn.execute("UPDATE jackpot SET winning_position=1,tickets_issued=0 WHERE id=1")
+        self.db.record_sale_quantity("Winner", "quick_fix", 1, "1", "Staff")
+        latest = self.db.latest_counter_sale_batch()
+        self.assertTrue(latest["has_jackpot_winner"])
+        with self.assertRaisesRegex(ValueError, "jackpot-winning"):
+            self.db.undo_counter_sale_batch(
+                latest["batch_ref"], latest["sale_ids"], "99", "Owner")
+
     def test_discord_quantity_awards_points_for_every_deal_bought(self):
         mega = self.db.record_sale_quantity("Mega Customer", "mega_deal", 2, "1", "Staff")
         self.assertEqual(mega["base_loyalty_awarded"], 2)
