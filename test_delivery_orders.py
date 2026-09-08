@@ -2,7 +2,7 @@ import tempfile
 import unittest
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -591,6 +591,64 @@ class DeliveryTests(unittest.TestCase):
         self.orders.support_notified(problem["id"], "123")
         self.assertEqual(self.orders.pending_support(unsent=True), [])
         self.assertEqual(self.orders.resolve_support(problem["id"], "1", "Manager")["status"], "resolved")
+
+    def test_late_order_alerts_fire_once_per_level_and_reset_on_stage_change(self):
+        order = self.orders.create_authenticated(
+            "Cody Ortega", "quick_fix", "Postal 99", "late-order-test")
+        orange_time = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat(timespec="seconds")
+        with self.db.connect() as conn:
+            conn.execute("UPDATE web_delivery_orders SET status_updated_at=? WHERE id=?",
+                         (orange_time, order["id"]))
+        orange = self.orders.late_alerts()
+        self.assertEqual(len(orange), 1)
+        self.assertEqual(orange[0]["late_level"], 1)
+        self.assertEqual(orange[0]["late_colour"], "orange")
+        self.orders.mark_late_alert(order["id"], 1)
+        self.assertEqual(self.orders.late_alerts(), [])
+
+        red_time = (datetime.now(timezone.utc) - timedelta(minutes=8)).isoformat(timespec="seconds")
+        with self.db.connect() as conn:
+            conn.execute("UPDATE web_delivery_orders SET status_updated_at=? WHERE id=?",
+                         (red_time, order["id"]))
+        red = self.orders.late_alerts()
+        self.assertEqual(red[0]["late_level"], 2)
+        self.assertEqual(red[0]["late_colour"], "red")
+        self.orders.mark_late_alert(order["id"], 2)
+        self.assertEqual(self.orders.late_alerts(), [])
+
+        advanced = self.orders.advance(order["id"], "accepted", "9", "Driver One")
+        self.assertEqual(advanced["late_alert_level"], 0)
+        self.assertEqual(self.orders.order_health(advanced)["colour"], "green")
+
+    def test_owner_customer_announcement_is_safe_live_and_removable(self):
+        with self.assertRaisesRegex(ValueError, "between 3 and 300"):
+            self.orders.set_customer_announcement("x", "info", "1", "Owner")
+        result = self.orders.set_customer_announcement(
+            "Big offer <script>alert(1)</script>", "promo", "1", "Owner")
+        self.assertTrue(result["active"])
+        self.assertEqual(result["style"], "promo")
+
+        server = start_web_server(self.db, 0)
+        base = f"http://127.0.0.1:{server.server_port}"
+        cookie = "snr_session=" + self.session
+        try:
+            response = build_opener().open(Request(base + "/account", headers={"Cookie": cookie}))
+            body = response.read().decode()
+            self.assertIn('class="customer-banner banner-promo"', body)
+            self.assertIn("Big offer &lt;script&gt;alert(1)&lt;/script&gt;", body)
+            self.assertNotIn("Big offer <script>", body)
+            response = build_opener().open(Request(
+                base + "/announcement-status", headers={"Cookie": cookie}))
+            status = json.loads(response.read().decode())
+            self.assertTrue(status["active"])
+            self.assertEqual(status["message"], "Big offer <script>alert(1)</script>")
+            self.orders.clear_customer_announcement("1", "Owner")
+            response = build_opener().open(Request(
+                base + "/announcement-status", headers={"Cookie": cookie}))
+            self.assertFalse(json.loads(response.read().decode())["active"])
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":

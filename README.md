@@ -129,10 +129,22 @@ For pickup orders, press **Accept Pickup Order**, then **Ready for Collection** 
 - Discord customer cards, name dropdowns, sale receipts and delivery orders display the same current level.
 - Owners use **More Tools → Owner Admin → Manage VIP Level** to choose any membership level manually, or return it to **Automatic progression**.
 - Owners use **More Tools → Owner Admin → Discount Codes** to create or disable checkout codes. Choose `percent` or `fixed`, enter the amount, and optionally set maximum uses and a `YYYY-MM-DD` expiry.
+- Owners use **More Tools → Owner Admin → Customer Banner** to publish a normal update, promotion or urgent notice across every logged-in customer page. Open pages refresh the banner automatically within about five seconds, and **Turn Banner Off** removes it the same way.
 - Owner overrides and forced clock-offs are written to the audit log.
 - If staff record the wrong counter sale, owners use **More Tools → Owner Admin → Undo Last Counter Sale**, carefully check the preview, then confirm. Jackpot-winning sales require manual management review and cannot be quick-undone.
 
 Pending orders and requests are durable. If Discord or Railway restarts, unsent alerts retry. Unique order references prevent double-counting.
+
+## Late-order warnings
+
+Every active order card and the Delivery Dashboard now show green, orange or red order health based on time spent in the current stage. Discord alerts SNR Staff once when an order turns orange and once when it turns red. Moving the order to its next stage immediately resets the timer and alert state.
+
+- Waiting: orange at 5 minutes, red at 7 minutes
+- Accepted/preparing: orange at 7 minutes, red at 12 minutes
+- Driver on the way: orange at 10 minutes, red at 15 minutes
+- Driver arrived: orange at 5 minutes, red at 8 minutes
+- Ready for pickup: orange at 10 minutes, red at 15 minutes
+- Payment processing: orange at 3 minutes, red at 5 minutes
 
 ## Slash commands
 

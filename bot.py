@@ -978,6 +978,7 @@ class OwnerAdminView(discord.ui.View):
         fees = orders.outstanding_fees(interaction.guild_id)
         stats = db.report(today=True)
         active_codes = orders.discount_codes(active_only=True)
+        announcement = orders.customer_announcement()
         embed = discord.Embed(title="👑 SNR OWNER DASHBOARD", colour=discord.Colour.gold())
         embed.description = "Private business overview and administration."
         embed.add_field(name="Today", value=f"{stats['sales']} sales • {money(stats['revenue'])} revenue • {money(stats['gross_profit'])} profit", inline=False)
@@ -985,6 +986,9 @@ class OwnerAdminView(discord.ui.View):
         embed.add_field(name="Delivery Staff", value=f"**{len(active)} clocked in**", inline=True)
         embed.add_field(name="Fees Owed", value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))}**", inline=True)
         embed.add_field(name="Discount Codes", value=f"**{len(active_codes)} active**", inline=True)
+        banner_text = (f"ON — {announcement['style'].title()}: {announcement['message']}"
+                       if announcement['active'] else "OFF")
+        embed.add_field(name="Customer Banner", value=f"**{discord.utils.escape_markdown(banner_text[:250])}**", inline=False)
         await send_ephemeral(interaction, embed=embed)
 
     @discord.ui.button(label="Discount Codes", emoji="🏷️", style=discord.ButtonStyle.success)
@@ -1064,6 +1068,21 @@ class OwnerAdminView(discord.ui.View):
             view=UndoSaleConfirmView(latest),
         )
 
+    @discord.ui.button(label="Customer Banner", emoji="📣",
+                       style=discord.ButtonStyle.primary, row=2)
+    async def customer_banner(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        current = orders.customer_announcement()
+        status = (f"ON — **{current['style'].title()}**\n{discord.utils.escape_markdown(current['message'])}"
+                  if current['active'] else "OFF — customers currently see no announcement")
+        await send_ephemeral(
+            interaction,
+            f"📣 **Customer Website Announcement**\nCurrent banner: {status}\n\n"
+            "Choose what kind of message to publish. Turning it off removes it from open customer pages within about five seconds.",
+            view=CustomerAnnouncementView(),
+        )
+
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
         if not await require_owner(interaction):
@@ -1119,6 +1138,65 @@ class ServiceModeView(discord.ui.View):
 
             button.callback = callback
             self.add_item(button)
+
+
+class CustomerAnnouncementModal(discord.ui.Modal):
+    message = discord.ui.TextInput(
+        label="Message customers will see",
+        placeholder="Example: Very busy — deliveries may take 15 minutes.",
+        style=discord.TextStyle.paragraph,
+        min_length=3,
+        max_length=300,
+    )
+
+    def __init__(self, banner_style, title):
+        super().__init__(title=title)
+        self.banner_style = banner_style
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        try:
+            result = orders.set_customer_announcement(
+                str(self.message), self.banner_style, interaction.user.id, str(interaction.user))
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.edit_message(
+            content=(f"✅ Customer banner is live as **{result['style'].title()}**:\n"
+                     f"{discord.utils.escape_markdown(result['message'])}"),
+            view=None,
+        )
+        asyncio.create_task(delete_response_later(interaction, 6))
+
+
+class CustomerAnnouncementView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        options = (
+            ("Post Update", "info", "ℹ️", discord.ButtonStyle.primary),
+            ("Post Promotion", "promo", "🎉", discord.ButtonStyle.success),
+            ("Post Urgent Notice", "urgent", "🚨", discord.ButtonStyle.danger),
+        )
+        for label, banner_style, emoji, style in options:
+            button = discord.ui.Button(label=label, emoji=emoji, style=style)
+
+            async def callback(interaction, chosen=banner_style, heading=label):
+                if await require_owner(interaction):
+                    await interaction.response.send_modal(
+                        CustomerAnnouncementModal(chosen, heading))
+
+            button.callback = callback
+            self.add_item(button)
+
+    @discord.ui.button(label="Turn Banner Off", emoji="✖️", style=discord.ButtonStyle.secondary)
+    async def turn_off(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        orders.clear_customer_announcement(interaction.user.id, str(interaction.user))
+        await interaction.response.edit_message(
+            content="✅ Customer website announcement turned off.", view=None)
+        asyncio.create_task(delete_response_later(interaction, 5))
 
 
 class CustomerToolsView(discord.ui.View):
@@ -1482,6 +1560,10 @@ def delivery_order_embed(row):
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name='Total Owed', value=f"**{money(row['price'])}**", inline=True)
     embed.add_field(name='Status', value=f"**{status}**", inline=True)
+    if row['status'] in ACTIVE_STATUSES:
+        health = orders.order_health(row)
+        health_icon = {'green': '🟢', 'orange': '🟠', 'red': '🔴'}[health['colour']]
+        embed.add_field(name='Order Health', value=f"**{health_icon} {health['label']}**", inline=True)
     customer = db.get_customer(row['customer_key'])
     if customer:
         membership = customer['membership']
@@ -1549,6 +1631,26 @@ def delivery_order_embed(row):
         embed.set_footer(text=f"Sale {row['sale_transaction_id']} • Confirmed by staff")
     else:
         embed.set_footer(text='Confirm payment only after the customer has paid')
+    return embed
+
+
+def late_order_embed(row):
+    health = orders.order_health(row)
+    urgent = int(row.get('late_level') or health['level']) >= 2
+    icon = '🔴' if urgent else '🟠'
+    stage = str(row['status']).replace('_', ' ').title()
+    embed = discord.Embed(
+        title=f"{icon} {'OVERDUE' if urgent else 'ORDER TIME WARNING'} — ORDER #{row['id']}",
+        colour=discord.Colour.red() if urgent else discord.Colour.orange(),
+    )
+    embed.description = ("This order needs attention now." if urgent
+                         else "This order is approaching its stage time limit.")
+    embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
+    embed.add_field(name='Current Stage', value=f"**{stage}**", inline=True)
+    embed.add_field(name='Time in Stage', value=f"**{health['minutes']} minutes**", inline=True)
+    if row.get('assigned_driver_name'):
+        embed.add_field(name='Assigned To', value=f"**{discord.utils.escape_markdown(row['assigned_driver_name'])}**", inline=True)
+    embed.set_footer(text='The alert resets automatically when staff advance the order')
     return embed
 
 
@@ -1763,6 +1865,7 @@ def delivery_dashboard_embed(guild_id):
     stats = db.report(today=True)
     fees = orders.outstanding_fees(guild_id)
     service = orders.service_mode()
+    health = orders.health_counts(guild_id)
     problems = [row for row in orders.pending_support() if row['guild_id'] == str(guild_id)]
     embed = discord.Embed(title='🚗 SNR DELIVERY DASHBOARD', colour=discord.Colour.orange())
     embed.add_field(name='Waiting', value=f"**{counts['pending']}**", inline=True)
@@ -1773,6 +1876,8 @@ def delivery_dashboard_embed(guild_id):
     embed.add_field(name='Active Types', value=f"**{fulfilment['delivery']} delivery • {fulfilment['pickup']} pickup**", inline=True)
     embed.add_field(name='Wasted Journey Fees', value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))} owed**", inline=True)
     embed.add_field(name='Website Mode', value=f"**{service['label']}**", inline=True)
+    embed.add_field(name='Order Health', value=(f"🟢 **{health['green']}**  🟠 **{health['orange']}**  "
+                                               f"🔴 **{health['red']}**"), inline=True)
     embed.add_field(name='Customer Problems', value=f"**{len(problems)} open**", inline=True)
     embed.add_field(name='Drivers Clocked In', value=f"**{len(active_staff)}**", inline=True)
     embed.add_field(name='Today’s Revenue', value=f"**{money(stats['revenue'])}**", inline=True)
@@ -1966,6 +2071,28 @@ async def notify_delivery_orders():
             logging.exception('Delivery alert failed; will retry: %s', row['id'])
 
 
+@tasks.loop(seconds=30)
+async def notify_late_orders():
+    if not bot.is_ready():
+        return
+    for row in orders.late_alerts()[:20]:
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Late-order channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(
+                content=mention or '⏱️ **SNR order timing alert**',
+                embed=late_order_embed(row), allowed_mentions=allowed)
+            orders.mark_late_alert(row['id'], row['late_level'])
+            asyncio.create_task(message.delete(delay=30 * 60))
+        except Exception:
+            logging.exception('Late-order alert failed; will retry: %s', row['id'])
+
+
 @tasks.loop(seconds=10)
 async def notify_customer_reviews():
     if not bot.is_ready():
@@ -2049,6 +2176,8 @@ async def on_ready() -> None:
         notify_pack_claims.start()
     if not notify_delivery_orders.is_running():
         notify_delivery_orders.start()
+    if not notify_late_orders.is_running():
+        notify_late_orders.start()
     if not notify_customer_reviews.is_running():
         notify_customer_reviews.start()
     if not notify_support_requests.is_running():

@@ -22,6 +22,18 @@ ISSUE_CATEGORIES = {
     "other": "Other",
 }
 
+# Minutes spent in the current stage before the order changes from green to
+# orange, then red. A stage change resets its alert state automatically.
+LATE_THRESHOLDS = {
+    "pending": (5, 7),
+    "accepted": (7, 12),
+    "on_way": (10, 15),
+    "arrived": (5, 8),
+    "ready_for_pickup": (10, 15),
+    "processing": (3, 5),
+}
+ANNOUNCEMENT_STYLES = {"info", "promo", "urgent"}
+
 
 class DeliveryStore:
     def __init__(self, db):
@@ -44,6 +56,7 @@ class DeliveryStore:
                     discount_amount INTEGER NOT NULL DEFAULT 0, discount_code TEXT,
                     membership_level TEXT, fulfillment_type TEXT NOT NULL DEFAULT 'delivery',
                     ready_at TEXT, birthday_discount INTEGER NOT NULL DEFAULT 0,
+                    late_alert_level INTEGER NOT NULL DEFAULT 0,
                     birthday_reward_year INTEGER);
                 CREATE TABLE IF NOT EXISTS delivery_discount_codes (
                     code TEXT PRIMARY KEY, discount_type TEXT NOT NULL, amount INTEGER NOT NULL,
@@ -92,6 +105,10 @@ class DeliveryStore:
                 CREATE TABLE IF NOT EXISTS web_service_mode (
                     id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL DEFAULT 'open',
                     updated_at TEXT NOT NULL, updated_by TEXT, updated_by_name TEXT);
+                CREATE TABLE IF NOT EXISTS web_customer_announcement (
+                    id INTEGER PRIMARY KEY CHECK(id=1), message TEXT NOT NULL DEFAULT '',
+                    style TEXT NOT NULL DEFAULT 'info', active INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL, updated_by TEXT, updated_by_name TEXT);
             """)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(web_delivery_orders)")}
             for name, definition in (
@@ -105,6 +122,7 @@ class DeliveryStore:
                 ("fulfillment_type", "TEXT NOT NULL DEFAULT 'delivery'"), ("ready_at", "TEXT"),
                 ("birthday_discount", "INTEGER NOT NULL DEFAULT 0"),
                 ("birthday_reward_year", "INTEGER"),
+                ("late_alert_level", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE web_delivery_orders ADD COLUMN {name} {definition}")
@@ -125,6 +143,8 @@ class DeliveryStore:
                 (id,reward_type,amount,active,updated_at) VALUES(1,'percent',20,1,?)""", (utc_now(),))
             conn.execute("""INSERT OR IGNORE INTO web_service_mode
                 (id,mode,updated_at) VALUES(1,'open',?)""", (utc_now(),))
+            conn.execute("""INSERT OR IGNORE INTO web_customer_announcement
+                (id,message,style,active,updated_at) VALUES(1,'','info',0,?)""", (utc_now(),))
 
     @staticmethod
     def audit(conn, action, details, staff_id=None, staff_name=None):
@@ -174,6 +194,39 @@ class DeliveryStore:
                 (mode, utc_now(), str(staff_id), staff_name))
             self.audit(conn, "web_service_mode_changed", mode, str(staff_id), staff_name)
         return self.service_mode()
+
+    def customer_announcement(self):
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM web_customer_announcement WHERE id=1").fetchone()
+        result = dict(row) if row else {"message": "", "style": "info", "active": 0}
+        result["active"] = bool(result.get("active"))
+        return result
+
+    def set_customer_announcement(self, message, style, staff_id, staff_name):
+        message = " ".join(str(message or "").split())
+        style = str(style or "").strip().lower()
+        if not 3 <= len(message) <= 300:
+            raise ValueError("Announcement must be between 3 and 300 characters.")
+        if style not in ANNOUNCEMENT_STYLES:
+            raise ValueError("Choose update, promotion or urgent notice.")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""UPDATE web_customer_announcement
+                SET message=?,style=?,active=1,updated_at=?,updated_by=?,updated_by_name=? WHERE id=1""",
+                (message, style, utc_now(), str(staff_id), staff_name))
+            self.audit(conn, "web_customer_announcement_set", f"style={style};message={message}",
+                       str(staff_id), staff_name)
+        return self.customer_announcement()
+
+    def clear_customer_announcement(self, staff_id, staff_name):
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""UPDATE web_customer_announcement SET active=0,updated_at=?,
+                updated_by=?,updated_by_name=? WHERE id=1""",
+                (utc_now(), str(staff_id), staff_name))
+            self.audit(conn, "web_customer_announcement_cleared", "customer banner off",
+                       str(staff_id), staff_name)
+        return self.customer_announcement()
 
     @staticmethod
     def normalize_discount_code(code):
@@ -699,6 +752,62 @@ class DeliveryStore:
         with self.db.connect() as conn:
             return [dict(row) for row in conn.execute(f"SELECT * FROM web_delivery_orders {where} ORDER BY id")]
 
+    @staticmethod
+    def order_health(row, now=None):
+        row = dict(row)
+        status = row.get("status")
+        thresholds = LATE_THRESHOLDS.get(status)
+        if not thresholds:
+            return {"level": 0, "colour": "green", "minutes": 0,
+                    "label": "Complete"}
+        raw_time = row.get("status_updated_at") or row.get("created_at")
+        try:
+            changed = datetime.fromisoformat(raw_time)
+            if changed.tzinfo is None:
+                changed = changed.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            changed = datetime.now(timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        minutes = max(0, int((current - changed.astimezone(timezone.utc)).total_seconds() // 60))
+        orange_at, red_at = thresholds
+        if minutes >= red_at:
+            level, colour, description = 2, "red", "Overdue"
+        elif minutes >= orange_at:
+            level, colour, description = 1, "orange", "Approaching limit"
+        else:
+            level, colour, description = 0, "green", "On time"
+        return {"level": level, "colour": colour, "minutes": minutes,
+                "label": f"{description} — {minutes} min in this stage"}
+
+    def late_alerts(self, guild_id=None):
+        rows = self.pending()
+        alerts = []
+        for row in rows:
+            if guild_id is not None and row["guild_id"] != str(guild_id):
+                continue
+            health = self.order_health(row)
+            if health["level"] > int(row.get("late_alert_level") or 0):
+                alerts.append({**row, "late_level": health["level"],
+                               "late_colour": health["colour"],
+                               "late_minutes": health["minutes"],
+                               "late_label": health["label"]})
+        return alerts
+
+    def mark_late_alert(self, order_id, level):
+        level = max(0, min(2, int(level)))
+        with self.db.connect() as conn:
+            conn.execute("""UPDATE web_delivery_orders SET late_alert_level=?
+                WHERE id=? AND late_alert_level<?""", (level, int(order_id), level))
+
+    def health_counts(self, guild_id):
+        counts = {"green": 0, "orange": 0, "red": 0}
+        for row in self.pending():
+            if row["guild_id"] == str(guild_id):
+                counts[self.order_health(row)["colour"]] += 1
+        return counts
+
     def get(self, order_id):
         with self.db.connect() as conn:
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (int(order_id),)).fetchone()
@@ -901,17 +1010,17 @@ class DeliveryStore:
             now = utc_now()
             if target == "accepted":
                 conn.execute("""UPDATE web_delivery_orders SET status='accepted',assigned_driver_id=?,
-                    assigned_driver_name=?,accepted_at=?,status_updated_at=? WHERE id=?""",
+                    assigned_driver_name=?,accepted_at=?,status_updated_at=?,late_alert_level=0 WHERE id=?""",
                     (str(staff_id), staff_name, now, now, order_id))
             elif target == "on_way":
-                conn.execute("UPDATE web_delivery_orders SET status='on_way',on_way_at=?,status_updated_at=? WHERE id=?",
+                conn.execute("UPDATE web_delivery_orders SET status='on_way',on_way_at=?,status_updated_at=?,late_alert_level=0 WHERE id=?",
                              (now, now, order_id))
             elif target == "arrived":
-                conn.execute("UPDATE web_delivery_orders SET status='arrived',arrived_at=?,status_updated_at=? WHERE id=?",
+                conn.execute("UPDATE web_delivery_orders SET status='arrived',arrived_at=?,status_updated_at=?,late_alert_level=0 WHERE id=?",
                              (now, now, order_id))
             else:
                 conn.execute("""UPDATE web_delivery_orders SET status='ready_for_pickup',
-                    ready_at=?,status_updated_at=? WHERE id=?""", (now, now, order_id))
+                    ready_at=?,status_updated_at=?,late_alert_level=0 WHERE id=?""", (now, now, order_id))
             self.audit(conn, "web_delivery_" + target, f"order={order_id}", str(staff_id), staff_name)
         return self.get(order_id)
 
@@ -950,7 +1059,7 @@ class DeliveryStore:
                            "Mark the driver as arrived before confirming payment.")
                 raise ValueError(message)
             if not already_paid:
-                conn.execute("UPDATE web_delivery_orders SET status='processing',status_updated_at=? WHERE id=?",
+                conn.execute("UPDATE web_delivery_orders SET status='processing',status_updated_at=?,late_alert_level=0 WHERE id=?",
                              (utc_now(), order_id))
             order = dict(row)
         results = []
