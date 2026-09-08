@@ -4,7 +4,9 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
-- Customers can leave a verified **1–5 star driver or pickup-experience rating** after staff mark their order paid. The order automatically selects the staff member, so customers cannot choose or rate somebody else.
+- As soon as staff mark an order paid, the customer's open webpage checks within about two seconds and opens a large **Rate Your Experience** pop-up automatically—no scrolling or opening Previous Orders.
+- The mobile-friendly pop-up has five direct star choices, an optional short comment and a Maybe Later button. It only appears for the newest completed order and disappears permanently after that order is reviewed.
+- Customers can leave a verified **1–5 star driver or pickup-experience rating**. The order automatically selects the assigned staff member, so customers cannot choose or rate somebody else.
 - Each completed order can be reviewed only once. An optional 250-character comment is saved with the star rating, and the SNR Staff role receives a Discord alert in the private orders channel.
 - Staff can open **More Tools → Staff Ratings** for weekly and monthly leaderboards, or run `/snrhub_ratings`. Rankings show average stars, number of reviews, five-star reviews, deliveries and pickups.
 - Active delivery and pickup orders now show a visual **live progress tracker** on the customer webpage. Discord actions move the tracker through Placed, Accepted, On Way/Ready, Arrived/Payment and Complete, while the existing webpage alert continues checking every five seconds.

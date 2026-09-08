@@ -517,6 +517,15 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("Rate your pickup experience", body)
             self.assertIn("Helpful Staff", body)
+            self.assertIn('id="rating-popup"', body)
+            self.assertIn('role="dialog"', body)
+            self.assertIn('name="rating" value="5"', body)
+            self.assertEqual(body.count('action="/review"'), 1)
+            self.assertLess(body.index('id="rating-popup"'), body.index('data-app-view="home"'))
+            response, script = request("/delivery.js")
+            self.assertEqual(response.status, 200)
+            self.assertIn('location.href="/account#order"', script)
+            self.assertIn('},2000);', script)
             parser = HiddenForm()
             parser.feed(body)
             response, thanks = request("/review", {
@@ -531,6 +540,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn("Your pickup experience rating", updated)
             self.assertIn("Fast and friendly", updated)
             self.assertNotIn("Rate your pickup experience", updated)
+            self.assertNotIn('id="rating-popup"', updated)
         finally:
             server.shutdown()
             server.server_close()
