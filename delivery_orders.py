@@ -7,6 +7,20 @@ from zoneinfo import ZoneInfo
 from snr_core import DEALS, normalize_name, utc_now
 
 ACTIVE_STATUSES = ("pending", "accepted", "on_way", "arrived", "ready_for_pickup", "processing")
+SERVICE_MODES = {
+    "open": "Open",
+    "busy": "Busy",
+    "pickup_only": "Pickup Only",
+    "delivery_paused": "Deliveries Paused",
+    "closed": "Closed",
+}
+ISSUE_CATEGORIES = {
+    "food_quality": "Food quality",
+    "delivery_time": "Delivery time",
+    "driver_behaviour": "Driver behaviour",
+    "missing_items": "Missing items",
+    "other": "Other",
+}
 
 
 class DeliveryStore:
@@ -63,7 +77,21 @@ class DeliveryStore:
                     fulfillment_type TEXT NOT NULL,
                     rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
                     comment TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
-                    notification_message_id TEXT);
+                    notification_message_id TEXT,
+                    issue_category TEXT NOT NULL DEFAULT '',
+                    resolution_status TEXT NOT NULL DEFAULT 'none',
+                    resolved_at TEXT, resolved_by TEXT, resolved_by_name TEXT);
+                CREATE TABLE IF NOT EXISTS delivery_support_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER NOT NULL UNIQUE REFERENCES web_delivery_orders(id),
+                    customer_key TEXT NOT NULL REFERENCES customers(customer_key),
+                    customer_name TEXT NOT NULL, issue_type TEXT NOT NULL,
+                    details TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT,
+                    resolved_by_name TEXT, notification_message_id TEXT);
+                CREATE TABLE IF NOT EXISTS web_service_mode (
+                    id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL DEFAULT 'open',
+                    updated_at TEXT NOT NULL, updated_by TEXT, updated_by_name TEXT);
             """)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(web_delivery_orders)")}
             for name, definition in (
@@ -82,11 +110,21 @@ class DeliveryStore:
                     conn.execute(f"ALTER TABLE web_delivery_orders ADD COLUMN {name} {definition}")
             conn.execute("UPDATE web_delivery_orders SET status_updated_at=created_at WHERE status_updated_at IS NULL")
             conn.execute("UPDATE web_delivery_orders SET subtotal=price WHERE subtotal IS NULL")
+            review_columns = {row["name"] for row in conn.execute("PRAGMA table_info(delivery_reviews)")}
+            for name, definition in (
+                ("issue_category", "TEXT NOT NULL DEFAULT ''"),
+                ("resolution_status", "TEXT NOT NULL DEFAULT 'none'"),
+                ("resolved_at", "TEXT"), ("resolved_by", "TEXT"), ("resolved_by_name", "TEXT"),
+            ):
+                if name not in review_columns:
+                    conn.execute(f"ALTER TABLE delivery_reviews ADD COLUMN {name} {definition}")
             conn.execute("DROP INDEX IF EXISTS one_pending_web_delivery")
             conn.execute("""CREATE UNIQUE INDEX one_pending_web_delivery ON web_delivery_orders(customer_key)
                 WHERE status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')""")
             conn.execute("""INSERT OR IGNORE INTO birthday_reward_settings
                 (id,reward_type,amount,active,updated_at) VALUES(1,'percent',20,1,?)""", (utc_now(),))
+            conn.execute("""INSERT OR IGNORE INTO web_service_mode
+                (id,mode,updated_at) VALUES(1,'open',?)""", (utc_now(),))
 
     @staticmethod
     def audit(conn, action, details, staff_id=None, staff_name=None):
@@ -117,6 +155,25 @@ class DeliveryStore:
     def configured(self):
         with self.db.connect() as conn:
             return conn.execute("SELECT 1 FROM web_delivery_settings WHERE id=1").fetchone() is not None
+
+    def service_mode(self):
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM web_service_mode WHERE id=1").fetchone()
+        result = dict(row) if row else {"mode": "open"}
+        result["label"] = SERVICE_MODES.get(result["mode"], "Open")
+        return result
+
+    def set_service_mode(self, mode, staff_id, staff_name):
+        mode = str(mode or "").strip().lower()
+        if mode not in SERVICE_MODES:
+            raise ValueError("Choose a valid service mode.")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""INSERT OR REPLACE INTO web_service_mode
+                (id,mode,updated_at,updated_by,updated_by_name) VALUES(1,?,?,?,?)""",
+                (mode, utc_now(), str(staff_id), staff_name))
+            self.audit(conn, "web_service_mode_changed", mode, str(staff_id), staff_name)
+        return self.service_mode()
 
     @staticmethod
     def normalize_discount_code(code):
@@ -372,6 +429,12 @@ class DeliveryStore:
             config = conn.execute("SELECT * FROM web_delivery_settings WHERE id=1").fetchone()
             if not config:
                 raise ValueError("Online delivery is being set up. Please contact SNR Buns.")
+            service = conn.execute("SELECT mode FROM web_service_mode WHERE id=1").fetchone()
+            service_mode = service["mode"] if service else "open"
+            if service_mode == "closed":
+                raise ValueError("SNR Buns is currently closed. Please try again when we reopen.")
+            if fulfillment_type == "delivery" and service_mode in ("pickup_only", "delivery_paused"):
+                raise ValueError("Deliveries are currently paused. Pickup ordering is still open.")
             customer = conn.execute("SELECT * FROM customers WHERE customer_key=?", (key,)).fetchone()
             if not customer:
                 raise ValueError("Customer account not found.")
@@ -430,7 +493,7 @@ class DeliveryStore:
             ).fetchone()
         return dict(row) if row else None
 
-    def create_review_authenticated(self, customer_key, order_id, rating, comment=""):
+    def create_review_authenticated(self, customer_key, order_id, rating, comment="", issue_category=""):
         """Rate the staff member already assigned to this customer's completed order."""
         key = normalize_name(customer_key)
         try:
@@ -442,6 +505,7 @@ class DeliveryStore:
         comment = " ".join(str(comment or "").strip().split())
         if len(comment) > 250:
             raise ValueError("Your review can be up to 250 characters.")
+        issue_category = str(issue_category or "").strip().lower()
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             order = conn.execute(
@@ -457,18 +521,147 @@ class DeliveryStore:
                 "SELECT 1 FROM delivery_reviews WHERE order_id=?", (order_id,)
             ).fetchone():
                 raise ValueError("You have already reviewed this order.")
+            if rating <= 2 and issue_category not in ISSUE_CATEGORIES:
+                raise ValueError("Please tell us what went wrong so management can help.")
+            if rating > 2:
+                issue_category = ""
+            resolution_status = "open" if rating <= 2 else "none"
             cursor = conn.execute("""INSERT INTO delivery_reviews
                 (order_id,customer_key,customer_name,staff_id,staff_name,fulfillment_type,
-                 rating,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                 rating,comment,created_at,issue_category,resolution_status) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (order_id, key, order["customer_name"], order["assigned_driver_id"],
                  order["assigned_driver_name"], order["fulfillment_type"] or "delivery",
-                 rating, comment, utc_now()))
+                 rating, comment, utc_now(), issue_category, resolution_status))
             self.audit(conn, "delivery_review_created",
                        f"review={cursor.lastrowid};order={order_id};staff={order['assigned_driver_id']};rating={rating}")
             row = conn.execute(
                 "SELECT * FROM delivery_reviews WHERE id=?", (cursor.lastrowid,)
             ).fetchone()
         return dict(row)
+
+    def open_low_reviews(self, limit=100):
+        with self.db.connect() as conn:
+            rows = conn.execute("""SELECT r.*,o.guild_id,o.channel_id FROM delivery_reviews r
+                JOIN web_delivery_orders o ON o.id=r.order_id
+                WHERE r.rating<=2 AND r.resolution_status='open' ORDER BY r.id LIMIT ?""",
+                (int(limit),)).fetchall()
+        return [dict(row) for row in rows]
+
+    def resolve_low_review(self, review_id, staff_id, staff_name):
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM delivery_reviews WHERE id=?", (int(review_id),)).fetchone()
+            if not row or int(row["rating"]) > 2:
+                raise ValueError("Low-rating case not found.")
+            if row["resolution_status"] == "resolved":
+                return dict(row)
+            conn.execute("""UPDATE delivery_reviews SET resolution_status='resolved',resolved_at=?,
+                resolved_by=?,resolved_by_name=? WHERE id=?""",
+                (utc_now(), str(staff_id), staff_name, int(review_id)))
+            self.audit(conn, "low_rating_resolved", f"review={int(review_id)}", str(staff_id), staff_name)
+            row = conn.execute("SELECT * FROM delivery_reviews WHERE id=?", (int(review_id),)).fetchone()
+        return dict(row)
+
+    def support_for_order(self, order_id):
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM delivery_support_requests WHERE order_id=?",
+                               (int(order_id),)).fetchone()
+        return dict(row) if row else None
+
+    def create_support_authenticated(self, customer_key, order_id, issue_type, details=""):
+        key = normalize_name(customer_key)
+        issue_type = str(issue_type or "").strip().lower()
+        if issue_type not in ISSUE_CATEGORIES:
+            raise ValueError("Choose what went wrong with your order.")
+        details = " ".join(str(details or "").strip().split())
+        if len(details) > 250:
+            raise ValueError("Your message can be up to 250 characters.")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            order = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (int(order_id),)).fetchone()
+            if not order or order["customer_key"] != key:
+                raise ValueError("That order does not belong to your account.")
+            if order["status"] != "paid":
+                raise ValueError("You can report a problem after the order is completed.")
+            existing = conn.execute("SELECT * FROM delivery_support_requests WHERE order_id=?",
+                                    (int(order_id),)).fetchone()
+            if existing:
+                return dict(existing)
+            cursor = conn.execute("""INSERT INTO delivery_support_requests
+                (order_id,customer_key,customer_name,issue_type,details,created_at)
+                VALUES(?,?,?,?,?,?)""",
+                (int(order_id), key, order["customer_name"], issue_type, details, utc_now()))
+            self.audit(conn, "order_problem_created",
+                       f"support={cursor.lastrowid};order={int(order_id)};type={issue_type}")
+            row = conn.execute("SELECT * FROM delivery_support_requests WHERE id=?",
+                               (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def pending_support(self, unsent=False, limit=100):
+        extra = " AND s.notification_message_id IS NULL" if unsent else ""
+        with self.db.connect() as conn:
+            rows = conn.execute(f"""SELECT s.*,o.guild_id,o.channel_id FROM delivery_support_requests s
+                JOIN web_delivery_orders o ON o.id=s.order_id
+                WHERE s.status='pending'{extra} ORDER BY s.id LIMIT ?""", (int(limit),)).fetchall()
+        return [dict(row) for row in rows]
+
+    def support_notified(self, support_id, message_id):
+        with self.db.connect() as conn:
+            conn.execute("UPDATE delivery_support_requests SET notification_message_id=? WHERE id=?",
+                         (str(message_id), int(support_id)))
+
+    def resolve_support(self, support_id, staff_id, staff_name):
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM delivery_support_requests WHERE id=?",
+                               (int(support_id),)).fetchone()
+            if not row:
+                raise ValueError("Order problem not found.")
+            if row["status"] == "resolved":
+                return dict(row)
+            conn.execute("""UPDATE delivery_support_requests SET status='resolved',resolved_at=?,
+                resolved_by=?,resolved_by_name=? WHERE id=?""",
+                (utc_now(), str(staff_id), staff_name, int(support_id)))
+            self.audit(conn, "order_problem_resolved", f"support={int(support_id)}",
+                       str(staff_id), staff_name)
+            row = conn.execute("SELECT * FROM delivery_support_requests WHERE id=?",
+                               (int(support_id),)).fetchone()
+        return dict(row)
+
+    def order_estimate(self, order_id):
+        row = self.get(order_id)
+        if not row:
+            return {"queue_position": 0, "eta_text": "Order not found"}
+        status = row["status"]
+        pickup = (row.get("fulfillment_type") or "delivery") == "pickup"
+        with self.db.connect() as conn:
+            queue = conn.execute("""SELECT COUNT(*) AS total FROM web_delivery_orders
+                WHERE guild_id=? AND fulfillment_type=? AND status='pending' AND id<=?""",
+                (row["guild_id"], row.get("fulfillment_type") or "delivery", int(order_id))).fetchone()
+            mode = conn.execute("SELECT mode FROM web_service_mode WHERE id=1").fetchone()
+        position = int(queue["total"]) if status == "pending" else 0
+        busy = bool(mode and mode["mode"] == "busy")
+        if status == "pending":
+            base = 10 if busy else 5
+            low, high = base + max(position - 1, 0) * 5, base + 5 + max(position - 1, 0) * 7
+            text = f"Estimated {low}–{high} minutes • queue position {position}"
+        elif status == "accepted":
+            text = "Estimated 10–20 minutes" if busy else "Estimated 5–10 minutes"
+        elif status == "on_way":
+            text = "Estimated arrival in 3–8 minutes"
+        elif status == "arrived":
+            text = "Your driver is outside now"
+        elif status == "ready_for_pickup":
+            text = "Ready to collect now"
+        elif status == "processing":
+            text = "Completing payment now"
+        elif status == "paid":
+            text = "Order complete"
+        else:
+            text = "Order closed"
+        if pickup and status == "pending":
+            text = f"Estimated {10 if busy else 5}–{20 if busy else 10} minutes • queue position {position}"
+        return {"queue_position": position, "eta_text": text}
 
     def unnotified_reviews(self, limit=20):
         with self.db.connect() as conn:

@@ -219,6 +219,7 @@ class DeliveryTests(unittest.TestCase):
             status = json.loads(status_body)
             self.assertEqual(status["status"], "accepted")
             self.assertEqual(status["driver"], "Delivery Staff")
+            self.assertIn("Estimated", status["eta_text"])
             self.orders.advance(1, "on_way", "9", "Delivery Staff")
             self.assertEqual(json.loads(request("/order-status")[1])["status"], "on_way")
             self.orders.advance(1, "arrived", "9", "Delivery Staff")
@@ -520,11 +521,15 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn('id="rating-popup"', body)
             self.assertIn('role="dialog"', body)
             self.assertIn('name="rating" value="5"', body)
+            self.assertIn('id="low-rating-reason"', body)
+            self.assertIn('name="issue_category"', body)
+            self.assertIn('action="/support"', body)
             self.assertEqual(body.count('action="/review"'), 1)
             self.assertLess(body.index('id="rating-popup"'), body.index('data-app-view="home"'))
             response, script = request("/delivery.js")
             self.assertEqual(response.status, 200)
             self.assertIn('location.href="/account#order"', script)
+            self.assertIn('d.eta_text', script)
             self.assertIn('},2000);', script)
             parser = HiddenForm()
             parser.feed(body)
@@ -544,6 +549,48 @@ class DeliveryTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_service_modes_and_live_queue_estimates(self):
+        self.orders.set_service_mode("delivery_paused", "1", "Owner")
+        with self.assertRaisesRegex(ValueError, "Deliveries are currently paused"):
+            self.orders.create_authenticated(
+                "Cody Ortega", "quick_fix", "Postal 1", "paused-delivery-order")
+        pickup = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"quick_fix": 1}, "", "paused-pickup-order",
+            fulfillment_type="pickup")
+        self.assertEqual(pickup["fulfillment_type"], "pickup")
+        estimate = self.orders.order_estimate(pickup["id"])
+        self.assertEqual(estimate["queue_position"], 1)
+        self.assertIn("queue position", estimate["eta_text"])
+        self.orders.resolve(pickup["id"], "cancelled", "1", "Owner", allow_override=True)
+        self.orders.set_service_mode("closed", "1", "Owner")
+        with self.assertRaisesRegex(ValueError, "currently closed"):
+            self.orders.create_cart_authenticated(
+                "Cody Ortega", {"quick_fix": 1}, "", "closed-pickup-order",
+                fulfillment_type="pickup")
+
+    def test_low_rating_rescue_and_order_problem_are_tracked(self):
+        order = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"mega_deal": 1}, "", "rescue-order",
+            fulfillment_type="pickup")
+        self.orders.advance(order["id"], "accepted", "11", "Counter Star")
+        self.orders.advance(order["id"], "ready_for_pickup", "11", "Counter Star")
+        self.orders.resolve(order["id"], "paid", "11", "Counter Star")
+        with self.assertRaisesRegex(ValueError, "what went wrong"):
+            self.orders.create_review_authenticated("Cody Ortega", order["id"], 1, "Late")
+        review = self.orders.create_review_authenticated(
+            "Cody Ortega", order["id"], 2, "Too slow", "delivery_time")
+        self.assertEqual(review["resolution_status"], "open")
+        self.assertEqual(self.orders.open_low_reviews()[0]["id"], review["id"])
+        resolved = self.orders.resolve_low_review(review["id"], "1", "Manager")
+        self.assertEqual(resolved["resolution_status"], "resolved")
+        problem = self.orders.create_support_authenticated(
+            "Cody Ortega", order["id"], "missing_items", "Drink missing")
+        self.assertEqual(problem["status"], "pending")
+        self.assertEqual(self.orders.pending_support(unsent=True)[0]["id"], problem["id"])
+        self.orders.support_notified(problem["id"], "123")
+        self.assertEqual(self.orders.pending_support(unsent=True), [])
+        self.assertEqual(self.orders.resolve_support(problem["id"], "1", "Manager")["status"], "resolved")
 
 
 if __name__ == "__main__":

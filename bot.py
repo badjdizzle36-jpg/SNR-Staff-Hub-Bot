@@ -87,6 +87,14 @@ def staff_ping(channel):
     return role.mention, discord.AllowedMentions(roles=[role])
 
 
+def management_ping(channel):
+    role = (discord.utils.get(channel.guild.roles, name=MANAGER_ROLE_NAME)
+            or discord.utils.get(channel.guild.roles, name=OWNER_ROLE_NAME))
+    if not role:
+        return None, discord.AllowedMentions.none()
+    return role.mention, discord.AllowedMentions(roles=[role])
+
+
 async def require_staff(interaction: discord.Interaction) -> bool:
     if is_staff(interaction):
         return True
@@ -891,6 +899,17 @@ class OwnerAdminView(discord.ui.View):
             view=BirthdayRewardConfigView(),
         )
 
+    @discord.ui.button(label="Website Service Mode", emoji="🚦", style=discord.ButtonStyle.primary, row=1)
+    async def service_mode(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        current = orders.service_mode()
+        await send_ephemeral(
+            interaction,
+            f"🚦 Current website mode: **{current['label']}**\nChoose the mode customers should see now:",
+            view=ServiceModeView(),
+        )
+
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
         if not await require_owner(interaction):
@@ -920,6 +939,32 @@ class BirthdayRewardConfigView(discord.ui.View):
     async def correct(self, interaction, button):
         if await require_owner(interaction):
             await interaction.response.send_modal(BirthdayCorrectionModal())
+
+
+class ServiceModeView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        modes = (
+            ("Open", "open", "🟢", discord.ButtonStyle.success),
+            ("Busy", "busy", "🟠", discord.ButtonStyle.primary),
+            ("Pickup Only", "pickup_only", "🛍️", discord.ButtonStyle.secondary),
+            ("Pause Deliveries", "delivery_paused", "⏸️", discord.ButtonStyle.secondary),
+            ("Closed", "closed", "🔴", discord.ButtonStyle.danger),
+        )
+        for label, mode, emoji, style in modes:
+            button = discord.ui.Button(label=label, emoji=emoji, style=style)
+
+            async def callback(interaction, chosen=mode):
+                if not await require_owner(interaction):
+                    return
+                result = orders.set_service_mode(
+                    chosen, interaction.user.id, str(interaction.user))
+                await interaction.response.edit_message(
+                    content=f"✅ Website service mode changed to **{result['label']}**.", view=None)
+                asyncio.create_task(delete_response_later(interaction, 5))
+
+            button.callback = callback
+            self.add_item(button)
 
 
 class CustomerToolsView(discord.ui.View):
@@ -1016,8 +1061,72 @@ def customer_review_embed(row):
     if row.get("comment"):
         embed.add_field(name="Customer comment",
                         value=discord.utils.escape_markdown(row["comment"]), inline=False)
+    if int(row["rating"]) <= 2:
+        issue_labels = {"food_quality": "Food quality", "delivery_time": "Delivery time",
+                        "driver_behaviour": "Driver behaviour", "missing_items": "Missing items",
+                        "other": "Other"}
+        embed.colour = discord.Colour.red()
+        embed.title = f"🚨 LOW RATING — ORDER #{row['order_id']}"
+        embed.add_field(name="What went wrong",
+                        value=f"**{issue_labels.get(row.get('issue_category'), 'Not provided')}**",
+                        inline=False)
+        embed.add_field(name="Management action", value="Please contact the customer and resolve this case.", inline=False)
     embed.set_footer(text="Verified: linked to the customer’s own completed and paid order")
     return embed
+
+
+class LowRatingView(discord.ui.View):
+    def __init__(self, review_id):
+        super().__init__(timeout=None)
+        self.review_id = int(review_id)
+        button = discord.ui.Button(label="Mark Customer Helped", emoji="✅",
+                                   style=discord.ButtonStyle.success,
+                                   custom_id=f"snr:low-rating:{self.review_id}:resolved")
+
+        async def callback(interaction):
+            if not (has_role(interaction, MANAGER_ROLE_NAME) or is_owner(interaction)):
+                await interaction.response.send_message("Managers or the SNR Owner can close this case.", ephemeral=True)
+                return
+            row = orders.resolve_low_review(self.review_id, interaction.user.id, str(interaction.user))
+            embed = customer_review_embed(row)
+            embed.add_field(name="Resolution", value=f"✅ Resolved by **{discord.utils.escape_markdown(str(interaction.user))}**", inline=False)
+            await interaction.response.edit_message(embed=embed, view=None)
+
+        button.callback = callback
+        self.add_item(button)
+
+
+def support_request_embed(row):
+    labels = {"food_quality": "Food quality", "delivery_time": "Delivery time",
+              "driver_behaviour": "Driver behaviour", "missing_items": "Missing items",
+              "other": "Other"}
+    embed = discord.Embed(title=f"🆘 ORDER PROBLEM — ORDER #{row['order_id']}",
+                          colour=discord.Colour.red())
+    embed.add_field(name="Customer", value=discord.utils.escape_markdown(row["customer_name"]), inline=True)
+    embed.add_field(name="Problem", value=labels.get(row["issue_type"], row["issue_type"]), inline=True)
+    embed.add_field(name="Status", value=row["status"].upper(), inline=True)
+    if row.get("details"):
+        embed.add_field(name="Customer message", value=discord.utils.escape_markdown(row["details"]), inline=False)
+    embed.set_footer(text="Submitted from the customer’s verified web account")
+    return embed
+
+
+class SupportRequestView(discord.ui.View):
+    def __init__(self, support_id):
+        super().__init__(timeout=None)
+        self.support_id = int(support_id)
+        button = discord.ui.Button(label="Mark Problem Resolved", emoji="✅",
+                                   style=discord.ButtonStyle.success,
+                                   custom_id=f"snr:support:{self.support_id}:resolved")
+
+        async def callback(interaction):
+            if not await require_staff(interaction):
+                return
+            row = orders.resolve_support(self.support_id, interaction.user.id, str(interaction.user))
+            await interaction.response.edit_message(embed=support_request_embed(row), view=None)
+
+        button.callback = callback
+        self.add_item(button)
 
 
 class ReviewPeriodView(discord.ui.View):
@@ -1499,6 +1608,8 @@ def delivery_dashboard_embed(guild_id):
     active_staff = shifts.active(guild_id)
     stats = db.report(today=True)
     fees = orders.outstanding_fees(guild_id)
+    service = orders.service_mode()
+    problems = [row for row in orders.pending_support() if row['guild_id'] == str(guild_id)]
     embed = discord.Embed(title='🚗 SNR DELIVERY DASHBOARD', colour=discord.Colour.orange())
     embed.add_field(name='Waiting', value=f"**{counts['pending']}**", inline=True)
     embed.add_field(name='Accepted', value=f"**{counts['accepted']}**", inline=True)
@@ -1507,6 +1618,8 @@ def delivery_dashboard_embed(guild_id):
     embed.add_field(name='Ready for Pickup', value=f"**{counts['ready_for_pickup']}**", inline=True)
     embed.add_field(name='Active Types', value=f"**{fulfilment['delivery']} delivery • {fulfilment['pickup']} pickup**", inline=True)
     embed.add_field(name='Wasted Journey Fees', value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))} owed**", inline=True)
+    embed.add_field(name='Website Mode', value=f"**{service['label']}**", inline=True)
+    embed.add_field(name='Customer Problems', value=f"**{len(problems)} open**", inline=True)
     embed.add_field(name='Drivers Clocked In', value=f"**{len(active_staff)}**", inline=True)
     embed.add_field(name='Today’s Revenue', value=f"**{money(stats['revenue'])}**", inline=True)
     embed.add_field(name='Today’s Gross Profit', value=f"**{money(stats['gross_profit'])}**", inline=True)
@@ -1523,6 +1636,8 @@ async def show_delivery_orders(interaction):
     rank = {name: index for index, name in enumerate(VIP_LEVELS)}
     rows.sort(key=lambda row: (-rank.get((db.get_customer(row['customer_key']) or {'membership': {'name': 'Regular'}})['membership']['name'], 0), row['id']))
     fees = orders.outstanding_fees(interaction.guild_id, 10)
+    problems = [row for row in orders.pending_support(unsent=False, limit=10)
+                if row['guild_id'] == str(interaction.guild_id)]
     await interaction.response.send_message(embed=delivery_dashboard_embed(interaction.guild_id), ephemeral=True)
     for row in rows[:10]:
         await interaction.followup.send(
@@ -1532,6 +1647,11 @@ async def show_delivery_orders(interaction):
     for fee in fees:
         await interaction.followup.send(
             embed=delivery_fee_embed(fee), view=DeliveryFeeView(fee['id']),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
+        )
+    for row in problems:
+        await interaction.followup.send(
+            embed=support_request_embed(row), view=SupportRequestView(row['id']),
             ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -1704,12 +1824,34 @@ async def notify_customer_reviews():
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Review notification channel is public; waiting for a private channel: %s', row['id'])
                 continue
-            mention, allowed = staff_ping(channel)
+            mention, allowed = (management_ping(channel) if int(row['rating']) <= 2 else staff_ping(channel))
             message = await channel.send(
-                content=mention, embed=customer_review_embed(row), allowed_mentions=allowed)
+                content=mention, embed=customer_review_embed(row),
+                view=LowRatingView(row['id']) if int(row['rating']) <= 2 else None,
+                allowed_mentions=allowed)
             orders.review_notified(row['id'], message.id)
         except Exception:
             logging.exception('Customer review alert failed; will retry: %s', row['id'])
+
+
+@tasks.loop(seconds=10)
+async def notify_support_requests():
+    if not bot.is_ready():
+        return
+    for row in orders.pending_support(unsent=True, limit=20):
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Support alert channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=support_request_embed(row),
+                                         view=SupportRequestView(row['id']), allowed_mentions=allowed)
+            orders.support_notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Order-problem alert failed; will retry: %s', row['id'])
 
 
 @tasks.loop(seconds=10)
@@ -1755,6 +1897,8 @@ async def on_ready() -> None:
         notify_delivery_orders.start()
     if not notify_customer_reviews.is_running():
         notify_customer_reviews.start()
+    if not notify_support_requests.is_running():
+        notify_support_requests.start()
     if not notify_account_requests.is_running():
         notify_account_requests.start()
 
@@ -1768,6 +1912,10 @@ async def setup_hook() -> None:
         bot.add_view(DeliveryOrderView(row['id']))
     for row in orders.outstanding_fees():
         bot.add_view(DeliveryFeeView(row['id']))
+    for row in orders.open_low_reviews():
+        bot.add_view(LowRatingView(row['id']))
+    for row in orders.pending_support():
+        bot.add_view(SupportRequestView(row['id']))
     for row in accounts.pending():
         bot.add_view(AccountRequestView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)

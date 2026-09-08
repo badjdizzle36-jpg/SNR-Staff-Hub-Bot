@@ -4,6 +4,11 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- Owners can switch the customer website between **Open, Busy, Pickup Only, Deliveries Paused and Closed** from **More Tools → Owner Admin → Website Service Mode**. Busy mode keeps orders open with longer estimates; paused modes still allow pickup; Closed blocks new orders safely.
+- Active orders now display a **live ETA and real queue position**. The estimate refreshes automatically from the order's actual status and pending position without the customer reloading the page.
+- A **1–2 star rating rescue flow** asks what went wrong, alerts SNR Management, and creates a durable case with a **Mark Customer Helped** button. Higher ratings continue through the quick normal flow.
+- Customers can press **Report a problem** on a completed order, choose Food quality, Delivery time, Driver behaviour, Missing items or Other, and send a short message. It appears in the private Discord orders channel and stays open until staff resolve it.
+
 - As soon as staff mark an order paid, the customer's open webpage checks within about two seconds and opens a large **Rate Your Experience** pop-up automatically—no scrolling or opening Previous Orders.
 - The mobile-friendly pop-up has five direct star choices, an optional short comment and a Maybe Later button. It only appears for the newest completed order and disappears permanently after that order is reviewed.
 - Customers can leave a verified **1–5 star driver or pickup-experience rating**. The order automatically selects the assigned staff member, so customers cannot choose or rate somebody else.
@@ -103,9 +108,11 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 4. At the customer's location press **Driver Has Arrived**. This alerts their live webpage.
 5. After receiving payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
 6. The customer can then open **Previous orders** on their website Order page and rate the automatically assigned driver from 1–5 stars. Discord alerts SNR Staff when it is submitted.
-7. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
-8. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
-9. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, website delivery is disabled but customers can still place pickup orders.
+   A 1–2 star rating requires a reason, alerts SNR Management and remains open until a manager presses **Mark Customer Helped**.
+7. Customers can use **Report a problem** for a paid order. Resolve the Discord help card after the customer has been assisted.
+8. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
+9. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
+10. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, website delivery is disabled but customers can still place pickup orders.
 
 For pickup orders, press **Accept Pickup Order**, then **Ready for Collection** when the food is ready. The customer is alerted on their webpage. Press **Collected & Customer Paid** only after payment; that final step records finance, loyalty and Golden Tickets.
 

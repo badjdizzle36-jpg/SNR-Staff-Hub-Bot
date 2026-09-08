@@ -37,6 +37,7 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 .account-choice{display:grid;gap:12px;margin-top:20px}.account-choice details{background:#3d0a0a;border:1px solid #ffda4e66;border-radius:16px;overflow:hidden}.account-choice details[open]{border-color:var(--gold);background:#4d0d0c}.account-choice summary{cursor:pointer;padding:17px 18px;color:var(--gold);font-size:18px;font-weight:950;list-style:none}.account-choice summary::-webkit-details-marker{display:none}.account-choice summary:after{content:'+';float:right}.account-choice details[open] summary:after{content:'−'}.choice-body{padding:0 18px 18px}.choice-body p{margin:0 0 10px}.choice-body form{flex-direction:column;margin-top:10px}
 .loyalty-progress{margin:15px 0}.progress-track{height:20px;border-radius:99px;background:#250606;border:1px solid #ffda4e;overflow:hidden}.progress-fill{height:100%;background:linear-gradient(90deg,#ff9e19,#fff05b);border-radius:99px;transition:width .4s}.progress-text{display:flex;justify-content:space-between;margin-top:7px;font-weight:800}.vip-card{grid-column:1/-1;background:linear-gradient(135deg,#151515,#7b150c);border:2px solid var(--gold);box-shadow:inset 0 0 22px #ffbc2340}.vip-card .num{color:var(--gold)}.vip-benefits{margin:8px 0 0;color:#fff5d4}.ownership{margin-top:9px;color:#fff3b0;font-weight:900;letter-spacing:.5px}.order-status{border:2px solid var(--gold);background:linear-gradient(135deg,#7e180f,#4b0b0a)}#status-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,130%);width:min(560px,90vw);padding:18px;background:#ffe33b;color:#4d0b08;border-radius:16px;font-weight:950;text-align:center;box-shadow:0 12px 40px #000a;z-index:10;transition:transform .25s}#status-toast.show{transform:translate(-50%,0)}
 .app-tabs{position:sticky;top:8px;z-index:8;display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:0 0 16px;padding:7px;background:#260607e8;border:1px solid #ffda4e80;border-radius:16px;box-shadow:0 8px 28px #16000099;backdrop-filter:blur(10px)}.app-tab{min-width:0;padding:11px 7px;border-radius:11px;background:#5f100d;color:#fff4db;border:1px solid #ffda4e55;box-shadow:none;font-size:13px}.app-tab[aria-selected="true"]{background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;border-color:#fff08b}.app-tab .tab-icon{display:block;font-size:21px;line-height:1.1}.app-view{display:block}.app-ready .app-view{display:none}.app-ready .app-view.active{display:block;animation:page-in .16s ease-out}@keyframes page-in{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}.app-page{border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.app-page.delivery{margin-top:0;padding:0}.app-page-title{margin:0;padding:16px 18px;color:var(--gold);font-size:22px;font-weight:950;border-bottom:1px solid #ffda4e33}.section-drawer{margin-top:18px;border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.section-drawer>summary{padding:18px;cursor:pointer;list-style:none;color:var(--gold);font-size:20px;font-weight:950}.section-drawer>summary::-webkit-details-marker{display:none}.section-drawer>summary:after{content:'+';float:right;font-size:25px}.section-drawer[open]>summary:after{content:'−'}.drawer-body{padding:18px 20px 22px}.section-drawer.delivery{padding:0}.section-drawer .history{margin-top:18px}.compact-info{margin-top:16px}.compact-info summary{cursor:pointer;color:var(--gold);font-weight:900}.account-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:12px}.account-head .name{margin:2px 0}.page-hint{margin:0;color:var(--muted)}.review-box{margin-top:10px;padding:13px;border:1px solid #ffda4e66;border-radius:14px;background:#3c0a0a}.stars{color:var(--gold);font-size:20px;letter-spacing:2px}.reviewed{color:#9dffab;font-weight:850}.rating-overlay{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:#130000e8;backdrop-filter:blur(8px)}.rating-popup{width:min(560px,100%);max-height:94vh;overflow:auto;padding:24px;background:linear-gradient(145deg,#8b1710,#310708);border:3px solid var(--gold);border-radius:24px;box-shadow:0 0 45px #ffbd2490;text-align:center}.rating-popup h2{font-size:30px;line-height:1.1;margin:7px 0}.rating-popup form{display:block}.rating-options{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:18px 0}.star-choice{position:relative;cursor:pointer}.star-choice input{position:absolute;opacity:0;pointer-events:none}.star-choice span{display:block;padding:12px 3px;border:2px solid #ffda4e70;border-radius:12px;background:#4b0a08;color:#ffe53b;font-size:18px;font-weight:950}.star-choice input:checked+span{background:#ffe53b;color:#5b0b07;border-color:#fff;transform:scale(1.06);box-shadow:0 0 16px #ffe53b99}.rating-popup input[type="text"]{margin-bottom:12px}.rating-popup .later{display:block;width:100%;margin-top:12px;padding:10px;background:transparent;color:#ffeab3;border:0;box-shadow:none;text-decoration:underline}
+.service-banner{padding:14px 16px;margin:0 0 14px;border-radius:14px;background:#4b0a08;border:2px solid var(--gold);font-weight:900}.service-busy{background:#7b3e08}.service-closed{background:#6b0b0b;border-color:#ff7468}.eta-card{margin:12px 0;padding:14px;border-radius:14px;background:#160505;border:1px solid #ffe53b;color:#ffe53b;font-size:18px;font-weight:950}.problem-form{display:flex;flex-direction:column;gap:8px;margin-top:10px}.problem-form input,.problem-form select{padding:11px}.low-rating-reason{display:none;margin-bottom:12px}.low-rating-reason.show{display:block}
 @media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.wrap{width:min(100% - 18px,760px);padding-top:10px}.brand{margin-bottom:9px}.logo-frame{width:125px;border-radius:13px;margin-bottom:7px}.tag{padding:4px 12px;font-size:10px}.card{padding:14px;border-radius:19px}.account-head{margin-bottom:8px}.account-head .label{font-size:11px}.account-head .name{font-size:25px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{padding:12px}.stat .label{font-size:11px;letter-spacing:.3px}.num{font-size:22px}.wide,.vip-card{grid-column:1/-1}.vip-benefits{font-size:14px}.deal-list{grid-template-columns:1fr}.app-tabs{top:5px;margin-bottom:12px}.app-tab{padding:9px 3px;font-size:11px}.app-tab .tab-icon{font-size:19px}.app-page-title{font-size:19px;padding:13px 14px}.drawer-body{padding:13px 14px 17px}.delivery{margin-top:0}.deal-box{padding:12px}.deal-box .price{font-size:20px}input,select,textarea{padding:13px}.subtotal{font-size:20px}.notice{padding:14px}.ownership{display:none}.order-progress{gap:2px}.order-step{font-size:9px}.order-step:before{width:25px;height:25px}.reorder-row{align-items:flex-start;flex-direction:column}.reorder-row button{width:auto}}
 @media(max-width:560px){.rating-popup{padding:19px 14px}.rating-popup h2{font-size:25px}.star-choice span{font-size:15px;padding:11px 1px}}
 """
@@ -197,11 +198,19 @@ def rating_popup(customer: dict, orders: DeliveryStore, form_token: str) -> str:
     star_buttons = ''.join(
         f'<label class="star-choice"><input type="radio" name="rating" value="{score}" required><span>{score} ★</span></label>'
         for score in range(1, 6))
-    return f'''<div class="rating-overlay" id="rating-popup" role="dialog" aria-modal="true" aria-labelledby="rating-title"><div class="rating-popup"><div class="label">✅ ORDER #{int(latest["id"])} COMPLETE</div><h2 id="rating-title">How was your order?</h2><p>Rate your {subject} with <strong>{staff_name}</strong>.</p><form method="post" action="/review"><input type="hidden" name="review_request_key" value="{html.escape(form_token, quote=True)}"><input type="hidden" name="order_id" value="{int(latest["id"])}"><div class="rating-options" aria-label="Choose a rating from 1 to 5 stars">{star_buttons}</div><input type="text" name="comment" maxlength="250" placeholder="Optional short review" aria-label="Optional review"><button type="submit">Send My Rating</button><button class="later" id="rating-later" type="button">Maybe later</button></form></div></div>'''
+    issues = ''.join(f'<option value="{key}">{label}</option>' for key, label in (
+        ("food_quality", "Food quality"), ("delivery_time", "Delivery time"),
+        ("driver_behaviour", "Driver behaviour"), ("missing_items", "Missing items"),
+        ("other", "Other")))
+    support = orders.support_for_order(latest["id"])
+    help_box = (f'<div class="notice">Your order problem has been sent to SNR staff.</div>' if support else
+                f'''<details class="compact-info"><summary>Something wrong with the order?</summary><form class="problem-form" method="post" action="/support"><input type="hidden" name="support_request_key" value="{html.escape(form_token, quote=True)}"><input type="hidden" name="order_id" value="{int(latest["id"])}"><select name="issue_type" required><option value="" disabled selected>Choose the problem</option>{issues}</select><input name="details" maxlength="250" placeholder="Tell us briefly what happened" required><button type="submit">Send Problem to SNR Staff</button></form></details>''')
+    return f'''<div class="rating-overlay" id="rating-popup" role="dialog" aria-modal="true" aria-labelledby="rating-title"><div class="rating-popup"><div class="label">✅ ORDER #{int(latest["id"])} COMPLETE</div><h2 id="rating-title">How was your order?</h2><p>Rate your {subject} with <strong>{staff_name}</strong>.</p><form method="post" action="/review"><input type="hidden" name="review_request_key" value="{html.escape(form_token, quote=True)}"><input type="hidden" name="order_id" value="{int(latest["id"])}"><div class="rating-options" aria-label="Choose a rating from 1 to 5 stars">{star_buttons}</div><div class="low-rating-reason" id="low-rating-reason"><label><strong>What went wrong?</strong><select name="issue_category"><option value="" selected>Choose a reason</option>{issues}</select></label><p class="muted">A 1–2 star rating alerts SNR management so we can help.</p></div><input type="text" name="comment" maxlength="250" placeholder="Optional short review" aria-label="Optional review"><button type="submit">Send My Rating</button><button class="later" id="rating-later" type="button">Maybe later</button></form>{help_box}</div></div>'''
 
 
 def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
     rows = orders.summary(customer["display_name"])
+    service = orders.service_mode()
     fee = orders.outstanding_fee(customer["customer_key"])
     active = next((row for row in rows if row["status"] in ("pending", "accepted", "on_way", "arrived", "ready_for_pickup", "processing")), None)
     labels = {
@@ -229,6 +238,7 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
             mode = html.escape(row.get("fulfillment_type") or "delivery", quote=True)
             reorder = f'<button class="secondary reorder-button" type="button" data-reorder="{payload}" data-mode="{mode}">Order Again</button>'
         review_html = ''
+        support_html = ''
         if row["status"] == "paid" and row.get("assigned_driver_id"):
             review = orders.review_for_order(row["id"])
             subject = "pickup experience" if pickup_row else "driver"
@@ -236,9 +246,16 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
                 stars = "★" * int(review["rating"]) + "☆" * (5 - int(review["rating"]))
                 comment = f'<br><small>“{html.escape(review["comment"]) }”</small>' if review.get("comment") else ''
                 review_html = f'<div class="review-box reviewed">Your {subject} rating: <span class="stars">{stars}</span>{comment}</div>'
-        recent_parts.append(f'<div class="reorder-row"><div>{description}{review_html}</div>{reorder}</div>')
+            support = orders.support_for_order(row["id"])
+            if support:
+                state = "resolved" if support["status"] == "resolved" else "sent to SNR staff"
+                support_html = f'<div class="review-box reviewed">Order problem: {state}</div>'
+            else:
+                support_html = f'''<details class="compact-info"><summary>Report a problem</summary><form class="problem-form" method="post" action="/support"><input type="hidden" name="support_request_key" value="{html.escape(form_token, quote=True)}"><input type="hidden" name="order_id" value="{int(row["id"])}"><select name="issue_type" required><option value="" disabled selected>Choose the problem</option><option value="food_quality">Food quality</option><option value="delivery_time">Delivery time</option><option value="driver_behaviour">Driver behaviour</option><option value="missing_items">Missing items</option><option value="other">Other</option></select><input name="details" maxlength="250" placeholder="Tell us briefly what happened" required><button type="submit">Send to SNR Staff</button></form></details>'''
+        recent_parts.append(f'<div class="reorder-row"><div>{description}{review_html}{support_html}</div>{reorder}</div>')
     recent = ''.join(recent_parts)
     if active:
+        estimate = orders.order_estimate(active["id"])
         pickup = (active.get("fulfillment_type") or "delivery") == "pickup"
         handler_label = "Handling staff" if pickup else "Driver"
         driver = (f'<br>{handler_label}: <strong>{html.escape(active["assigned_driver_name"])}</strong>'
@@ -256,6 +273,7 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
         order_form = (
             f'<div class="notice order-status" data-order-id="{active["id"]}" data-order-status="{active["status"]}">'
             f'<strong>Order #{active["id"]}: {labels[active["status"]]}</strong><br>'
+            f'<div class="review-box" id="live-estimate"><strong>🕒 {html.escape(estimate["eta_text"])}</strong></div>'
             f'{order_tracker(active["status"], pickup)}'
             f'{html.escape(active["deal_name"])}<br>Food subtotal: £{subtotal:,}'
             f'{discount_line}{birthday_line}<br>{charge_label}: {"FREE" if delivery_fee == 0 else f"£{delivery_fee:,}"}'
@@ -273,14 +291,22 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
             delivery_fee = int(customer["membership"]["delivery_fee"])
             fee_text = "FREE — SNR VIP benefit" if delivery_fee == 0 else f"£{delivery_fee:,}"
             drivers = shifts.drivers_available()
+            delivery_open = service["mode"] not in ("pickup_only", "delivery_paused", "closed")
             mode_options = ('<option value="delivery" selected>🚗 Delivery</option><option value="pickup">🛍️ Pickup from SNR Buns</option>'
-                            if drivers else
-                            '<option value="pickup" selected>🛍️ Pickup from SNR Buns</option><option value="delivery" disabled>🚗 Delivery — no drivers available</option>')
-            availability = ("" if drivers else '<div class="notice"><strong>No delivery drivers are clocked in.</strong><br>Pickup ordering is still available.</div>')
+                            if drivers and delivery_open else
+                            '<option value="pickup" selected>🛍️ Pickup from SNR Buns</option><option value="delivery" disabled>🚗 Delivery — unavailable</option>')
+            if service["mode"] == "closed":
+                availability = '<div class="debt-warning"><strong>🔴 SNR Buns is currently closed.</strong><br>Please check again when service reopens.</div>'
+            elif service["mode"] in ("pickup_only", "delivery_paused"):
+                availability = '<div class="notice"><strong>🛍️ Deliveries are paused.</strong><br>Pickup ordering is still open.</div>'
+            elif service["mode"] == "busy":
+                availability = '<div class="notice"><strong>🟠 We are busy.</strong><br>Orders are open, but estimates are a little longer.</div>'
+            else:
+                availability = ("" if drivers else '<div class="notice"><strong>No delivery drivers are clocked in.</strong><br>Pickup ordering is still available.</div>')
             birthday = orders.birthday_status(customer["customer_key"])
             birthday_notice = (f'<div class="notice"><strong>🎂 Happy Birthday — {html.escape(birthday["reward"])}!</strong><br>Your birthday reward will be applied automatically to this order.</div>'
                                if birthday["eligible"] else "")
-            order_form = f'''{availability}{birthday_notice}<div id="reorder-message" class="notice reorder-message" role="status"></div><form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><label><strong>How would you like your order?</strong><select id="fulfillment-type" name="fulfillment_type" required>{mode_options}</select></label><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small id="order-fee-label">Membership delivery: {fee_text}</small><br>Total before discount: <span id="delivery-total">£{delivery_fee if drivers else 0:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code"><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input id="delivery-location" name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" {"required" if drivers else "hidden"}><button type="submit">Place Order</button></div><p class="muted">Pickup is always free. Delivery uses your membership price. Choose up to 10 of each deal (20 deals total). Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>'''
+            order_form = (availability if service["mode"] == "closed" else f'''{availability}{birthday_notice}<div id="reorder-message" class="notice reorder-message" role="status"></div><form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><label><strong>How would you like your order?</strong><select id="fulfillment-type" name="fulfillment_type" required>{mode_options}</select></label><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small id="order-fee-label">Membership delivery: {fee_text}</small><br>Total before discount: <span id="delivery-total">£{delivery_fee if drivers and delivery_open else 0:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code"><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input id="delivery-location" name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" {"required" if drivers and delivery_open else "hidden"}><button type="submit">Place Order</button></div><p class="muted">Pickup is always free. Delivery uses your membership price. Choose up to 10 of each deal (20 deals total). Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>''')
         else:
             order_form = f'<div class="deal-list">{choices}</div><div class="notice">Online delivery is being set up. Please contact SNR Buns for now.</div>'
     return f'''<section class="app-page delivery" id="delivery"><h2 class="app-page-title">🍔 Order Food — Delivery or Pickup</h2><div class="drawer-body"><p class="muted">Choose your deals, then select delivery or collection.</p>{order_form}<details class="compact-info"><summary>Previous orders</summary><div class="history">{recent or '<p class="muted">No orders yet.</p>'}</div></details></div></section>'''
@@ -461,7 +487,7 @@ const currentFee=()=>mode?.value==="pickup"?0:fee;const total=()=>{let t=0;q.for
 document.querySelectorAll(".reorder-button").forEach(b=>b.addEventListener("click",()=>{try{const wanted=JSON.parse(b.dataset.reorder||"{}");q.forEach(x=>x.value=String(wanted[x.name.replace("qty_","")]||0));if(mode){const option=[...mode.options].find(x=>x.value===b.dataset.mode&&!x.disabled);mode.value=option?option.value:"pickup"}syncMode();const m=document.getElementById("reorder-message");if(m){m.textContent="Your previous basket is ready below. Check the amounts and press Place Order when ready.";m.classList.add("show")}f?.scrollIntoView({behavior:"smooth",block:"start"})}catch(e){}}));
 const tracker=document.querySelector("[data-order-id]");if(!tracker)return;let current=tracker.dataset.orderStatus;
 const messages={accepted:"Your order has been accepted!",on_way:"Your driver is on the way!",arrived:"Your SNR Buns driver has arrived and is waiting outside!",ready_for_pickup:"Your order is ready for collection at SNR Buns!",paid:"Your order is complete. Your Golden Tickets were issued and entered automatically!",cancelled:"Your order was cancelled.",wasted_journey:"A \\u00a3500 Wasted Journey fee has been added to your account. Please contact SNR staff."};
-setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=(d.status==="paid"&&d.jackpot_won)?"WINNER! One of your automatic Golden Tickets won the \\u00a35,000 jackpot! Speak to SNR staff now.":(messages[d.status]||"Your order status has changed.");if(d.driver&&!["cancelled","wasted_journey"].includes(d.status))message+=(d.fulfillment_type==="pickup"?" Handling staff: ":" Driver: ")+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);if(d.status==="paid"){location.href="/account#order"}else{setTimeout(()=>location.reload(),1800)}}}catch(e){}},2000);
+setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();const eta=document.getElementById("live-estimate");if(eta&&d.eta_text)eta.innerHTML="<strong>Live estimate: "+d.eta_text+"</strong>";if(d.id==tracker.dataset.orderId&&d.status!==current){current=d.status;const toast=document.getElementById("status-toast");let message=(d.status==="paid"&&d.jackpot_won)?"WINNER! One of your automatic Golden Tickets won the \\u00a35,000 jackpot! Speak to SNR staff now.":(messages[d.status]||"Your order status has changed.");if(d.driver&&!["cancelled","wasted_journey"].includes(d.status))message+=(d.fulfillment_type==="pickup"?" Handling staff: ":" Driver: ")+d.driver;if(toast){toast.textContent=message;toast.classList.add("show")}document.title="SNR UPDATE: "+message;if(navigator.vibrate)navigator.vibrate([200,100,200]);if(d.status==="paid"){location.href="/account#order"}else{setTimeout(()=>location.reload(),1800)}}}catch(e){}},2000);
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
@@ -475,6 +501,7 @@ const app=document.getElementById("customer-app"),tabs=[...document.querySelecto
 const names=new Set(views.map(v=>v.dataset.appView));const show=name=>{if(!names.has(name))name="home";tabs.forEach(t=>t.setAttribute("aria-selected",String(t.dataset.tabTarget===name)));views.forEach(v=>v.classList.toggle("active",v.dataset.appView===name));history.replaceState(null,"","#"+name);document.getElementById("customer-app")?.scrollIntoView({behavior:"smooth",block:"start"})};
 tabs.forEach(t=>t.addEventListener("click",()=>show(t.dataset.tabTarget)));const wanted=location.hash.slice(1);if(names.has(wanted))show(wanted);
 document.getElementById("rating-later")?.addEventListener("click",()=>document.getElementById("rating-popup")?.remove());
+const reason=document.getElementById("low-rating-reason"),reasonSelect=reason?.querySelector("select");document.querySelectorAll('input[name="rating"]').forEach(x=>x.addEventListener("change",()=>{const low=parseInt(x.value,10)<=2;reason?.classList.toggle("show",low);if(reasonSelect)reasonSelect.required=low}));
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
@@ -490,10 +517,12 @@ document.getElementById("rating-later")?.addEventListener("click",()=>document.g
                 rows = orders.summary(owner, 1)
                 row = rows[0] if rows else None
                 outcome = orders.ticket_result(row["id"]) if row and row["status"] == "paid" else {"tickets": 0, "jackpot_won": False}
+                estimate = orders.order_estimate(row["id"]) if row else {"queue_position": 0, "eta_text": ""}
                 self.send_json(200, ({"id": str(row["id"]), "status": row["status"],
                                       "driver": row.get("assigned_driver_name") or "",
                                       "fulfillment_type": row.get("fulfillment_type") or "delivery",
-                                      "tickets": outcome["tickets"], "jackpot_won": outcome["jackpot_won"]}
+                                      "tickets": outcome["tickets"], "jackpot_won": outcome["jackpot_won"],
+                                      "queue_position": estimate["queue_position"], "eta_text": estimate["eta_text"]}
                                      if row else {"id": None, "status": "none", "driver": ""}))
             elif path == "/health":
                 data = json.dumps({"status": "ok"}).encode()
@@ -604,10 +633,20 @@ document.getElementById("rating-later")?.addEventListener("click",()=>document.g
                         raise ValueError("This rating form has expired. Refresh your account and try again.")
                     result = orders.create_review_authenticated(
                         owner, data.get("order_id", ""), data.get("rating", ""),
-                        data.get("comment", ""))
+                        data.get("comment", ""), data.get("issue_category", ""))
                     stars = "★" * int(result["rating"]) + "☆" * (5 - int(result["rating"]))
                     subject = "pickup experience" if result["fulfillment_type"] == "pickup" else "driver"
                     self.send_html(200, page("Thanks for your rating", f'''<section class="card"><div class="label">Review received</div><h1>Thank you! <span class="stars">{stars}</span></h1><p>Your {subject} rating for <strong>{html.escape(result["staff_name"])}</strong> has been recorded.</p><div class="notice">SNR staff have been notified. Each completed order can only be rated once.</div><a class="back" href="/account#order">Back to my orders</a></section>'''))
+                elif path == "/support":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    if not valid_form_token(owner, data.get("support_request_key", "")):
+                        raise ValueError("This help form has expired. Refresh your account and try again.")
+                    result = orders.create_support_authenticated(
+                        owner, data.get("order_id", ""), data.get("issue_type", ""),
+                        data.get("details", ""))
+                    self.send_html(200, page("Problem sent", f'''<section class="card"><div class="label">Order #{int(result["order_id"])} help</div><h1>We’ve told SNR staff</h1><div class="notice">Your problem is safely logged. Staff will review it and mark it resolved after helping you.</div><a class="back" href="/account#order">Back to my orders</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:
