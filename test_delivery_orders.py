@@ -2,10 +2,12 @@ import tempfile
 import unittest
 import json
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from html.parser import HTMLParser
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from zoneinfo import ZoneInfo
 
 from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
@@ -267,9 +269,63 @@ class DeliveryTests(unittest.TestCase):
             row = self.orders.pending()[0]
             self.assertEqual(row["fulfillment_type"], "pickup")
             self.assertEqual(row["price"], 150)
+            response, tracking = request("/account")
+            self.assertIn('class="order-progress"', tracking)
+            self.assertIn('data-track-status="ready_for_pickup"', tracking)
+            self.orders.advance(row["id"], "accepted", "11", "Counter Staff")
+            self.orders.advance(row["id"], "ready_for_pickup", "11", "Counter Staff")
+            self.orders.resolve(row["id"], "paid", "11", "Counter Staff")
+            response, previous = request("/account")
+            self.assertIn("Order Again", previous)
+            self.assertIn('data-reorder="{&quot;quick_fix&quot;:1}"', previous)
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_birthday_reward_is_secure_automatic_and_annual(self):
+        now = datetime.now(ZoneInfo("Europe/London"))
+        saved = self.orders.set_birthday_authenticated("Cody Ortega", now.month, now.day)
+        self.assertTrue(saved["saved"])
+        self.assertEqual(saved["reason"], "security_wait")
+        with self.assertRaisesRegex(ValueError, "already saved"):
+            self.orders.set_birthday_authenticated("Cody Ortega", 1 if now.month != 1 else 2, 1)
+        self.orders.configure_birthday_reward("fixed", 150, "1", "Owner")
+        corrected = self.orders.set_birthday_by_owner(
+            "Cody Orteg", now.month, now.day, "1", "Owner")
+        self.assertEqual(corrected["customer_name"], "Cody Ortega")
+        self.assertTrue(self.orders.birthday_status("Cody Ortega")["eligible"])
+        row = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"quick_fix": 1}, "", "birthday-order-one", fulfillment_type="pickup")
+        self.assertEqual(row["birthday_discount"], 150)
+        self.assertEqual(row["price"], 0)
+        self.orders.advance(row["id"], "accepted", "11", "Counter Staff")
+        self.orders.advance(row["id"], "ready_for_pickup", "11", "Counter Staff")
+        self.orders.resolve(row["id"], "paid", "11", "Counter Staff")
+        self.assertEqual(self.orders.birthday_status("Cody Ortega")["reason"], "used")
+        second = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"quick_fix": 1}, "", "birthday-order-two", fulfillment_type="pickup")
+        self.assertEqual(second["birthday_discount"], 0)
+        self.assertEqual(second["price"], 150)
+
+    def test_daily_closing_summary_counts_orders_adjustments_and_open_work(self):
+        self.orders.configure_birthday_reward("fixed", 50, "1", "Owner")
+        now = datetime.now(ZoneInfo("Europe/London"))
+        self.orders.set_birthday_by_owner("Cody Ortega", now.month, now.day, "1", "Owner")
+        paid = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"mega_deal": 1}, "", "closing-paid", fulfillment_type="pickup")
+        self.orders.advance(paid["id"], "accepted", "11", "Counter Staff")
+        self.orders.advance(paid["id"], "ready_for_pickup", "11", "Counter Staff")
+        self.orders.resolve(paid["id"], "paid", "11", "Counter Staff")
+        self.accounts.issue_setup("Open Customer", "1", "Staff")
+        self.orders.create_cart_authenticated(
+            "Open Customer", {"quick_fix": 1}, "", "closing-open", fulfillment_type="pickup")
+        report = self.orders.daily_summary("200")
+        self.assertEqual(report["orders"], 1)
+        self.assertEqual(report["pickups"], 1)
+        self.assertEqual(report["deliveries"], 0)
+        self.assertEqual(report["birthday_discounts"], 50)
+        self.assertEqual(report["collected"], 450)
+        self.assertEqual(report["active_orders"], 1)
 
     def test_multi_item_cart_subtotal_and_each_sale_recorded(self):
         row = self.orders.create_cart_authenticated(
@@ -402,6 +458,82 @@ class DeliveryTests(unittest.TestCase):
         with self.db.connect() as conn:
             audit = conn.execute("SELECT action FROM audit_log ORDER BY rowid DESC LIMIT 1").fetchone()
         self.assertEqual(audit["action"], "owner_clocked_staff_off")
+
+    def test_reviews_are_verified_one_per_paid_order_and_rank_staff(self):
+        order = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"mega_deal": 1}, "", "reviewed-pickup",
+            fulfillment_type="pickup")
+        self.orders.advance(order["id"], "accepted", "11", "Counter Star")
+        with self.assertRaisesRegex(ValueError, "after staff confirm"):
+            self.orders.create_review_authenticated("Cody Ortega", order["id"], 5, "Great")
+        self.orders.advance(order["id"], "ready_for_pickup", "11", "Counter Star")
+        self.orders.resolve(order["id"], "paid", "11", "Counter Star")
+
+        with self.assertRaisesRegex(ValueError, "1 to 5"):
+            self.orders.create_review_authenticated("Cody Ortega", order["id"], 6, "")
+        other_code = self.accounts.issue_setup("Other Customer", "1", "Staff")
+        self.accounts.set_password("Other Customer", other_code, "another password 123")
+        with self.assertRaisesRegex(ValueError, "does not belong"):
+            self.orders.create_review_authenticated("Other Customer", order["id"], 5, "")
+
+        review = self.orders.create_review_authenticated(
+            "Cody Ortega", order["id"], 5, "Fantastic pickup service")
+        self.assertEqual(review["staff_id"], "11")
+        self.assertEqual(review["staff_name"], "Counter Star")
+        self.assertEqual(review["fulfillment_type"], "pickup")
+        with self.assertRaisesRegex(ValueError, "already reviewed"):
+            self.orders.create_review_authenticated("Cody Ortega", order["id"], 1, "changed")
+
+        alerts = self.orders.unnotified_reviews()
+        self.assertEqual([row["id"] for row in alerts], [review["id"]])
+        self.orders.review_notified(review["id"], "999")
+        self.assertEqual(self.orders.unnotified_reviews(), [])
+        weekly = self.orders.review_leaderboard("200", 7)
+        self.assertEqual(weekly[0]["staff_name"], "Counter Star")
+        self.assertEqual(weekly[0]["average_rating"], 5.0)
+        self.assertEqual(weekly[0]["reviews"], 1)
+        self.assertEqual(weekly[0]["pickups"], 1)
+
+    def test_logged_in_customer_can_rate_completed_order_on_web(self):
+        order = self.orders.create_cart_authenticated(
+            "Cody Ortega", {"quick_fix": 1}, "", "web-review-order",
+            fulfillment_type="pickup")
+        self.orders.advance(order["id"], "accepted", "11", "Helpful Staff")
+        self.orders.advance(order["id"], "ready_for_pickup", "11", "Helpful Staff")
+        self.orders.resolve(order["id"], "paid", "11", "Helpful Staff")
+        server = start_web_server(self.db, 0)
+        base = f"http://127.0.0.1:{server.server_port}"
+        cookie = "snr_session=" + self.session
+
+        def request(path, values=None):
+            req = Request(base + path,
+                          data=urlencode(values).encode() if values is not None else None,
+                          headers={"Cookie": cookie})
+            response = build_opener().open(req)
+            return response, response.read().decode()
+
+        try:
+            response, body = request("/account")
+            self.assertEqual(response.status, 200)
+            self.assertIn("Rate your pickup experience", body)
+            self.assertIn("Helpful Staff", body)
+            parser = HiddenForm()
+            parser.feed(body)
+            response, thanks = request("/review", {
+                "review_request_key": parser.values["review_request_key"],
+                "order_id": str(order["id"]), "rating": "4",
+                "comment": "Fast and friendly",
+            })
+            self.assertEqual(response.status, 200)
+            self.assertIn("★★★★☆", thanks)
+            self.assertIn("Helpful Staff", thanks)
+            response, updated = request("/account")
+            self.assertIn("Your pickup experience rating", updated)
+            self.assertIn("Fast and friendly", updated)
+            self.assertNotIn("Rate your pickup experience", updated)
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":

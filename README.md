@@ -4,6 +4,15 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- Customers can leave a verified **1–5 star driver or pickup-experience rating** after staff mark their order paid. The order automatically selects the staff member, so customers cannot choose or rate somebody else.
+- Each completed order can be reviewed only once. An optional 250-character comment is saved with the star rating, and the SNR Staff role receives a Discord alert in the private orders channel.
+- Staff can open **More Tools → Staff Ratings** for weekly and monthly leaderboards, or run `/snrhub_ratings`. Rankings show average stars, number of reviews, five-star reviews, deliveries and pickups.
+- Active delivery and pickup orders now show a visual **live progress tracker** on the customer webpage. Discord actions move the tracker through Placed, Accepted, On Way/Ready, Arrived/Payment and Complete, while the existing webpage alert continues checking every five seconds.
+- Completed website orders now include **Order Again**. It safely refills the old basket and fulfillment choice for review; it never submits a new order until the customer presses Place Order.
+- **Owner Admin → Daily Closing Report** gives an owner-only UK-day snapshot of sales, revenue, production cost, gross profit, margin, paid deliveries/pickups, delivery fees, code discounts, birthday discounts, open orders and wasted journeys. It does not reset data.
+- Customers can save their birthday day and month once from the website. The annual birthday reward activates after a seven-day security wait, applies automatically to one order on their birthday, and cannot be used twice in the same year.
+- **Owner Admin → Birthday Reward** can set a percentage reward, fixed cash reduction, or switch birthday rewards off. Owners can also correct a customer's saved birthday; close spellings of saved names are recognised.
+- Birthday reductions are displayed in the customer checkout, Discord order receipt and daily closing report. The default on first deployment is **20% off one birthday order**.
 - Discord quantity sales now guarantee the deal's loyalty points for **every individual deal sold**: 2 Mega Deals award 2 base points, while 2 Share Boxes award 4 base points. Any Gold, Platinum or SNR VIP membership bonus is added separately on top, and the receipt shows the full calculation.
 - The signed-in website is now a compact app-style dashboard with **Home, Order, Rewards and Visits** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
 - Mobile spacing, logo size, dashboard cards and order controls have been tightened so the important information fits on screen faster without removing any features.
@@ -86,9 +95,10 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 3. For website orders, open **Delivery Orders**, press **Accept Delivery**, then **Driver On The Way** when leaving.
 4. At the customer's location press **Driver Has Arrived**. This alerts their live webpage.
 5. After receiving payment, press **Delivered & Customer Paid**. Only this final step records sales and rewards.
-6. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
-7. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
-8. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, website delivery is disabled but customers can still place pickup orders.
+6. The customer can then open **Previous orders** on their website Order page and rate the automatically assigned driver from 1–5 stars. Discord alerts SNR Staff when it is submitted.
+7. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
+8. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
+9. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, website delivery is disabled but customers can still place pickup orders.
 
 For pickup orders, press **Accept Pickup Order**, then **Ready for Collection** when the food is ready. The customer is alerted on their webpage. Press **Collected & Customer Paid** only after payment; that final step records finance, loyalty and Golden Tickets.
 
@@ -117,6 +127,7 @@ Pending orders and requests are durable. If Discord or Railway restarts, unsent 
 - `/snrhub_customer` — check a customer
 - `/snrhub_birdy` — generate copy-ready Birdy posts
 - `/snrhub_report` — finance reporting
+- `/snrhub_ratings` — verified weekly or monthly staff rating leaderboard
 
 Every command uses the unique `snrhub_` prefix, so it will not conflict with other bots.
 

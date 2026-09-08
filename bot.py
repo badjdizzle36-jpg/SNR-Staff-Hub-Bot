@@ -164,6 +164,12 @@ def customer_embed(customer: dict) -> discord.Embed:
         inline=True,
     )
     embed.add_field(name="Website Account", value=f"**{accounts.status(customer['display_name'])}**", inline=True)
+    birthday = orders.birthday_status(customer['customer_key'])
+    birthday_value = ((f"**{birthday['date']}** • Rewards currently paused" if not birthday['active'] else
+                       f"**{birthday['date']}** • {birthday['reward']}")
+                      + ("\n🎂 **REWARD READY TODAY**" if birthday['eligible'] else "")
+                      if birthday['saved'] else "Not added")
+    embed.add_field(name="Birthday Reward", value=birthday_value, inline=True)
     progress = (f"{membership['remaining']} purchase(s) to {membership['next_level']}"
                 if membership['next_level'] else ("Owner-set membership" if membership['manual'] else "Highest level reached"))
     embed.add_field(
@@ -282,6 +288,31 @@ def finance_embed(stats: dict, title: str) -> discord.Embed:
             f"dessert {money(AVERAGE_DESSERT_COST)} • Excludes reward packs and overheads"
         )
     )
+    return embed
+
+
+def closing_report_embed(stats: dict, delivery: dict) -> discord.Embed:
+    embed = discord.Embed(title="🔒 SNR DAILY CLOSING REPORT", colour=discord.Colour.gold())
+    embed.description = "Owner-only snapshot for today in UK time. This does not reset or delete anything."
+    embed.add_field(name="Completed Sales", value=f"**{stats['sales']}**", inline=True)
+    embed.add_field(name="Revenue", value=f"**{money(stats['revenue'])}**", inline=True)
+    embed.add_field(name="Gross Profit", value=f"**{money(stats['gross_profit'])}**", inline=True)
+    embed.add_field(name="Production Cost", value=f"**{money(stats['production_cost'])}**", inline=True)
+    embed.add_field(name="Profit Margin", value=f"**{stats['profit_margin']:.1f}%**", inline=True)
+    embed.add_field(name="Loyalty / Tickets", value=f"**{stats['loyalty']} points • {stats['tickets']} tickets**", inline=True)
+    embed.add_field(name="Website Orders", value=(f"**{delivery['orders']} paid**\n"
+                    f"{delivery['deliveries']} delivery • {delivery['pickups']} pickup"), inline=True)
+    embed.add_field(name="Order Adjustments", value=(f"Delivery fees: **{money(delivery['delivery_fees'])}**\n"
+                    f"Code discounts: **−{money(delivery['code_discounts'])}**\n"
+                    f"Birthday rewards: **−{money(delivery['birthday_discounts'])}**"), inline=True)
+    embed.add_field(name="Still Open", value=f"**{delivery['active_orders']} order(s)**", inline=True)
+    embed.add_field(name="Wasted Journeys Today", value=(f"**{delivery['wasted_journeys']}** • "
+                    f"{money(delivery['wasted_fees'])} charged"), inline=True)
+    embed.add_field(name="Birthday Rewards Due", value=f"**{delivery['birthday_rewards_due']}**", inline=True)
+    breakdown = "\n".join(f"• {row['deal_name']} ×{row['quantity']} — {money(row['revenue'])}"
+                          for row in stats['deals']) or "No completed sales today."
+    embed.add_field(name="Deals Sold", value=breakdown[:1024], inline=False)
+    embed.set_footer(text="Run this again at any time for the latest totals • UK day")
     return embed
 
 
@@ -735,6 +766,51 @@ class DiscountCodesView(discord.ui.View):
             await interaction.response.send_modal(DiscountCodeModal())
 
 
+class BirthdayRewardModal(discord.ui.Modal, title="Configure Birthday Reward"):
+    reward_type = discord.ui.TextInput(
+        label="Type", placeholder="percent, fixed or off", min_length=3, max_length=7)
+    amount = discord.ui.TextInput(
+        label="Amount", placeholder="20 = 20% or £20 (use 150 for free Quick Fix)",
+        required=False, max_length=6)
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        try:
+            row = orders.configure_birthday_reward(
+                self.reward_type.value, self.amount.value, interaction.user.id, str(interaction.user))
+        except (ValueError, TypeError) as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        if not row['active']:
+            message = "✅ Birthday rewards have been switched off. Saved customer birthdays remain protected."
+        else:
+            reward = (f"{row['amount']}% off one order" if row['reward_type'] == 'percent'
+                      else f"£{row['amount']:,} off one order")
+            message = f"✅ The annual birthday reward is now **{reward}**."
+        await interaction.response.send_message(message, ephemeral=True)
+
+
+class BirthdayCorrectionModal(discord.ui.Modal, title="Set or Correct Customer Birthday"):
+    customer_name = discord.ui.TextInput(
+        label="Customer character name", placeholder="Example: Cody Ortega", min_length=2, max_length=60)
+    day = discord.ui.TextInput(label="Birthday day", placeholder="Example: 15", min_length=1, max_length=2)
+    month = discord.ui.TextInput(label="Birthday month", placeholder="Example: 8", min_length=1, max_length=2)
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        try:
+            result = orders.set_birthday_by_owner(
+                self.customer_name.value, self.month.value, self.day.value,
+                interaction.user.id, str(interaction.user))
+        except (ValueError, TypeError) as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"✅ Birthday for **{result['customer_name']}** set to **{result['date']}**.", ephemeral=True)
+
+
 class OwnerAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
@@ -791,6 +867,30 @@ class OwnerAdminView(discord.ui.View):
             "🏷️ **Delivery Discount Codes**\n" + ("\n".join(lines) if lines else "No active codes yet."),
             view=DiscountCodesView())
 
+    @discord.ui.button(label="Daily Closing Report", emoji="🔒", style=discord.ButtonStyle.primary, row=1)
+    async def daily_closing(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        await send_ephemeral(
+            interaction,
+            embed=closing_report_embed(db.report(today=True), orders.daily_summary(interaction.guild_id)),
+        )
+
+    @discord.ui.button(label="Birthday Reward", emoji="🎂", style=discord.ButtonStyle.success, row=1)
+    async def birthday_reward(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        config = orders.birthday_config()
+        current = ("OFF" if not config['active'] else
+                   f"{config['amount']}% off" if config['reward_type'] == 'percent'
+                   else f"£{config['amount']:,} off")
+        await interaction.response.send_message(
+            f"🎂 Current annual birthday reward: **{current}**\n"
+            "Choose `percent`, `fixed`, or `off`. A fixed £150 reward works like a free Quick Fix.",
+            ephemeral=True,
+            view=BirthdayRewardConfigView(),
+        )
+
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
         if not await require_owner(interaction):
@@ -805,6 +905,21 @@ class OwnerAdminView(discord.ui.View):
             await interaction.edit_original_response(
                 content="❌ Discord could not update the picture right now. Wait an hour and try once more.")
         asyncio.create_task(delete_response_later(interaction, 5))
+
+
+class BirthdayRewardConfigView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="Change Birthday Reward", emoji="⚙️", style=discord.ButtonStyle.primary)
+    async def change(self, interaction, button):
+        if await require_owner(interaction):
+            await interaction.response.send_modal(BirthdayRewardModal())
+
+    @discord.ui.button(label="Correct Customer Birthday", emoji="✏️", style=discord.ButtonStyle.secondary)
+    async def correct(self, interaction, button):
+        if await require_owner(interaction):
+            await interaction.response.send_modal(BirthdayCorrectionModal())
 
 
 class CustomerToolsView(discord.ui.View):
@@ -867,6 +982,56 @@ class ShiftToolsView(discord.ui.View):
             delete_after=5)
 
 
+def review_leaderboard_embed(guild_id, days):
+    rows = orders.review_leaderboard(guild_id, days)
+    title = "THIS WEEK" if days == 7 else "THIS MONTH"
+    embed = discord.Embed(
+        title=f"⭐ SNR STAFF RATINGS — {title}", colour=discord.Colour.gold())
+    if not rows:
+        embed.description = "No customer ratings have been submitted in this period yet."
+    else:
+        lines = []
+        medals = ("🥇", "🥈", "🥉")
+        for index, row in enumerate(rows[:15]):
+            medal = medals[index] if index < len(medals) else f"**{index + 1}.**"
+            average = float(row["average_rating"] or 0)
+            lines.append(
+                f'{medal} **{discord.utils.escape_markdown(row["staff_name"])}** — '
+                f'**{average:.2f}/5** from {int(row["reviews"])} review(s) '
+                f'• {int(row["five_star_reviews"])} five-star '
+                f'• {int(row["deliveries"])} delivery / {int(row["pickups"])} pickup')
+        embed.description = "\n".join(lines)
+    embed.set_footer(text="Ranked by average stars, then number of reviews • Verified completed orders only")
+    return embed
+
+
+def customer_review_embed(row):
+    stars = "★" * int(row["rating"]) + "☆" * (5 - int(row["rating"]))
+    mode = "Pickup experience" if row["fulfillment_type"] == "pickup" else "Delivery driver"
+    embed = discord.Embed(title=f"⭐ NEW CUSTOMER RATING — ORDER #{row['order_id']}",
+                          colour=discord.Colour.gold())
+    embed.add_field(name="Customer", value=discord.utils.escape_markdown(row["customer_name"]), inline=True)
+    embed.add_field(name=mode, value=discord.utils.escape_markdown(row["staff_name"]), inline=True)
+    embed.add_field(name="Rating", value=f"**{stars} ({int(row['rating'])}/5)**", inline=False)
+    if row.get("comment"):
+        embed.add_field(name="Customer comment",
+                        value=discord.utils.escape_markdown(row["comment"]), inline=False)
+    embed.set_footer(text="Verified: linked to the customer’s own completed and paid order")
+    return embed
+
+
+class ReviewPeriodView(discord.ui.View):
+    @discord.ui.button(label="Weekly Ratings", emoji="📅", style=discord.ButtonStyle.primary)
+    async def weekly(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await send_ephemeral(interaction, embed=review_leaderboard_embed(interaction.guild_id, 7))
+
+    @discord.ui.button(label="Monthly Ratings", emoji="🗓️", style=discord.ButtonStyle.secondary)
+    async def monthly(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await send_ephemeral(interaction, embed=review_leaderboard_embed(interaction.guild_id, 30))
+
+
 class MoreToolsView(discord.ui.View):
     """Occasional staff tools, kept off the everyday hub."""
 
@@ -904,6 +1069,14 @@ class MoreToolsView(discord.ui.View):
         if await require_staff(interaction):
             await send_ephemeral(
                 interaction, "Choose the post you want to copy into Birdy:", view=BirdyView())
+
+    @discord.ui.button(label="Staff Ratings", emoji="⭐", style=discord.ButtonStyle.primary)
+    async def staff_ratings(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await send_ephemeral(
+                interaction,
+                "⭐ **Verified Driver & Experience Ratings**\nChoose the period you want to check.",
+                view=ReviewPeriodView())
 
     @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger)
     async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -1068,9 +1241,12 @@ def delivery_order_embed(row):
     subtotal = int(row.get('subtotal') or row['price'])
     fee = int(row.get('delivery_fee') or 0)
     discount = int(row.get('discount_amount') or 0)
+    birthday_discount = int(row.get('birthday_discount') or 0)
     breakdown = [f"Food: **{money(subtotal)}**"]
     if discount:
         breakdown.append(f"Code **{discord.utils.escape_markdown(row.get('discount_code') or '')}**: **−{money(discount)}**")
+    if birthday_discount:
+        breakdown.append(f"🎂 Birthday reward: **−{money(birthday_discount)}**")
     fee_label = 'Pickup charge' if fulfillment == 'pickup' else f"{row.get('membership_level') or 'Regular'} delivery"
     breakdown.append(f"{fee_label}: **{'FREE' if fee == 0 else money(fee)}**")
     breakdown.append(f"Final total: **{money(row['price'])}**")
@@ -1517,6 +1693,26 @@ async def notify_delivery_orders():
 
 
 @tasks.loop(seconds=10)
+async def notify_customer_reviews():
+    if not bot.is_ready():
+        return
+    for row in orders.unnotified_reviews(20):
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Review notification channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(
+                content=mention, embed=customer_review_embed(row), allowed_mentions=allowed)
+            orders.review_notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Customer review alert failed; will retry: %s', row['id'])
+
+
+@tasks.loop(seconds=10)
 async def notify_account_requests():
     if not bot.is_ready():
         return
@@ -1557,6 +1753,8 @@ async def on_ready() -> None:
         notify_pack_claims.start()
     if not notify_delivery_orders.is_running():
         notify_delivery_orders.start()
+    if not notify_customer_reviews.is_running():
+        notify_customer_reviews.start()
     if not notify_account_requests.is_running():
         notify_account_requests.start()
 
@@ -1696,6 +1894,18 @@ async def report(interaction: discord.Interaction, period: app_commands.Choice[i
         embed=finance_embed(stats, f"💷 SNR FINANCE — {period.name.upper()}"),
         ephemeral=True,
     )
+
+
+@bot.tree.command(name="snrhub_ratings", description="Show verified weekly or monthly staff ratings.")
+@app_commands.choices(period=[
+    app_commands.Choice(name="This week — last 7 days", value=7),
+    app_commands.Choice(name="This month — last 30 days", value=30),
+])
+async def ratings(interaction: discord.Interaction, period: app_commands.Choice[int]) -> None:
+    if not await require_staff(interaction):
+        return
+    await interaction.response.send_message(
+        embed=review_leaderboard_embed(interaction.guild_id, period.value), ephemeral=True)
 
 
 async def main() -> None:

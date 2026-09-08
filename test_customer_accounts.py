@@ -1,10 +1,12 @@
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from html.parser import HTMLParser
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from zoneinfo import ZoneInfo
 
 from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
@@ -215,6 +217,18 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIn("app-ready", portal_script)
             parser = HiddenForm(); parser.feed(body)
+            now = datetime.now(ZoneInfo("Europe/London"))
+            response, birthday_error = open_request("/birthday", {
+                "birthday_request_key": "forged", "birthday_day": str(now.day),
+                "birthday_month": str(now.month),
+            }, cookie=session_cookie)
+            self.assertEqual(response.status, 400)
+            response, birthday_saved = open_request("/birthday", {
+                "birthday_request_key": parser.values["birthday_request_key"],
+                "birthday_day": str(now.day), "birthday_month": str(now.month),
+            }, cookie=session_cookie)
+            self.assertEqual(response.status, 200)
+            self.assertIn("Birthday Reward", birthday_saved)
             forged = dict(parser.values); forged["claim_request_key"] = "forged"
             self.assertEqual(open_request("/claim", forged, cookie=session_cookie)[0].status, 400)
             response, result = open_request("/claim", parser.values, cookie=session_cookie)

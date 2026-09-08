@@ -1,7 +1,8 @@
 """Durable multi-item website delivery orders linked to SNR sales."""
 import json
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from snr_core import DEALS, normalize_name, utc_now
 
@@ -28,7 +29,8 @@ class DeliveryStore:
                     subtotal INTEGER, delivery_fee INTEGER NOT NULL DEFAULT 0,
                     discount_amount INTEGER NOT NULL DEFAULT 0, discount_code TEXT,
                     membership_level TEXT, fulfillment_type TEXT NOT NULL DEFAULT 'delivery',
-                    ready_at TEXT);
+                    ready_at TEXT, birthday_discount INTEGER NOT NULL DEFAULT 0,
+                    birthday_reward_year INTEGER);
                 CREATE TABLE IF NOT EXISTS delivery_discount_codes (
                     code TEXT PRIMARY KEY, discount_type TEXT NOT NULL, amount INTEGER NOT NULL,
                     max_uses INTEGER, uses INTEGER NOT NULL DEFAULT 0, expires_on TEXT,
@@ -44,6 +46,24 @@ class DeliveryStore:
                     reason TEXT NOT NULL DEFAULT 'Wasted delivery journey',
                     created_at TEXT NOT NULL, created_by TEXT NOT NULL, created_by_name TEXT NOT NULL,
                     resolved_at TEXT, resolved_by TEXT, resolved_by_name TEXT);
+                CREATE TABLE IF NOT EXISTS customer_birthdays (
+                    customer_key TEXT PRIMARY KEY REFERENCES customers(customer_key),
+                    birthday_mmdd TEXT NOT NULL, set_at TEXT NOT NULL,
+                    last_reward_year INTEGER);
+                CREATE TABLE IF NOT EXISTS birthday_reward_settings (
+                    id INTEGER PRIMARY KEY CHECK(id=1), reward_type TEXT NOT NULL,
+                    amount INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL, updated_by TEXT, updated_by_name TEXT);
+                CREATE TABLE IF NOT EXISTS delivery_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER NOT NULL UNIQUE REFERENCES web_delivery_orders(id),
+                    customer_key TEXT NOT NULL REFERENCES customers(customer_key),
+                    customer_name TEXT NOT NULL,
+                    staff_id TEXT NOT NULL, staff_name TEXT NOT NULL,
+                    fulfillment_type TEXT NOT NULL,
+                    rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+                    comment TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+                    notification_message_id TEXT);
             """)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(web_delivery_orders)")}
             for name, definition in (
@@ -55,6 +75,8 @@ class DeliveryStore:
                 ("discount_amount", "INTEGER NOT NULL DEFAULT 0"), ("discount_code", "TEXT"),
                 ("membership_level", "TEXT"),
                 ("fulfillment_type", "TEXT NOT NULL DEFAULT 'delivery'"), ("ready_at", "TEXT"),
+                ("birthday_discount", "INTEGER NOT NULL DEFAULT 0"),
+                ("birthday_reward_year", "INTEGER"),
             ):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE web_delivery_orders ADD COLUMN {name} {definition}")
@@ -63,6 +85,8 @@ class DeliveryStore:
             conn.execute("DROP INDEX IF EXISTS one_pending_web_delivery")
             conn.execute("""CREATE UNIQUE INDEX one_pending_web_delivery ON web_delivery_orders(customer_key)
                 WHERE status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')""")
+            conn.execute("""INSERT OR IGNORE INTO birthday_reward_settings
+                (id,reward_type,amount,active,updated_at) VALUES(1,'percent',20,1,?)""", (utc_now(),))
 
     @staticmethod
     def audit(conn, action, details, staff_id=None, staff_name=None):
@@ -166,9 +190,129 @@ class DeliveryStore:
 
     @staticmethod
     def _discount_amount(row, subtotal):
-        if row["discount_type"] == "percent":
+        discount_type = row["discount_type"] if "discount_type" in row.keys() else row["reward_type"]
+        if discount_type == "percent":
             return min(subtotal, (subtotal * int(row["amount"]) + 50) // 100)
         return min(subtotal, int(row["amount"]))
+
+    def birthday_config(self):
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM birthday_reward_settings WHERE id=1").fetchone()
+        return dict(row)
+
+    def configure_birthday_reward(self, reward_type, amount, staff_id, staff_name):
+        reward_type = str(reward_type or "").strip().lower()
+        if reward_type == "off":
+            with self.db.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("""UPDATE birthday_reward_settings SET active=0,updated_at=?,
+                    updated_by=?,updated_by_name=? WHERE id=1""",
+                    (utc_now(), str(staff_id), staff_name))
+                self.audit(conn, "birthday_reward_disabled", "active=0", str(staff_id), staff_name)
+            return self.birthday_config()
+        if reward_type not in ("percent", "fixed"):
+            raise ValueError("Type must be percent, fixed or off.")
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            raise ValueError("Birthday reward amount must be a whole number.")
+        if amount <= 0 or (reward_type == "percent" and amount > 100):
+            raise ValueError("Enter a positive reward amount (maximum 100%).")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""UPDATE birthday_reward_settings SET reward_type=?,amount=?,active=1,
+                updated_at=?,updated_by=?,updated_by_name=? WHERE id=1""",
+                (reward_type, amount, utc_now(), str(staff_id), staff_name))
+            self.audit(conn, "birthday_reward_configured", f"type={reward_type};amount={amount}",
+                       str(staff_id), staff_name)
+        return self.birthday_config()
+
+    def set_birthday_authenticated(self, customer_key, month, day):
+        key = normalize_name(customer_key)
+        try:
+            month, day = int(month), int(day)
+            date(2000, month, day)
+        except (TypeError, ValueError):
+            raise ValueError("Choose a valid birthday day and month.")
+        mmdd = f"{month:02d}-{day:02d}"
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute("SELECT 1 FROM customers WHERE customer_key=?", (key,)).fetchone():
+                raise ValueError("Customer account not found.")
+            existing = conn.execute("SELECT * FROM customer_birthdays WHERE customer_key=?", (key,)).fetchone()
+            if existing:
+                if existing["birthday_mmdd"] == mmdd:
+                    return self.birthday_status(key)
+                raise ValueError("Your birthday is already saved. Ask an SNR owner if it needs correcting.")
+            conn.execute("INSERT INTO customer_birthdays(customer_key,birthday_mmdd,set_at) VALUES(?,?,?)",
+                         (key, mmdd, utc_now()))
+            self.audit(conn, "customer_birthday_set", f"customer={key};birthday={mmdd}")
+        return self.birthday_status(key)
+
+    def set_birthday_by_owner(self, customer_name, month, day, staff_id, staff_name):
+        customer = self.db.get_customer(customer_name)
+        if not customer:
+            suggestion = self.db.suggest_name(customer_name)
+            customer = self.db.get_customer(suggestion) if suggestion else None
+        if not customer:
+            raise ValueError("Customer not found. Create their loyalty account first.")
+        try:
+            month, day = int(month), int(day)
+            date(2000, month, day)
+        except (TypeError, ValueError):
+            raise ValueError("Choose a valid birthday day and month.")
+        key = customer["customer_key"]
+        mmdd = f"{month:02d}-{day:02d}"
+        verified_at = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat(timespec="seconds")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("""INSERT INTO customer_birthdays(customer_key,birthday_mmdd,set_at)
+                VALUES(?,?,?) ON CONFLICT(customer_key) DO UPDATE SET
+                birthday_mmdd=excluded.birthday_mmdd,set_at=excluded.set_at""",
+                (key, mmdd, verified_at))
+            self.audit(conn, "customer_birthday_owner_set",
+                       f"customer={key};birthday={mmdd}", str(staff_id), staff_name)
+        result = self.birthday_status(key)
+        result["customer_name"] = customer["display_name"]
+        return result
+
+    @staticmethod
+    def _birthday_eligibility_conn(conn, customer_key):
+        now = datetime.now(ZoneInfo("Europe/London"))
+        row = conn.execute("SELECT * FROM customer_birthdays WHERE customer_key=?", (customer_key,)).fetchone()
+        config = conn.execute("SELECT * FROM birthday_reward_settings WHERE id=1").fetchone()
+        if not row or not config or not config["active"]:
+            return row, config, False, "not_available"
+        if row["birthday_mmdd"] != now.strftime("%m-%d"):
+            return row, config, False, "not_today"
+        set_at = datetime.fromisoformat(row["set_at"])
+        if set_at.tzinfo is None:
+            set_at = set_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - set_at.astimezone(timezone.utc) < timedelta(days=7):
+            return row, config, False, "security_wait"
+        if row["last_reward_year"] == now.year:
+            return row, config, False, "used"
+        existing = conn.execute("""SELECT 1 FROM web_delivery_orders WHERE customer_key=?
+            AND birthday_reward_year=? AND status NOT IN ('cancelled','wasted_journey') LIMIT 1""",
+            (customer_key, now.year)).fetchone()
+        if existing:
+            return row, config, False, "reserved"
+        return row, config, True, "ready"
+
+    def birthday_status(self, customer_key):
+        key = normalize_name(customer_key)
+        with self.db.connect() as conn:
+            row, config, eligible, reason = self._birthday_eligibility_conn(conn, key)
+        display = ""
+        if row:
+            month, day = (int(part) for part in row["birthday_mmdd"].split("-"))
+            display = date(2000, month, day).strftime("%d %B")
+        reward = ""
+        if config:
+            reward = (f"{int(config['amount'])}% off one order" if config["reward_type"] == "percent"
+                      else f"£{int(config['amount']):,} off one order")
+        return {"saved": bool(row), "date": display, "eligible": eligible, "reason": reason,
+                "reward": reward, "active": bool(config and config["active"])}
 
     def create_cart_authenticated(self, customer_key, quantities, postal, request_key, notes="",
                                   discount_code="", fulfillment_type="delivery"):
@@ -246,18 +390,24 @@ class DeliveryStore:
                     raise ValueError("That discount code has reached its usage limit.")
                 discount_amount = self._discount_amount(discount, subtotal)
                 conn.execute("UPDATE delivery_discount_codes SET uses=uses+1 WHERE code=?", (entered_code,))
-            total = subtotal - discount_amount + delivery_fee
+            _, birthday_config, birthday_ready, _ = self._birthday_eligibility_conn(conn, key)
+            birthday_discount = (self._discount_amount(birthday_config, subtotal - discount_amount)
+                                 if birthday_ready else 0)
+            birthday_year = datetime.now(ZoneInfo("Europe/London")).year if birthday_ready else None
+            total = subtotal - discount_amount - birthday_discount + delivery_fee
             cursor = conn.execute("""INSERT INTO web_delivery_orders
                 (customer_key,customer_name,deal_key,deal_name,price,postal,request_key,created_at,
                  channel_id,guild_id,items_json,notes,status_updated_at,subtotal,delivery_fee,
-                 discount_amount,discount_code,membership_level,fulfillment_type)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 discount_amount,discount_code,membership_level,fulfillment_type,birthday_discount,
+                 birthday_reward_year)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (key, customer["display_name"], "cart", description, total, postal, request_key, utc_now(),
                  config["channel_id"], config["guild_id"], items_json, notes, utc_now(), subtotal,
-                 delivery_fee, discount_amount, entered_code or None, membership["name"], fulfillment_type))
+                 delivery_fee, discount_amount, entered_code or None, membership["name"], fulfillment_type,
+                 birthday_discount, birthday_year))
             self.audit(conn, "web_delivery_requested",
                        f"order={cursor.lastrowid};customer={key};items={description};subtotal={subtotal};"
-                       f"delivery_fee={delivery_fee};discount={discount_amount};total={total};"
+                       f"delivery_fee={delivery_fee};discount={discount_amount};birthday_discount={birthday_discount};total={total};"
                        f"code={entered_code};membership={membership['name']};type={fulfillment_type};"
                        f"postal={postal};notes={notes}")
             return dict(conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (cursor.lastrowid,)).fetchone())
@@ -271,6 +421,84 @@ class DeliveryStore:
         with self.db.connect() as conn:
             rows = conn.execute("SELECT * FROM web_delivery_orders WHERE customer_key=? ORDER BY id DESC LIMIT ?",
                                 (normalize_name(customer_key), int(limit))).fetchall()
+        return [dict(row) for row in rows]
+
+    def review_for_order(self, order_id):
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM delivery_reviews WHERE order_id=?", (int(order_id),)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_review_authenticated(self, customer_key, order_id, rating, comment=""):
+        """Rate the staff member already assigned to this customer's completed order."""
+        key = normalize_name(customer_key)
+        try:
+            order_id, rating = int(order_id), int(rating)
+        except (TypeError, ValueError):
+            raise ValueError("Choose a star rating from 1 to 5.")
+        if rating not in range(1, 6):
+            raise ValueError("Choose a star rating from 1 to 5.")
+        comment = " ".join(str(comment or "").strip().split())
+        if len(comment) > 250:
+            raise ValueError("Your review can be up to 250 characters.")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            order = conn.execute(
+                "SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)
+            ).fetchone()
+            if not order or order["customer_key"] != key:
+                raise ValueError("That order does not belong to your account.")
+            if order["status"] != "paid":
+                raise ValueError("You can leave a review after staff confirm the order is complete and paid.")
+            if not order["assigned_driver_id"] or not order["assigned_driver_name"]:
+                raise ValueError("This older order has no assigned staff member to review.")
+            if conn.execute(
+                "SELECT 1 FROM delivery_reviews WHERE order_id=?", (order_id,)
+            ).fetchone():
+                raise ValueError("You have already reviewed this order.")
+            cursor = conn.execute("""INSERT INTO delivery_reviews
+                (order_id,customer_key,customer_name,staff_id,staff_name,fulfillment_type,
+                 rating,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (order_id, key, order["customer_name"], order["assigned_driver_id"],
+                 order["assigned_driver_name"], order["fulfillment_type"] or "delivery",
+                 rating, comment, utc_now()))
+            self.audit(conn, "delivery_review_created",
+                       f"review={cursor.lastrowid};order={order_id};staff={order['assigned_driver_id']};rating={rating}")
+            row = conn.execute(
+                "SELECT * FROM delivery_reviews WHERE id=?", (cursor.lastrowid,)
+            ).fetchone()
+        return dict(row)
+
+    def unnotified_reviews(self, limit=20):
+        with self.db.connect() as conn:
+            rows = conn.execute("""SELECT r.*,o.guild_id,o.channel_id FROM delivery_reviews r
+                JOIN web_delivery_orders o ON o.id=r.order_id
+                WHERE r.notification_message_id IS NULL ORDER BY r.id LIMIT ?""",
+                (int(limit),)).fetchall()
+        return [dict(row) for row in rows]
+
+    def review_notified(self, review_id, message_id):
+        with self.db.connect() as conn:
+            conn.execute("UPDATE delivery_reviews SET notification_message_id=? WHERE id=?",
+                         (str(message_id), int(review_id)))
+
+    def review_leaderboard(self, guild_id, days=7):
+        days = int(days)
+        if days not in (7, 30):
+            raise ValueError("Review period must be 7 or 30 days.")
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        with self.db.connect() as conn:
+            rows = conn.execute("""SELECT r.staff_id,r.staff_name,
+                COUNT(*) AS reviews,ROUND(AVG(r.rating),2) AS average_rating,
+                SUM(CASE WHEN r.rating=5 THEN 1 ELSE 0 END) AS five_star_reviews,
+                SUM(CASE WHEN r.fulfillment_type='pickup' THEN 1 ELSE 0 END) AS pickups,
+                SUM(CASE WHEN r.fulfillment_type!='pickup' THEN 1 ELSE 0 END) AS deliveries
+                FROM delivery_reviews r JOIN web_delivery_orders o ON o.id=r.order_id
+                WHERE o.guild_id=? AND r.created_at>=?
+                GROUP BY r.staff_id,r.staff_name
+                ORDER BY average_rating DESC,reviews DESC,five_star_reviews DESC,r.staff_name COLLATE NOCASE""",
+                (str(guild_id), since)).fetchall()
         return [dict(row) for row in rows]
 
     def pending(self, unsent=False):
@@ -314,6 +542,43 @@ class DeliveryStore:
         counts = {"delivery": 0, "pickup": 0}
         counts.update({(row["fulfillment_type"] or "delivery"): int(row["total"]) for row in rows})
         return counts
+
+    def daily_summary(self, guild_id):
+        london_now = datetime.now(ZoneInfo("Europe/London"))
+        london_start = london_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        utc_start = london_start.astimezone(timezone.utc).isoformat(timespec="seconds")
+        utc_end = london_now.astimezone(timezone.utc).isoformat(timespec="seconds")
+        with self.db.connect() as conn:
+            paid = conn.execute("""SELECT COUNT(*) AS orders,
+                COALESCE(SUM(CASE WHEN fulfillment_type='pickup' THEN 1 ELSE 0 END),0) AS pickups,
+                COALESCE(SUM(CASE WHEN fulfillment_type!='pickup' THEN 1 ELSE 0 END),0) AS deliveries,
+                COALESCE(SUM(subtotal),0) AS food_subtotal,
+                COALESCE(SUM(delivery_fee),0) AS delivery_fees,
+                COALESCE(SUM(discount_amount),0) AS code_discounts,
+                COALESCE(SUM(birthday_discount),0) AS birthday_discounts,
+                COALESCE(SUM(price),0) AS collected
+                FROM web_delivery_orders WHERE guild_id=? AND status='paid'
+                AND resolved_at>=? AND resolved_at<=?""", (str(guild_id), utc_start, utc_end)).fetchone()
+            wasted = conn.execute("""SELECT COUNT(*) AS total,COALESCE(SUM(f.amount),0) AS amount
+                FROM delivery_fees f JOIN web_delivery_orders o ON o.id=f.order_id
+                WHERE o.guild_id=? AND f.created_at>=? AND f.created_at<=?""",
+                (str(guild_id), utc_start, utc_end)).fetchone()
+            active = conn.execute("""SELECT COUNT(*) AS total FROM web_delivery_orders WHERE guild_id=?
+                AND status IN ('pending','accepted','on_way','arrived','ready_for_pickup','processing')""",
+                (str(guild_id),)).fetchone()
+            birthday_due = conn.execute("""SELECT COUNT(*) AS total FROM customer_birthdays b
+                JOIN birthday_reward_settings s ON s.id=1
+                WHERE s.active=1 AND b.birthday_mmdd=? AND b.set_at<=?
+                AND (b.last_reward_year IS NULL OR b.last_reward_year!=?)
+                AND NOT EXISTS (SELECT 1 FROM web_delivery_orders o WHERE o.customer_key=b.customer_key
+                    AND o.birthday_reward_year=? AND o.status NOT IN ('cancelled','wasted_journey'))""",
+                (london_now.strftime("%m-%d"),
+                 (datetime.now(timezone.utc)-timedelta(days=7)).isoformat(timespec="seconds"),
+                 london_now.year, london_now.year)).fetchone()
+        result = dict(paid)
+        result.update({"wasted_journeys": int(wasted["total"]), "wasted_fees": int(wasted["amount"]),
+                       "active_orders": int(active["total"]), "birthday_rewards_due": int(birthday_due["total"])})
+        return {key: int(value or 0) for key, value in result.items()}
 
     def outstanding_fee(self, customer_key):
         with self.db.connect() as conn:
@@ -528,6 +793,9 @@ class DeliveryStore:
             conn.execute("""UPDATE web_delivery_orders SET status='paid',resolved_at=?,resolved_by=?,
                 sale_transaction_id=?,status_updated_at=? WHERE id=? AND status='processing'""",
                 (now, str(staff_id), transaction_ids, now, order_id))
+            if order.get("birthday_reward_year"):
+                conn.execute("""UPDATE customer_birthdays SET last_reward_year=?
+                    WHERE customer_key=?""", (int(order["birthday_reward_year"]), order["customer_key"]))
             self.audit(conn, "web_delivery_paid", f"order={order_id};transactions={transaction_ids}",
                        str(staff_id), staff_name)
         return self.get(order_id), results
