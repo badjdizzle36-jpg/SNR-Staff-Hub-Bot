@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -46,6 +47,21 @@ class TestSNRCore(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.db.record_sale_quantity("Cody Ortega", "share_box", 0, "1", "Staff")
+
+    def test_simultaneous_counter_sales_cannot_lose_loyalty_points(self):
+        def record(index):
+            return self.db.record_sale(
+                "Busy Customer", "mega_deal", str(index), f"Staff {index}",
+                source_ref=f"simultaneous-loyalty-{index}")
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            results = list(pool.map(record, range(5)))
+
+        customer = self.db.get_customer("Busy Customer")
+        self.assertEqual(customer["loyalty_points"], 5)
+        self.assertEqual(customer["lifetime_sales"], 5)
+        self.assertEqual(sum(result["loyalty_awarded"] for result in results), 5)
+        self.assertEqual(sorted(result["loyalty_after"] for result in results), [1, 2, 3, 4, 5])
 
     def test_recent_customers_and_owner_undo_reverse_one_quantity_action(self):
         with self.db.connect() as conn:

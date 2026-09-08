@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Loyalty sale write strengthened:** every qualifying counter sale and confirmed website order now increases points with an atomic database update, verifies the new balance before committing, and records the before/added/after totals in the audit entry. Simultaneous staff sales cannot overwrite one another's points.
 - **New Sale timeout fixed:** the Recent Customers dropdown, full alphabetical dropdown and navigation buttons now use separate Discord rows. The permanent panel acknowledges the click immediately before loading customer data, so the sale menu opens reliably instead of showing “didn’t respond in time.”
 - **Express Sale** removes the unnecessary quantity screen from normal counter sales. Choose the customer, then tap one of the six meal buttons to record ×1 immediately; the receipt remains visible for ten seconds.
 - **Multiple Items** keeps the full ×1–×10 quantity route for larger orders. Back buttons return to the meal or customer screen without recording anything.

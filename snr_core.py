@@ -433,7 +433,8 @@ class SNRDatabase:
             vip = vip_level_for_sales(int(customer["lifetime_sales"]) + 1, customer["vip_override"])
             sale_points = deal.loyalty_points + int(vip["bonus_points"])
             sale_tickets = deal.golden_tickets + int(vip["bonus_tickets"])
-            new_points_total = int(customer["loyalty_points"]) + sale_points
+            previous_points_total = int(customer["loyalty_points"])
+            new_points_total = previous_points_total + sale_points
 
             cursor = conn.execute(
                 """INSERT INTO sales
@@ -480,13 +481,13 @@ class SNRDatabase:
                 conn.execute("UPDATE sales SET jackpot_won = 1 WHERE id = ?", (sale_id,))
 
             conn.execute(
-                """UPDATE customers SET loyalty_points = ?, lifetime_sales = lifetime_sales + 1,
+                """UPDATE customers SET loyalty_points = loyalty_points + ?, lifetime_sales = lifetime_sales + 1,
                    card_packs_earned = card_packs_earned + ?, golden_tickets = golden_tickets + ?,
                    jackpot_wins = jackpot_wins + ?, revenue = revenue + ?,
                    food_sold = food_sold + ?, drinks_sold = drinks_sold + ?, updated_at = ?
                    WHERE customer_key = ?""",
                 (
-                    new_points_total, 0, sale_tickets, 1 if winning_ticket else 0,
+                    sale_points, 0, sale_tickets, 1 if winning_ticket else 0,
                     charged_price, deal.food, deal.drinks, now, key,
                 ),
             )
@@ -494,10 +495,15 @@ class SNRDatabase:
                 "INSERT INTO audit_log (action, staff_id, staff_name, details, created_at) VALUES (?, ?, ?, ?, ?)",
                 (
                     "sale_recorded", str(staff_id), staff_name,
-                    json.dumps({"transaction_id": transaction_id, "customer": shown, "deal": deal.key}), now,
+                    json.dumps({"transaction_id": transaction_id, "customer": shown, "deal": deal.key,
+                                "loyalty_before": previous_points_total,
+                                "loyalty_added": sale_points,
+                                "loyalty_after": new_points_total}), now,
                 ),
             )
             updated = conn.execute("SELECT * FROM customers WHERE customer_key = ?", (key,)).fetchone()
+            if int(updated["loyalty_points"]) != new_points_total:
+                raise RuntimeError("The sale was stopped because its loyalty points did not save.")
             current_jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
 
         return {
@@ -512,6 +518,8 @@ class SNRDatabase:
             "jackpot_cycle": int(current_jackpot["cycle"]),
             "tickets_issued_in_cycle": int(current_jackpot["tickets_issued"]),
             "loyalty_awarded": sale_points,
+            "loyalty_before": previous_points_total,
+            "loyalty_after": new_points_total,
             "tickets_awarded": sale_tickets,
         }
 
@@ -539,6 +547,8 @@ class SNRDatabase:
             "quantity": amount,
             "transaction_ids": [result["transaction_id"] for result in results],
             "loyalty_awarded": total_points,
+            "loyalty_before": int(results[0]["loyalty_before"]),
+            "loyalty_after": int(results[-1]["loyalty_after"]),
             "base_loyalty_awarded": base_points,
             "membership_loyalty_awarded": total_points - base_points,
             "tickets_awarded": sum(int(result["tickets_awarded"]) for result in results),
