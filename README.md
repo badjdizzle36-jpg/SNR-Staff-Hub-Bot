@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **New Sale timeout fixed:** the Recent Customers dropdown, full alphabetical dropdown and navigation buttons now use separate Discord rows. The permanent panel acknowledges the click immediately before loading customer data, so the sale menu opens reliably instead of showing “didn’t respond in time.”
 - **Express Sale** removes the unnecessary quantity screen from normal counter sales. Choose the customer, then tap one of the six meal buttons to record ×1 immediately; the receipt remains visible for ten seconds.
 - **Multiple Items** keeps the full ×1–×10 quantity route for larger orders. Back buttons return to the meal or customer screen without recording anything.
 - The customer picker now shows up to ten **recently served customers** above the complete alphabetical 25-name pages, while typed names retain capital correction and close-spelling suggestions.

@@ -478,11 +478,8 @@ class CustomerPickerView(discord.ui.View):
                 action, self.names, self.page, self.debts, self.memberships, row=row,
                 placeholder="All customers — alphabetical",
             ))
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.row = row + 1
 
-    @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Previous Names", emoji="⬅️", style=discord.ButtonStyle.secondary, row=2)
     async def previous(self, interaction, button):
         if await require_staff(interaction):
             await interaction.response.edit_message(
@@ -490,7 +487,7 @@ class CustomerPickerView(discord.ui.View):
                 view=CustomerPickerView(self.action, self.page - 1),
             )
 
-    @discord.ui.button(label="Next Names", emoji="➡️", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Next Names", emoji="➡️", style=discord.ButtonStyle.secondary, row=2)
     async def next(self, interaction, button):
         if await require_staff(interaction):
             await interaction.response.edit_message(
@@ -498,23 +495,40 @@ class CustomerPickerView(discord.ui.View):
                 view=CustomerPickerView(self.action, self.page + 1),
             )
 
-    @discord.ui.button(label="Type / Suggest Name", emoji="✏️", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Type / Suggest Name", emoji="✏️", style=discord.ButtonStyle.primary, row=2)
     async def type_name(self, interaction, button):
         if await require_staff(interaction):
             await interaction.response.send_modal(NameModal(self.action))
 
 
 async def show_customer_picker(interaction, action):
-    view = CustomerPickerView(action)
-    count = len(view.names)
-    await send_ephemeral(
-        interaction,
-        f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
-        + ("Use **Recent customers** at the top for the quickest sale. " if action == "sale" else "") +
-        "Use **Previous Names** and **Next Names** to move through every saved customer. "
-        "Typed names still correct capitals and suggest close spellings.",
-        view=view,
-    )
+    # A permanent-panel click must be acknowledged before database-backed
+    # dropdowns are built, otherwise Discord shows "didn't respond in time".
+    deferred = (not interaction.response.is_done()
+                and not (interaction.message and interaction.message.flags.ephemeral))
+    if deferred:
+        await interaction.response.defer(ephemeral=True)
+    try:
+        view = CustomerPickerView(action)
+        count = len(view.names)
+        message = (
+            f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
+            + ("Use **Recent customers** at the top for the quickest sale. " if action == "sale" else "") +
+            "Use **Previous Names** and **Next Names** to move through every saved customer. "
+            "Typed names still correct capitals and suggest close spellings."
+        )
+        if deferred:
+            await interaction.edit_original_response(content=message, embed=None, view=view)
+        else:
+            await send_ephemeral(interaction, message, view=view)
+    except Exception:
+        logging.exception("Customer picker failed for action %s", action)
+        if deferred:
+            await interaction.edit_original_response(
+                content="❌ The customer list could not be opened. Please try New Sale again.",
+                embed=None, view=None)
+        else:
+            raise
 
 
 class DealSelect(discord.ui.Select):
