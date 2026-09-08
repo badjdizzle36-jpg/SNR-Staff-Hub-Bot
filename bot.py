@@ -219,8 +219,12 @@ def sale_embed(result: dict) -> discord.Embed:
     )
     awarded_points = int(result.get("loyalty_awarded", deal.loyalty_points))
     awarded_tickets = int(result.get("tickets_awarded", deal.golden_tickets))
+    base_points = int(result.get("base_loyalty_awarded", deal.loyalty_points))
+    membership_points = int(result.get("membership_loyalty_awarded", awarded_points - base_points))
     loyalty_value = (
-        f"+{awarded_points} → **{customer['loyalty_points']} total**"
+        (f"**{deal.loyalty_points} per deal × {quantity} = +{base_points} base points**\n"
+         + (f"Membership bonus: +{membership_points}\n" if membership_points else "")
+         + f"Added now: **+{awarded_points}** → **{customer['loyalty_points']} total**")
         if awarded_points
         else f"No point on this deal • **{customer['loyalty_points']} total**"
     )

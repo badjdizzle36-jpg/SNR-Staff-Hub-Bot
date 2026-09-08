@@ -47,6 +47,34 @@ class TestSNRCore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.record_sale_quantity("Cody Ortega", "share_box", 0, "1", "Staff")
 
+    def test_discord_quantity_awards_points_for_every_deal_bought(self):
+        mega = self.db.record_sale_quantity("Mega Customer", "mega_deal", 2, "1", "Staff")
+        self.assertEqual(mega["base_loyalty_awarded"], 2)
+        self.assertEqual(mega["membership_loyalty_awarded"], 0)
+        self.assertEqual(mega["loyalty_awarded"], 2)
+        self.assertEqual(mega["customer"]["loyalty_points"], 2)
+        self.assertEqual(mega["customer"]["lifetime_sales"], 2)
+
+        share = self.db.record_sale_quantity("Share Customer", "share_box", 2, "1", "Staff")
+        self.assertEqual(share["base_loyalty_awarded"], 4)
+        self.assertEqual(share["membership_loyalty_awarded"], 0)
+        self.assertEqual(share["loyalty_awarded"], 4)
+        self.assertEqual(share["customer"]["loyalty_points"], 4)
+        self.assertEqual(share["customer"]["lifetime_sales"], 2)
+
+    def test_all_discord_quantities_multiply_each_deals_base_points(self):
+        from snr_core import DEALS
+
+        for deal_key, deal in DEALS.items():
+            for amount in (1, 2, 5, 10):
+                customer_name = f"{deal_key} quantity {amount}"
+                result = self.db.record_sale_quantity(customer_name, deal_key, amount, "1", "Staff")
+                expected = deal.loyalty_points * amount
+                self.assertEqual(result["base_loyalty_awarded"], expected)
+                self.assertEqual(result["loyalty_awarded"], expected)
+                self.assertEqual(result["customer"]["loyalty_points"], expected)
+                self.assertEqual(result["customer"]["lifetime_sales"], amount)
+
     def test_loyalty_points_keep_building_without_card_reward(self):
         for _ in range(4):
             result = self.db.record_sale("Ash", "mega_deal", "1", "Staff")

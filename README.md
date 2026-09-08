@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- Discord quantity sales now guarantee the deal's loyalty points for **every individual deal sold**: 2 Mega Deals award 2 base points, while 2 Share Boxes award 4 base points. Any Gold, Platinum or SNR VIP membership bonus is added separately on top, and the receipt shows the full calculation.
 - The signed-in website is now a compact app-style dashboard with **Home, Order, Rewards and Visits** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
 - Mobile spacing, logo size, dashboard cards and order controls have been tightened so the important information fits on screen faster without removing any features.
 - A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
