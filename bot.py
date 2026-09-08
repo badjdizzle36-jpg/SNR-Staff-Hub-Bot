@@ -1836,10 +1836,36 @@ async def orders_setup(interaction: discord.Interaction):
         return
     orders.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
     await interaction.response.send_message(
-        '✅ Website deliveries enabled. New orders will appear in this channel, normally within 10 seconds. '
+        '✅ Website deliveries enabled. Only delivery and pickup orders will appear in this channel, normally within 10 seconds. '
         'Press Customer Paid only after collecting payment.',
         ephemeral=True,
     )
+
+
+@bot.tree.command(name='snrhub_accounts_setup', description='Owner: use this private channel for new-account alerts.')
+async def accounts_setup(interaction: discord.Interaction):
+    if not is_owner(interaction):
+        await interaction.response.send_message(f'{OWNER_ROLE_NAME} only.', ephemeral=True)
+        return
+    channel = interaction.channel
+    if not isinstance(channel, discord.TextChannel) or (GUILD_ID and interaction.guild_id != GUILD_ID):
+        await interaction.response.send_message(
+            'Use this command inside a private New Accounts Created text channel in your configured staff server.',
+            ephemeral=True)
+        return
+    permissions = channel.permissions_for(channel.guild.me)
+    if channel.permissions_for(channel.guild.default_role).view_channel or not (
+        permissions.view_channel and permissions.send_messages and permissions.embed_links
+    ):
+        await interaction.response.send_message(
+            'Choose a private staff channel where this bot can view, send messages and embed links.',
+            ephemeral=True)
+        return
+    accounts.configure_notifications(
+        channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
+    await interaction.response.send_message(
+        '✅ New-account notifications are now separated. New loyalty accounts will appear only in this channel, not Delivery Orders.',
+        ephemeral=True)
 
 
 @bot.tree.command(name='snrhub_accounts_pending', description='Review recent account activity and older pending requests.')

@@ -9,6 +9,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Customers can leave a verified **1–5 star driver or pickup-experience rating**. The order automatically selects the assigned staff member, so customers cannot choose or rate somebody else.
 - Each completed order can be reviewed only once. An optional 250-character comment is saved with the star rating, and the SNR Staff role receives a Discord alert in the private orders channel.
 - Staff can open **More Tools → Staff Ratings** for weekly and monthly leaderboards, or run `/snrhub_ratings`. Rankings show average stars, number of reviews, five-star reviews, deliveries and pickups.
+- New loyalty-account alerts now have their own private Discord destination. Run `/snrhub_accounts_setup` once inside a private `new-accounts-created` channel; account notices will no longer clutter Delivery Orders.
 - Active delivery and pickup orders now show a visual **live progress tracker** on the customer webpage. Discord actions move the tracker through Placed, Accepted, On Way/Ready, Arrived/Payment and Complete, while the existing webpage alert continues checking every five seconds.
 - Completed website orders now include **Order Again**. It safely refills the old basket and fulfillment choice for review; it never submits a new order until the customer presses Place Order.
 - **Owner Admin → Daily Closing Report** gives an owner-only UK-day snapshot of sales, revenue, production cost, gross profit, margin, paid deliveries/pickups, delivery fees, code discounts, birthday discounts, open orders and wasted journeys. It does not reset data.
@@ -84,7 +85,11 @@ Railway supplies `PORT`; do not add it manually. The volume should remain mounte
 
 ## One-time Discord setup
 
-In a private orders channel, an SNR Management member runs `/snrhub_orders_setup`. The bot needs View Channel, Send Messages and Embed Links. The `SNR Staff` role must be mentionable, or the bot must have permission to mention roles, for alerts to ping it. This channel receives account-created notices; staff do not approve them.
+In a private orders channel, an SNR owner runs `/snrhub_orders_setup`. This channel receives delivery and pickup orders only.
+
+Create another private Discord text channel named `new-accounts-created`, open it and run `/snrhub_accounts_setup`. All future loyalty-account creation notices—and any account notices still waiting to be sent—will go there instead of Delivery Orders. Staff are notified, but do not approve accounts.
+
+The bot needs View Channel, Send Messages and Embed Links in both channels. The `SNR Staff` role must be mentionable, or the bot must have permission to mention roles, for alerts to ping it.
 
 Create a Discord role named **SNR Owner** and assign it to the appropriate business owners. Server administrators also count as owners. Run `/snrhub_panel` again in the private staff channel to post the upgraded permanent panel; only an owner can post it. A staff member must press **Clock In** before delivery controls appear to customers.
 
@@ -120,7 +125,8 @@ Pending orders and requests are durable. If Discord or Railway restarts, unsent 
 
 - `/snrhub_panel` — post the permanent staff panel
 - `/snrhub_owner` — open the owner-only control centre
-- `/snrhub_orders_setup` — set the private delivery/account-alert channel
+- `/snrhub_orders_setup` — set the private delivery and pickup-order channel
+- `/snrhub_accounts_setup` — set the separate private New Accounts Created alert channel
 - `/snrhub_claims_setup` — optionally set a separate pack-claim channel; new claims alert and mention SNR Staff within a few seconds
 - `/snrhub_accounts_pending` — review recent account activity and any older approval requests
 - `/snrhub_claims_pending` — review pack requests

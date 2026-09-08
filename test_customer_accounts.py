@@ -105,6 +105,27 @@ class AccountTests(unittest.TestCase):
             self.accounts.login("Cody Ortega", "customer chosen password")), "cody ortega")
         self.assertEqual(len(self.accounts.created_notifications(unsent=True)), 1)
 
+    def test_new_account_notifications_use_their_own_channel(self):
+        delivery = DeliveryStore(self.db)
+        delivery.configure(100, 200, "1", "Owner")
+        self.assertFalse(self.accounts.notifications_configured())
+        first = self.accounts.request_access(
+            "First Customer", "customer password 123", "first_pet", "Buster")
+        self.assertEqual(first["channel_id"], "100")
+
+        self.accounts.configure_notifications(222, 200, "1", "Owner")
+        self.assertTrue(self.accounts.notifications_configured())
+        # Any alert not posted yet moves out of Delivery Orders as well.
+        self.assertEqual(self.accounts.get_request(first["id"])["channel_id"], "222")
+        second = self.accounts.request_access(
+            "Second Customer", "customer password 456", "first_job", "Mechanic")
+        self.assertEqual(second["channel_id"], "222")
+
+        delivery_order = delivery.create_authenticated(
+            "First Customer", "quick_fix", "Postal 100", "separate-delivery-channel")
+        self.assertEqual(delivery_order["channel_id"], "100")
+        self.assertEqual(delivery.pending(unsent=True)[0]["channel_id"], "100")
+
     def test_authenticated_claim_is_bound_to_session_owner(self):
         self.create("Cody Ortega")
         self.create("Other Person", "other password 123")

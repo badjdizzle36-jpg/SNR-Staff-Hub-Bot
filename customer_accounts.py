@@ -51,6 +51,11 @@ class Accounts:
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_account_request
                     ON customer_account_requests(customer_key) WHERE status='pending';
+                CREATE TABLE IF NOT EXISTS customer_account_notification_settings (
+                    id INTEGER PRIMARY KEY CHECK(id=1),
+                    channel_id TEXT NOT NULL,
+                    guild_id TEXT NOT NULL
+                );
             ''')
             account_columns = {row['name'] for row in conn.execute('PRAGMA table_info(customer_accounts)')}
             for name, definition in (
@@ -217,10 +222,35 @@ class Accounts:
             return 'Awaiting staff approval'
         return 'Not set up'
 
+    def configure_notifications(self, channel_id, guild_id, staff_id, staff_name):
+        """Route account-created alerts to their own private Discord channel."""
+        with self.db.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('''INSERT INTO customer_account_notification_settings(id,channel_id,guild_id)
+                VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET
+                channel_id=excluded.channel_id,guild_id=excluded.guild_id''',
+                (str(channel_id), str(guild_id)))
+            conn.execute('''UPDATE customer_account_requests SET channel_id=?
+                WHERE guild_id=? AND message_id IS NULL''',
+                (str(channel_id), str(guild_id)))
+            conn.execute('INSERT INTO audit_log(action,staff_id,staff_name,details,created_at) VALUES(?,?,?,?,?)',
+                         ('account_notification_channel', str(staff_id), staff_name,
+                          str(channel_id), utc_now()))
+
+    def notifications_configured(self):
+        with self.db.connect() as conn:
+            return conn.execute(
+                'SELECT 1 FROM customer_account_notification_settings WHERE id=1'
+            ).fetchone() is not None
+
     def _alert_channel(self, conn):
-        # Account approvals use the already configured private delivery channel.
-        # Reward-claim channel is a safe fallback for older installations.
-        row = conn.execute('SELECT channel_id,guild_id FROM web_delivery_settings WHERE id=1').fetchone()
+        # New installations use a dedicated account-alert channel. Delivery is
+        # retained only as a compatibility fallback until the owner runs the
+        # new one-time /snrhub_accounts_setup command.
+        row = conn.execute('''SELECT channel_id,guild_id
+            FROM customer_account_notification_settings WHERE id=1''').fetchone()
+        if not row:
+            row = conn.execute('SELECT channel_id,guild_id FROM web_delivery_settings WHERE id=1').fetchone()
         if not row:
             row = conn.execute('SELECT channel_id,guild_id FROM web_claim_settings WHERE id=1').fetchone()
         return row
