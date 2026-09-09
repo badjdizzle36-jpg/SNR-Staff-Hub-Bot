@@ -22,6 +22,7 @@ from snr_core import (
 )
 from web_portal import start_web_server
 from reward_claims import ClaimStore
+from raffles import RaffleStore
 from customer_accounts import Accounts
 from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
@@ -46,6 +47,7 @@ claims = ClaimStore(db)
 accounts = Accounts(db)
 orders = DeliveryStore(db)
 shifts = StaffShifts(db)
+raffles = RaffleStore(db)
 
 
 def money(value: float | int) -> str:
@@ -143,7 +145,7 @@ def panel_embed() -> discord.Embed:
             "🚗 **Deliveries** — manage active orders\n"
             "👥 **Customers** — accounts and rewards\n"
             "🕒 **Staff Shift** — clock in or off\n"
-            "🧰 **More Tools** — finance, jackpot, Birdy and owner controls\n\n"
+            "🧰 **More Tools** — raffle, finance, jackpot, Birdy and owner controls\n\n"
             "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
@@ -374,6 +376,13 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
         message = "ℹ️ Customer not found. Record their first sale to create them."
         await send_ephemeral(interaction, message, delete_after=5)
         return
+    if action == "raffle_manual":
+        await send_ephemeral(
+            interaction,
+            f"Customer: **{discord.utils.escape_markdown(customer['display_name'])}**\nContinue to enter the numbers they have paid for.",
+            view=RaffleNumbersLaunchView(customer["display_name"]),
+        )
+        return
     if action == "account_reset":
         code = accounts.issue_setup(name, str(interaction.user.id), str(interaction.user), reset=True)
         message = (
@@ -413,7 +422,7 @@ class NameModal(discord.ui.Modal):
 
     def __init__(self, action: str):
         titles = {"sale": "Record Sale", "account_create": "Create Website Account",
-                  "account_reset": "Reset Website Password"}
+                  "account_reset": "Reset Website Password", "raffle_manual": "Add Paid Raffle Entry"}
         super().__init__(title=titles.get(action, "Find Customer"))
         self.action = action
 
@@ -1394,6 +1403,252 @@ class ReviewPeriodView(discord.ui.View):
             await send_ephemeral(interaction, embed=review_leaderboard_embed(interaction.guild_id, 30))
 
 
+def raffle_embed(raffle: dict | None, *, title="🎟️ SNR RAFFLE CENTRE") -> discord.Embed:
+    embed = discord.Embed(title=title, colour=discord.Colour.gold())
+    if not raffle:
+        embed.description = "No raffle has been created yet. An owner can create one below."
+        return embed
+    status = {"open": "🟢 OPEN", "closed": "🟠 ENTRIES CLOSED", "drawn": "🏆 DRAWN",
+              "cancelled": "🔴 CANCELLED"}.get(raffle["status"], raffle["status"].upper())
+    embed.description = (f"**{discord.utils.escape_markdown(raffle['title'])}**\n"
+                         f"Prize: **{discord.utils.escape_markdown(raffle['prize'])}**\n"
+                         f"Entry: **£{int(raffle['entry_price']):,} per number**\n"
+                         f"Status: **{status}**")
+    embed.add_field(name="Paid Numbers", value=f"**{int(raffle['confirmed_numbers'])}/100**", inline=True)
+    embed.add_field(name="Awaiting Payment", value=f"**{int(raffle['pending_numbers'])}**", inline=True)
+    embed.add_field(name="Raffle Revenue", value=f"**£{int(raffle['revenue']):,}**", inline=True)
+    if raffle["status"] == "drawn":
+        embed.add_field(name="🏆 WINNER", value=(f"**{discord.utils.escape_markdown(raffle['winner_name'])}**\n"
+                        f"Winning number: **{int(raffle['winning_number'])}**"), inline=False)
+    embed.set_footer(text="Raffle entries are separate from meal sales, loyalty and Golden Tickets")
+    return embed
+
+
+def raffle_request_embed(row: dict) -> discord.Embed:
+    colours = {"pending": discord.Colour.orange(), "confirmed": discord.Colour.green(),
+               "rejected": discord.Colour.red(), "cancelled": discord.Colour.dark_grey()}
+    embed = discord.Embed(title=f"🎟️ RAFFLE REQUEST #{int(row['id'])}",
+                          colour=colours.get(row["status"], discord.Colour.gold()))
+    numbers = ", ".join(str(number) for number in row["numbers"])
+    embed.description = (f"Customer: **{discord.utils.escape_markdown(row['customer_name'])}**\n"
+                         f"Raffle: **{discord.utils.escape_markdown(row['title'])}**\n"
+                         f"Numbers: **{numbers}**\n"
+                         f"Amount to collect: **£{int(row['total_price']):,}**\n"
+                         f"Status: **{row['status'].upper()}**")
+    embed.add_field(name="Staff action", value=("Collect payment, then press **Confirm Payment**. "
+                    "Rejecting releases every number in this request." if row["status"] == "pending"
+                    else f"Resolved by **{discord.utils.escape_markdown(row.get('resolved_by_name') or 'staff')}**."), inline=False)
+    embed.set_footer(text="Only confirmed paid entries can win")
+    return embed
+
+
+class RaffleRequestView(discord.ui.View):
+    def __init__(self, request_id):
+        super().__init__(timeout=None)
+        self.request_id = int(request_id)
+        confirm = discord.ui.Button(label="Confirm Payment", emoji="✅", style=discord.ButtonStyle.success,
+                                    custom_id=f"snr:raffle:{self.request_id}:confirm")
+        reject = discord.ui.Button(label="Reject & Release", emoji="↩️", style=discord.ButtonStyle.danger,
+                                   custom_id=f"snr:raffle:{self.request_id}:reject")
+
+        async def resolve(interaction, approve):
+            if not await require_staff(interaction):
+                return
+            try:
+                async with db_lock:
+                    row = raffles.resolve(self.request_id, approve, interaction.user.id, str(interaction.user))
+            except ValueError as exc:
+                await interaction.response.send_message(f"ℹ️ {exc}", ephemeral=True)
+                return
+            await interaction.response.edit_message(embed=raffle_request_embed(row), view=None)
+
+        async def confirm_callback(interaction):
+            await resolve(interaction, True)
+
+        async def reject_callback(interaction):
+            await resolve(interaction, False)
+
+        confirm.callback, reject.callback = confirm_callback, reject_callback
+        self.add_item(confirm)
+        self.add_item(reject)
+
+
+class RaffleCreateModal(discord.ui.Modal, title="Create New SNR Raffle"):
+    raffle_title = discord.ui.TextInput(label="Raffle title", placeholder="Example: SNR Summer Raffle", min_length=3, max_length=80)
+    prize = discord.ui.TextInput(label="Prize", placeholder="Example: £10,000 cash", min_length=2, max_length=120)
+    price = discord.ui.TextInput(label="Price per number", placeholder="Example: 100", min_length=1, max_length=10)
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        try:
+            row = raffles.create(self.raffle_title.value, self.prize.value, self.price.value,
+                                  interaction.user.id, str(interaction.user))
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=raffle_embed(row, title="✅ RAFFLE CREATED"), ephemeral=True)
+
+
+class RaffleEditModal(discord.ui.Modal, title="Edit Current SNR Raffle"):
+    def __init__(self, raffle):
+        super().__init__()
+        self.raffle_title = discord.ui.TextInput(label="Raffle title", default=raffle["title"], min_length=3, max_length=80)
+        self.prize = discord.ui.TextInput(label="Prize", default=raffle["prize"], min_length=2, max_length=120)
+        self.price = discord.ui.TextInput(label="Price per number", default=str(raffle["entry_price"]), min_length=1, max_length=10)
+        self.add_item(self.raffle_title)
+        self.add_item(self.prize)
+        self.add_item(self.price)
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        try:
+            row = raffles.update(self.raffle_title.value, self.prize.value, self.price.value,
+                                  interaction.user.id, str(interaction.user))
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=raffle_embed(row, title="✅ RAFFLE UPDATED"), ephemeral=True)
+
+
+class RaffleManualNumbersModal(discord.ui.Modal, title="Add Paid Raffle Numbers"):
+    numbers = discord.ui.TextInput(label="Paid numbers", placeholder="Example: 4, 17, 82", min_length=1, max_length=40)
+
+    def __init__(self, customer_name):
+        super().__init__()
+        self.customer_name = customer_name
+
+    async def on_submit(self, interaction):
+        if not await require_staff(interaction):
+            return
+        try:
+            async with db_lock:
+                row = raffles.request(
+                    normalize_name(self.customer_name), self.numbers.value,
+                    f"staff:{interaction.guild_id}:{interaction.id}", source="staff", confirmed=True,
+                    staff_id=interaction.user.id, staff_name=str(interaction.user))
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=raffle_request_embed(row), ephemeral=True)
+
+
+class RaffleNumbersLaunchView(discord.ui.View):
+    def __init__(self, customer_name):
+        super().__init__(timeout=120)
+        self.customer_name = customer_name
+
+    @discord.ui.button(label="Enter Paid Numbers", emoji="🎟️", style=discord.ButtonStyle.success)
+    async def enter(self, interaction, button):
+        if await require_staff(interaction):
+            await interaction.response.send_modal(RaffleManualNumbersModal(self.customer_name))
+
+
+class RaffleConfirmView(discord.ui.View):
+    def __init__(self, action):
+        super().__init__(timeout=90)
+        self.action = action
+
+    @discord.ui.button(label="Yes — Continue", emoji="✅", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        try:
+            if self.action == "close":
+                row = raffles.close(interaction.user.id, str(interaction.user))
+                title = "🔒 RAFFLE ENTRIES CLOSED"
+            elif self.action == "draw":
+                row = raffles.draw(interaction.user.id, str(interaction.user))
+                title = "🏆 SNR RAFFLE WINNER"
+            elif self.action == "reopen":
+                row = raffles.reopen(interaction.user.id, str(interaction.user))
+                title = "🟢 RAFFLE REOPENED"
+            else:
+                row = raffles.cancel(interaction.user.id, str(interaction.user))
+                title = "🔴 RAFFLE CANCELLED"
+        except ValueError as exc:
+            await interaction.response.edit_message(content=f"❌ {exc}", embed=None, view=None)
+            return
+        embed = raffle_embed(row, title=title)
+        await interaction.response.edit_message(content=None, embed=embed, view=None)
+        if self.action == "draw":
+            try:
+                await interaction.channel.send(embed=embed)
+            except discord.HTTPException:
+                logging.exception("Raffle winner was saved but the announcement could not be posted")
+
+
+class RaffleOwnerView(discord.ui.View):
+    @discord.ui.button(label="Create New", emoji="➕", style=discord.ButtonStyle.success)
+    async def create(self, interaction, button):
+        if await require_owner(interaction):
+            await interaction.response.send_modal(RaffleCreateModal())
+
+    @discord.ui.button(label="Edit", emoji="✏️", style=discord.ButtonStyle.primary)
+    async def edit(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        row = raffles.current(include_latest=False)
+        if not row:
+            await interaction.response.send_message("ℹ️ There is no active raffle to edit.", ephemeral=True)
+        else:
+            await interaction.response.send_modal(RaffleEditModal(row))
+
+    async def ask(self, interaction, action, message):
+        if await require_owner(interaction):
+            await send_ephemeral(interaction, message, view=RaffleConfirmView(action))
+
+    @discord.ui.button(label="Close Entries", emoji="🔒", style=discord.ButtonStyle.secondary)
+    async def close(self, interaction, button):
+        await self.ask(interaction, "close", "Close entries now? All payment requests must be resolved first.")
+
+    @discord.ui.button(label="Draw Winner", emoji="🏆", style=discord.ButtonStyle.danger)
+    async def draw(self, interaction, button):
+        await self.ask(interaction, "draw", "Draw one secure random winner from confirmed paid numbers? This cannot be undone.")
+
+    @discord.ui.button(label="Reopen", emoji="🔓", style=discord.ButtonStyle.primary)
+    async def reopen(self, interaction, button):
+        await self.ask(interaction, "reopen", "Reopen the closed raffle for more entries?")
+
+    @discord.ui.button(label="Cancel Raffle", emoji="✖️", style=discord.ButtonStyle.danger, row=1)
+    async def cancel(self, interaction, button):
+        await self.ask(interaction, "cancel", "Cancel the current raffle? Pending requests will be cancelled and no winner will be drawn.")
+
+
+class RaffleCentreView(discord.ui.View):
+    @discord.ui.button(label="View Board", emoji="🎟️", style=discord.ButtonStyle.primary)
+    async def board(self, interaction, button):
+        if await require_staff(interaction):
+            await send_ephemeral(interaction, embed=raffle_embed(raffles.current()))
+
+    @discord.ui.button(label="Pending Payments", emoji="💷", style=discord.ButtonStyle.success)
+    async def pending(self, interaction, button):
+        if not await require_staff(interaction):
+            return
+        rows = [row for row in raffles.pending() if row["guild_id"] == str(interaction.guild_id)]
+        if not rows:
+            await send_ephemeral(interaction, "✅ No raffle payments are waiting.", delete_after=5)
+            return
+        await send_ephemeral(interaction, f"🎟️ **{len(rows)} raffle payment request(s) waiting.**")
+        for row in rows[:10]:
+            await interaction.followup.send(embed=raffle_request_embed(row), view=RaffleRequestView(row["id"]), ephemeral=True)
+
+    @discord.ui.button(label="Add Paid Entry", emoji="➕", style=discord.ButtonStyle.success)
+    async def manual(self, interaction, button):
+        if await require_staff(interaction):
+            await show_customer_picker(interaction, "raffle_manual")
+
+    @discord.ui.button(label="Owner Controls", emoji="👑", style=discord.ButtonStyle.danger)
+    async def owner(self, interaction, button):
+        if await require_owner(interaction):
+            history = raffles.history(5)
+            lines = "\n".join(f"• #{row['id']} {row['title']} — {row['status'].upper()}"
+                              for row in history) or "No raffle history yet."
+            await send_ephemeral(interaction, f"👑 **Raffle Owner Controls**\n{lines}",
+                                 embed=raffle_embed(raffles.current()), view=RaffleOwnerView())
+
+
 class MoreToolsView(discord.ui.View):
     """Occasional staff tools, kept off the everyday hub."""
 
@@ -1449,6 +1704,11 @@ class MoreToolsView(discord.ui.View):
                 view=OwnerAdminView(),
             )
 
+    @discord.ui.button(label="Raffle Centre", emoji="🎟️", style=discord.ButtonStyle.success, row=1)
+    async def raffle_centre(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await send_ephemeral(interaction, embed=raffle_embed(raffles.current()), view=RaffleCentreView())
+
 
 class StaffPanel(discord.ui.View):
     def __init__(self):
@@ -1481,7 +1741,7 @@ class StaffPanel(discord.ui.View):
     async def more_tools(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await interaction.response.send_message(
-                "🧰 **More Tools**\nFinance, Golden Tickets, Birdy posts and owner controls.",
+                "🧰 **More Tools**\nRaffles, finance, Golden Tickets, Birdy posts and owner controls.",
                 view=MoreToolsView(), ephemeral=True)
 
 
@@ -2190,6 +2450,26 @@ async def notify_account_requests():
             logging.exception('Account approval alert failed; will retry: %s', row['id'])
 
 
+@tasks.loop(seconds=10)
+async def notify_raffle_requests():
+    if not bot.is_ready():
+        return
+    for row in raffles.pending(unsent=True, limit=20):
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Raffle alert channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=raffle_request_embed(row),
+                                         view=RaffleRequestView(row['id']), allowed_mentions=allowed)
+            raffles.notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Raffle request alert failed; will retry: %s', row['id'])
+
+
 @bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} ({bot.user.id})")
@@ -2205,6 +2485,8 @@ async def on_ready() -> None:
         notify_support_requests.start()
     if not notify_account_requests.is_running():
         notify_account_requests.start()
+    if not notify_raffle_requests.is_running():
+        notify_raffle_requests.start()
 
 
 @bot.event
@@ -2222,6 +2504,8 @@ async def setup_hook() -> None:
         bot.add_view(SupportRequestView(row['id']))
     for row in accounts.pending():
         bot.add_view(AccountRequestView(row['id']))
+    for row in raffles.pending():
+        bot.add_view(RaffleRequestView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)
     if result["imported"]:
         print(f"Imported {result['imported']} legacy customers.")
@@ -2288,8 +2572,8 @@ async def orders_setup(interaction: discord.Interaction):
         return
     orders.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
     await interaction.response.send_message(
-        '✅ Website deliveries enabled. Only delivery and pickup orders will appear in this channel, normally within 10 seconds. '
-        'Press Customer Paid only after collecting payment.',
+        '✅ Website deliveries and raffle payment alerts enabled in this private staff channel, normally within 10 seconds. '
+        'Confirm payments only after collecting the correct amount.',
         ephemeral=True,
     )
 
@@ -2333,6 +2617,13 @@ async def claims_pending(interaction: discord.Interaction):
 @bot.tree.command(name='snrhub_orders_pending', description='Review website delivery orders awaiting payment.')
 async def orders_pending(interaction: discord.Interaction):
     await show_delivery_orders(interaction)
+
+
+@bot.tree.command(name='snrhub_raffle', description='Open the integrated SNR raffle centre.')
+async def raffle_centre_command(interaction: discord.Interaction):
+    if await require_staff(interaction):
+        await interaction.response.send_message(
+            embed=raffle_embed(raffles.current()), view=RaffleCentreView(), ephemeral=True)
 
 
 @bot.tree.command(name="snrhub_sale", description="Record an SNR sale using only the customer name.")

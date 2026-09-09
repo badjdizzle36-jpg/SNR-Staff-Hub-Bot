@@ -19,6 +19,7 @@ from customer_accounts import Accounts, SECURITY_QUESTIONS
 from delivery_orders import DeliveryStore
 from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
+from raffles import RaffleStore
 from snr_core import DEALS, SNRDatabase, normalize_name
 
 LONDON = ZoneInfo("Europe/London")
@@ -36,9 +37,10 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 .order-progress{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:18px 0 8px}.order-step{text-align:center;color:#d8aaa1;font-size:11px;font-weight:850}.order-step:before{content:'✓';display:grid;place-items:center;width:30px;height:30px;margin:0 auto 5px;border-radius:50%;background:#3a1111;border:2px solid #7e3e35;color:#d8aaa1}.order-step.done{color:#fff2c9}.order-step.done:before{background:#159447;border-color:#7effa4;color:#fff}.order-step.current{color:var(--gold)}.order-step.current:before{content:'•';background:#ffb91e;border-color:#fff07b;color:#5b0d08;box-shadow:0 0 14px #ffc40088}.reorder-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 0;border-bottom:1px solid #ffffff12}.reorder-row:last-child{border-bottom:0}.reorder-row button{padding:9px 12px;white-space:nowrap;box-shadow:none}.reorder-message{display:none;margin:12px 0}.reorder-message.show{display:block}
 .account-choice{display:grid;gap:12px;margin-top:20px}.account-choice details{background:#3d0a0a;border:1px solid #ffda4e66;border-radius:16px;overflow:hidden}.account-choice details[open]{border-color:var(--gold);background:#4d0d0c}.account-choice summary{cursor:pointer;padding:17px 18px;color:var(--gold);font-size:18px;font-weight:950;list-style:none}.account-choice summary::-webkit-details-marker{display:none}.account-choice summary:after{content:'+';float:right}.account-choice details[open] summary:after{content:'−'}.choice-body{padding:0 18px 18px}.choice-body p{margin:0 0 10px}.choice-body form{flex-direction:column;margin-top:10px}
 .loyalty-progress{margin:15px 0}.progress-track{height:20px;border-radius:99px;background:#250606;border:1px solid #ffda4e;overflow:hidden}.progress-fill{height:100%;background:linear-gradient(90deg,#ff9e19,#fff05b);border-radius:99px;transition:width .4s}.progress-text{display:flex;justify-content:space-between;margin-top:7px;font-weight:800}.vip-card{grid-column:1/-1;background:linear-gradient(135deg,#151515,#7b150c);border:2px solid var(--gold);box-shadow:inset 0 0 22px #ffbc2340}.vip-card .num{color:var(--gold)}.vip-benefits{margin:8px 0 0;color:#fff5d4}.ownership{margin-top:9px;color:#fff3b0;font-weight:900;letter-spacing:.5px}.order-status{border:2px solid var(--gold);background:linear-gradient(135deg,#7e180f,#4b0b0a)}#status-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,130%);width:min(560px,90vw);padding:18px;background:#ffe33b;color:#4d0b08;border-radius:16px;font-weight:950;text-align:center;box-shadow:0 12px 40px #000a;z-index:10;transition:transform .25s}#status-toast.show{transform:translate(-50%,0)}
-.app-tabs{position:sticky;top:8px;z-index:8;display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:0 0 16px;padding:7px;background:#260607e8;border:1px solid #ffda4e80;border-radius:16px;box-shadow:0 8px 28px #16000099;backdrop-filter:blur(10px)}.app-tab{min-width:0;padding:11px 7px;border-radius:11px;background:#5f100d;color:#fff4db;border:1px solid #ffda4e55;box-shadow:none;font-size:13px}.app-tab[aria-selected="true"]{background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;border-color:#fff08b}.app-tab .tab-icon{display:block;font-size:21px;line-height:1.1}.app-view{display:block}.app-ready .app-view{display:none}.app-ready .app-view.active{display:block;animation:page-in .16s ease-out}@keyframes page-in{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}.app-page{border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.app-page.delivery{margin-top:0;padding:0}.app-page-title{margin:0;padding:16px 18px;color:var(--gold);font-size:22px;font-weight:950;border-bottom:1px solid #ffda4e33}.section-drawer{margin-top:18px;border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.section-drawer>summary{padding:18px;cursor:pointer;list-style:none;color:var(--gold);font-size:20px;font-weight:950}.section-drawer>summary::-webkit-details-marker{display:none}.section-drawer>summary:after{content:'+';float:right;font-size:25px}.section-drawer[open]>summary:after{content:'−'}.drawer-body{padding:18px 20px 22px}.section-drawer.delivery{padding:0}.section-drawer .history{margin-top:18px}.compact-info{margin-top:16px}.compact-info summary{cursor:pointer;color:var(--gold);font-weight:900}.account-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:12px}.account-head .name{margin:2px 0}.page-hint{margin:0;color:var(--muted)}.review-box{margin-top:10px;padding:13px;border:1px solid #ffda4e66;border-radius:14px;background:#3c0a0a}.stars{color:var(--gold);font-size:20px;letter-spacing:2px}.reviewed{color:#9dffab;font-weight:850}.rating-overlay{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:#130000e8;backdrop-filter:blur(8px)}.rating-popup{width:min(560px,100%);max-height:94vh;overflow:auto;padding:24px;background:linear-gradient(145deg,#8b1710,#310708);border:3px solid var(--gold);border-radius:24px;box-shadow:0 0 45px #ffbd2490;text-align:center}.rating-popup h2{font-size:30px;line-height:1.1;margin:7px 0}.rating-popup form{display:block}.rating-options{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:18px 0}.star-choice{position:relative;cursor:pointer}.star-choice input{position:absolute;opacity:0;pointer-events:none}.star-choice span{display:block;padding:12px 3px;border:2px solid #ffda4e70;border-radius:12px;background:#4b0a08;color:#ffe53b;font-size:18px;font-weight:950}.star-choice input:checked+span{background:#ffe53b;color:#5b0b07;border-color:#fff;transform:scale(1.06);box-shadow:0 0 16px #ffe53b99}.rating-popup input[type="text"]{margin-bottom:12px}.rating-popup .later{display:block;width:100%;margin-top:12px;padding:10px;background:transparent;color:#ffeab3;border:0;box-shadow:none;text-decoration:underline}
+.app-tabs{position:sticky;top:8px;z-index:8;display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:0 0 16px;padding:7px;background:#260607e8;border:1px solid #ffda4e80;border-radius:16px;box-shadow:0 8px 28px #16000099;backdrop-filter:blur(10px)}.app-tab{min-width:0;padding:11px 5px;border-radius:11px;background:#5f100d;color:#fff4db;border:1px solid #ffda4e55;box-shadow:none;font-size:12px}.app-tab[aria-selected="true"]{background:linear-gradient(135deg,#fff05b,#ffbf18);color:#60100b;border-color:#fff08b}.app-tab .tab-icon{display:block;font-size:21px;line-height:1.1}.app-view{display:block}.app-ready .app-view{display:none}.app-ready .app-view.active{display:block;animation:page-in .16s ease-out}@keyframes page-in{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}.app-page{border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.app-page.delivery{margin-top:0;padding:0}.app-page-title{margin:0;padding:16px 18px;color:var(--gold);font-size:22px;font-weight:950;border-bottom:1px solid #ffda4e33}.section-drawer{margin-top:18px;border:2px solid #ffb52b;border-radius:18px;background:#290808;overflow:hidden}.section-drawer>summary{padding:18px;cursor:pointer;list-style:none;color:var(--gold);font-size:20px;font-weight:950}.section-drawer>summary::-webkit-details-marker{display:none}.section-drawer>summary:after{content:'+';float:right;font-size:25px}.section-drawer[open]>summary:after{content:'−'}.drawer-body{padding:18px 20px 22px}.section-drawer.delivery{padding:0}.section-drawer .history{margin-top:18px}.compact-info{margin-top:16px}.compact-info summary{cursor:pointer;color:var(--gold);font-weight:900}.account-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:12px}.account-head .name{margin:2px 0}.page-hint{margin:0;color:var(--muted)}.review-box{margin-top:10px;padding:13px;border:1px solid #ffda4e66;border-radius:14px;background:#3c0a0a}.stars{color:var(--gold);font-size:20px;letter-spacing:2px}.reviewed{color:#9dffab;font-weight:850}.rating-overlay{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:#130000e8;backdrop-filter:blur(8px)}.rating-popup{width:min(560px,100%);max-height:94vh;overflow:auto;padding:24px;background:linear-gradient(145deg,#8b1710,#310708);border:3px solid var(--gold);border-radius:24px;box-shadow:0 0 45px #ffbd2490;text-align:center}.rating-popup h2{font-size:30px;line-height:1.1;margin:7px 0}.rating-popup form{display:block}.rating-options{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:18px 0}.star-choice{position:relative;cursor:pointer}.star-choice input{position:absolute;opacity:0;pointer-events:none}.star-choice span{display:block;padding:12px 3px;border:2px solid #ffda4e70;border-radius:12px;background:#4b0a08;color:#ffe53b;font-size:18px;font-weight:950}.star-choice input:checked+span{background:#ffe53b;color:#5b0b07;border-color:#fff;transform:scale(1.06);box-shadow:0 0 16px #ffe53b99}.rating-popup input[type="text"]{margin-bottom:12px}.rating-popup .later{display:block;width:100%;margin-top:12px;padding:10px;background:transparent;color:#ffeab3;border:0;box-shadow:none;text-decoration:underline}
+.raffle-hero{padding:17px;border-radius:16px;background:linear-gradient(135deg,#ffdf36,#ff8a13);color:#4f0906;box-shadow:0 8px 26px #ff9b2550}.raffle-hero .label{color:#5a0905}.raffle-hero h3{font-size:28px;margin:4px 0}.raffle-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:13px 0}.raffle-stats div{text-align:center;padding:10px 5px;border-radius:12px;background:#3b0909;border:1px solid #ffda4e55}.raffle-numbers{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin:16px 0}.raffle-number{position:relative}.raffle-number input{position:absolute;opacity:0;pointer-events:none}.raffle-number span{display:grid;place-items:center;aspect-ratio:1;border-radius:8px;background:#68120e;border:1px solid #ffda4e77;font-size:13px;font-weight:900}.raffle-number input:checked+span{background:var(--gold);color:#5b0b07;border-color:#fff;box-shadow:0 0 12px #ffe53b99}.raffle-number.taken span{background:#250707;color:#8f6560;border-color:#52231f;text-decoration:line-through}.raffle-number.mine-pending span{background:#915512;color:white;text-decoration:none}.raffle-number.mine-confirmed span{background:#178447;color:white;text-decoration:none}.raffle-legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px}.raffle-legend span{padding:5px 8px;border:1px solid #ffda4e55;border-radius:99px}.raffle-winner{text-align:center;padding:22px;border:3px solid var(--gold);border-radius:18px;background:linear-gradient(135deg,#8a170f,#3a0808);box-shadow:0 0 30px #ffcf3160}.raffle-winner strong{display:block;font-size:28px;color:var(--gold)}
 .customer-banner{padding:15px 17px;margin:0 0 14px;border:2px solid #67b8ff;border-radius:16px;background:linear-gradient(135deg,#153b6b,#0b1d39);color:#fff;box-shadow:0 6px 20px #0007}.customer-banner strong{display:block;margin-bottom:4px;color:#a9dcff;text-transform:uppercase;letter-spacing:.7px}.customer-banner.banner-promo{border-color:#ffe04b;background:linear-gradient(135deg,#a94708,#671207)}.customer-banner.banner-promo strong{color:#fff36f}.customer-banner.banner-urgent{border-color:#ff7b70;background:linear-gradient(135deg,#aa1414,#4a0505);box-shadow:0 0 24px #ff312f55}.customer-banner.banner-urgent strong{color:#fff36f}.customer-banner[hidden]{display:none}.service-banner{padding:14px 16px;margin:0 0 14px;border-radius:14px;background:#4b0a08;border:2px solid var(--gold);font-weight:900}.service-busy{background:#7b3e08}.service-closed{background:#6b0b0b;border-color:#ff7468}.eta-card{margin:12px 0;padding:14px;border-radius:14px;background:#160505;border:1px solid #ffe53b;color:#ffe53b;font-size:18px;font-weight:950}.problem-form{display:flex;flex-direction:column;gap:8px;margin-top:10px}.problem-form input,.problem-form select{padding:11px}.low-rating-reason{display:none;margin-bottom:12px}.low-rating-reason.show{display:block}
-@media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.wrap{width:min(100% - 18px,760px);padding-top:10px}.brand{margin-bottom:9px}.logo-frame{width:125px;border-radius:13px;margin-bottom:7px}.tag{padding:4px 12px;font-size:10px}.card{padding:14px;border-radius:19px}.account-head{margin-bottom:8px}.account-head .label{font-size:11px}.account-head .name{font-size:25px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{padding:12px}.stat .label{font-size:11px;letter-spacing:.3px}.num{font-size:22px}.wide,.vip-card{grid-column:1/-1}.vip-benefits{font-size:14px}.deal-list{grid-template-columns:1fr}.app-tabs{top:5px;margin-bottom:12px}.app-tab{padding:9px 3px;font-size:11px}.app-tab .tab-icon{font-size:19px}.app-page-title{font-size:19px;padding:13px 14px}.drawer-body{padding:13px 14px 17px}.delivery{margin-top:0}.deal-box{padding:12px}.deal-box .price{font-size:20px}input,select,textarea{padding:13px}.subtotal{font-size:20px}.notice{padding:14px}.ownership{display:none}.order-progress{gap:2px}.order-step{font-size:9px}.order-step:before{width:25px;height:25px}.reorder-row{align-items:flex-start;flex-direction:column}.reorder-row button{width:auto}}
+@media(max-width:560px){form,.location-row{flex-direction:column}button{width:100%}.wrap{width:min(100% - 18px,760px);padding-top:10px}.brand{margin-bottom:9px}.logo-frame{width:125px;border-radius:13px;margin-bottom:7px}.tag{padding:4px 12px;font-size:10px}.card{padding:14px;border-radius:19px}.account-head{margin-bottom:8px}.account-head .label{font-size:11px}.account-head .name{font-size:25px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{padding:12px}.stat .label{font-size:11px;letter-spacing:.3px}.num{font-size:22px}.wide,.vip-card{grid-column:1/-1}.vip-benefits{font-size:14px}.deal-list{grid-template-columns:1fr}.app-tabs{top:5px;margin-bottom:12px;gap:4px;padding:5px}.app-tab{padding:8px 1px;font-size:9px}.app-tab .tab-icon{font-size:17px}.app-page-title{font-size:19px;padding:13px 14px}.drawer-body{padding:13px 14px 17px}.delivery{margin-top:0}.deal-box{padding:12px}.deal-box .price{font-size:20px}input,select,textarea{padding:13px}.subtotal{font-size:20px}.notice{padding:14px}.ownership{display:none}.order-progress{gap:2px}.order-step{font-size:9px}.order-step:before{width:25px;height:25px}.reorder-row{align-items:flex-start;flex-direction:column}.reorder-row button{width:auto}.raffle-numbers{grid-template-columns:repeat(10,1fr);gap:3px}.raffle-number span{font-size:10px;border-radius:5px}.raffle-stats{font-size:12px}}
 @media(max-width:560px){.rating-popup{padding:19px 14px}.rating-popup h2{font-size:25px}.star-choice span{font-size:15px;padding:11px 1px}}
 """
 
@@ -312,8 +314,51 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
     return f'''<section class="app-page delivery" id="delivery"><h2 class="app-page-title">🍔 Order Food — Delivery or Pickup</h2><div class="drawer-body"><p class="muted">Choose your deals, then select delivery or collection.</p>{order_form}<details class="compact-info"><summary>Previous orders</summary><div class="history">{recent or '<p class="muted">No orders yet.</p>'}</div></details></div></section>'''
 
 
+def raffle_section(customer: dict, raffles: RaffleStore, form_token: str) -> str:
+    raffle = raffles.current()
+    heading = '<h2 class="app-page-title">🎟️ SNR Raffle</h2>'
+    if not raffle:
+        return f'<section class="app-page">{heading}<div class="drawer-body"><div class="notice">There is no raffle running right now. Check back soon.</div></div></section>'
+    title, prize = html.escape(raffle["title"]), html.escape(raffle["prize"])
+    if raffle["status"] == "drawn":
+        winner = f'''<div class="raffle-winner"><div class="label">🏆 DRAW COMPLETE</div><h3>{title}</h3><strong>Number {int(raffle["winning_number"])}</strong><p>Winner: <b>{html.escape(raffle["winner_name"])}</b></p><p>Prize: {prize}</p></div>'''
+        return f'<section class="app-page">{heading}<div class="drawer-body">{winner}</div></section>'
+    if raffle["status"] == "cancelled":
+        return f'<section class="app-page">{heading}<div class="drawer-body"><div class="notice"><strong>{title}</strong><br>This raffle was cancelled. No winner was drawn.</div></div></section>'
+    entries = raffles.entries(raffle["id"])
+    by_number = {int(row["number"]): row for row in entries}
+    mine = [row for row in entries if row["customer_key"] == customer["customer_key"]]
+    remaining = max(0, int(raffle["customer_limit"]) - len(mine))
+    cells = []
+    for number in range(1, int(raffle["number_limit"]) + 1):
+        row = by_number.get(number)
+        if not row and raffle["status"] == "open" and remaining:
+            cells.append(f'<label class="raffle-number"><input type="checkbox" name="number_{number}" value="{number}"><span>{number}</span></label>')
+        elif row and row["customer_key"] == customer["customer_key"]:
+            state = "mine-confirmed" if row["status"] == "confirmed" else "mine-pending"
+            cells.append(f'<span class="raffle-number {state}"><span>{number}</span></span>')
+        else:
+            cells.append(f'<span class="raffle-number taken"><span>{number}</span></span>')
+    mine_text = ", ".join(
+        f'{int(row["number"])} ({"paid" if row["status"] == "confirmed" else "awaiting payment"})'
+        for row in mine) or "None yet"
+    if raffle["status"] == "closed":
+        action = '<div class="notice"><strong>Entries are closed.</strong><br>The owner can now draw the winner in Discord.</div>'
+    elif not raffles.configured():
+        action = '<div class="notice">Raffle alerts are being set up. Please ask SNR staff.</div>'
+    elif remaining == 0:
+        action = '<div class="notice">You have reached the limit of 10 numbers in this raffle.</div>'
+    else:
+        action = f'''<form class="raffle-form" method="post" action="/raffle-request" data-max="{remaining}" data-price="{int(raffle["entry_price"])}"><input type="hidden" name="raffle_request_key" value="{html.escape(form_token, quote=True)}"><div class="raffle-numbers">{''.join(cells)}</div><p id="raffle-choice-total" class="subtotal">Choose up to {remaining} number(s)</p><button type="submit">Request My Numbers</button></form>'''
+    if raffle["status"] != "open" or remaining == 0:
+        action = f'<div class="raffle-numbers">{"".join(cells)}</div>' + action
+    status_text = "OPEN — choose your numbers" if raffle["status"] == "open" else "CLOSED — draw coming soon"
+    return f'''<section class="app-page">{heading}<div class="drawer-body" data-raffle-id="{int(raffle["id"])}" data-raffle-status="{raffle["status"]}" data-raffle-confirmed="{int(raffle["confirmed_numbers"])}"><div class="raffle-hero"><div class="label">{status_text}</div><h3>{title}</h3><p><strong>Prize: {prize}</strong><br>£{int(raffle["entry_price"]):,} per number • choose up to 10</p></div><div class="raffle-stats"><div><strong>{int(raffle["confirmed_numbers"])}</strong><br>Paid</div><div><strong>{int(raffle["pending_numbers"])}</strong><br>Reserved</div><div><strong>{int(raffle["available_numbers"])}</strong><br>Available</div></div><p><strong>My numbers:</strong> {mine_text}</p><div class="raffle-legend"><span>🟢 Your paid number</span><span>🟠 Awaiting payment</span><span>⬛ Unavailable</span></div>{action}<div class="notice"><strong>How it works</strong><br>Your chosen numbers are reserved immediately. Pay SNR staff, then staff press <b>Confirm Payment</b> in Discord. Only confirmed paid numbers enter the draw.</div><script src="/raffle.js" defer></script></div></section>'''
+
+
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
-                  accounts: Accounts, claim_token: str, order_token: str, security_token: str) -> str:
+                  accounts: Accounts, raffles: RaffleStore, claim_token: str, order_token: str,
+                  security_token: str, raffle_token: str) -> str:
     recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
     jackpot = ('''<strong>🏆 YOU HAVE A WINNING GOLDEN TICKET!</strong><br>Your account has won the £5,000 jackpot. Speak to SNR staff to verify and collect the prize.'''
                if int(customer["jackpot_wins"]) else
@@ -353,6 +398,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
       <nav class="app-tabs" aria-label="Customer account pages" role="tablist">
         <button class="app-tab" type="button" role="tab" aria-selected="true" data-tab-target="home"><span class="tab-icon">🏠</span>Home</button>
         <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="order"><span class="tab-icon">🍔</span>Order</button>
+        <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="raffle"><span class="tab-icon">🎟️</span>Raffle</button>
         <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="rewards"><span class="tab-icon">🎁</span>Rewards</button>
         <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="visits"><span class="tab-icon">📋</span>Visits</button>
       </nav>
@@ -364,6 +410,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
         <div class="stat wide jackpot"><div class="label">£5,000 Golden Ticket Jackpot</div><div>{jackpot}</div><small>The winning position remains hidden.</small></div>
       </div><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></div>
       <div class="app-view" data-app-view="order" role="tabpanel">{delivery_section(customer, orders, shifts, order_token)}</div>
+      <div class="app-view" data-app-view="raffle" role="tabpanel">{raffle_section(customer, raffles, raffle_token)}</div>
       <div class="app-view" data-app-view="rewards" role="tabpanel">{claim_section(customer, claims, claim_token)}</div>
       <div class="app-view" data-app-view="visits" role="tabpanel"><section class="app-page" id="history"><h2 class="app-page-title">📋 My Recent Visits</h2><div class="drawer-body">{recent}</div></section></div>
       <script src="/portal.js" defer></script>
@@ -386,7 +433,8 @@ class Limiter:
 
 
 def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
-    limiter, claims, orders, accounts, shifts = Limiter(), ClaimStore(db), DeliveryStore(db), Accounts(db), StaffShifts(db)
+    limiter, claims, orders, accounts, shifts, raffles = (Limiter(), ClaimStore(db), DeliveryStore(db),
+                                                          Accounts(db), StaffShifts(db), RaffleStore(db))
     form_secret = secrets.token_bytes(32)
 
     def signature(owner: str, token: str) -> str:
@@ -475,8 +523,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_html(401, login_page(db.customer_names(), "Please log in to open a loyalty account."))
                 return
             self.send_html(200, customer_page(
-                customer, claims, orders, shifts, accounts, make_form_token(owner),
-                make_form_token(owner), make_form_token(owner)
+                customer, claims, orders, shifts, accounts, raffles, make_form_token(owner),
+                make_form_token(owner), make_form_token(owner), make_form_token(owner)
             ))
 
         def do_GET(self) -> None:  # noqa: N802
@@ -519,6 +567,14 @@ const refreshBanner=async()=>{try{const r=await fetch("/announcement-status",{ca
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(data)
+            elif path == "/raffle.js":
+                data = b'''document.addEventListener("DOMContentLoaded",()=>{const f=document.querySelector(".raffle-form"),boxes=[...document.querySelectorAll('.raffle-form input[type="checkbox"]')],out=document.getElementById("raffle-choice-total");if(f){const max=parseInt(f.dataset.max||"10",10),price=parseInt(f.dataset.price||"0",10),sync=()=>{const picked=boxes.filter(x=>x.checked);boxes.forEach(x=>x.disabled=!x.checked&&picked.length>=max);if(out)out.textContent=picked.length?picked.length+" number(s) = \\u00a3"+(picked.length*price).toLocaleString("en-GB"):"Choose up to "+max+" number(s)"};boxes.forEach(x=>x.addEventListener("change",sync));f.addEventListener("submit",e=>{if(!boxes.some(x=>x.checked)){e.preventDefault();alert("Choose at least one available raffle number.")}});sync()}const board=document.querySelector("[data-raffle-id]");if(board)setInterval(async()=>{try{const r=await fetch("/raffle-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(String(d.id)!==board.dataset.raffleId||d.status!==board.dataset.raffleStatus||String(d.confirmed)!==board.dataset.raffleConfirmed)location.reload()}catch(e){}},5000)});'''
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
             elif path == "/announcement-status":
                 if not self.owner():
                     self.send_json(401, {"error": "login_required"})
@@ -527,6 +583,15 @@ const refreshBanner=async()=>{try{const r=await fetch("/announcement-status",{ca
                 self.send_json(200, {"active": bool(announcement.get("active")),
                                      "style": announcement.get("style") or "info",
                                      "message": announcement.get("message") or ""})
+            elif path == "/raffle-status":
+                if not self.owner():
+                    self.send_json(401, {"error": "login_required"})
+                    return
+                raffle = raffles.current()
+                self.send_json(200, ({"id": raffle["id"], "status": raffle["status"],
+                                      "confirmed": raffle["confirmed_numbers"],
+                                      "pending": raffle["pending_numbers"]}
+                                     if raffle else {"id": None, "status": "none", "confirmed": 0, "pending": 0}))
             elif path == "/order-status":
                 owner = self.owner()
                 if not owner:
@@ -614,6 +679,18 @@ const refreshBanner=async()=>{try{const r=await fetch("/announcement-status",{ca
                     result = claims.request_authenticated(owner, key)
                     message = {"pending": "Your claim has been sent to SNR staff. Visit SNR Buns to collect your pack. Your points reset to 0 only after staff mark it handed over.", "fulfilled": "Staff marked this pack as handed over and your points have reset to 0.", "cancelled": "This claim was cancelled and your points were not changed."}[result["status"]]
                     self.send_html(200, page("Reward request", f'<section class="card"><h1>Request #{result["id"]}</h1><p>{message}</p><a class="back" href="/account">Back to my account</a></section>'))
+                elif path == "/raffle-request":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("raffle_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This raffle form has expired. Refresh your account and try again.")
+                    numbers = [int(name.split("_", 1)[1]) for name, value in data.items()
+                               if name.startswith("number_") and value]
+                    result = raffles.request(owner, numbers, key)
+                    chosen = ", ".join(str(number) for number in result["numbers"])
+                    self.send_html(200, page("Raffle numbers reserved", f'''<section class="card"><div class="label">🎟️ RAFFLE REQUEST #{int(result["id"])}</div><h1>Your numbers are reserved</h1><p><strong>{chosen}</strong></p><p>Total to pay: <strong>£{int(result["total_price"]):,}</strong></p><div class="notice">Pay SNR staff. Your numbers enter the draw only after staff press <strong>Confirm Payment</strong> in Discord.</div><a class="back" href="/account#raffle">Back to the raffle</a></section>'''))
                 elif path == "/order":
                     owner = self.owner()
                     if not owner:

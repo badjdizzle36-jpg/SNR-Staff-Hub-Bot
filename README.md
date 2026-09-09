@@ -4,6 +4,10 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Integrated SNR Raffle Centre:** owners create one live raffle at a time with numbers 1–100, a prize and a price per number. Logged-in customers can request up to ten available numbers from the new website **Raffle** page.
+- Website requests reserve numbers immediately, but only enter the draw after staff collect payment and press **Confirm Payment** in Discord. Rejecting a request releases its numbers. Simultaneous requests cannot receive the same number.
+- Staff open **More Tools → Raffle Centre** or `/snrhub_raffle` to view the board, approve/reject payments and add paid entries for a saved customer. Owner controls can create, edit, close, reopen, cancel and securely draw the winner.
+- The secure draw chooses only from confirmed paid entries, locks the finished raffle and shows the winning name and number in Discord and on the customer website. Raffle revenue is reported inside the Raffle Centre and remains separate from meal finance, loyalty points and the £5,000 Golden Ticket jackpot.
 - **Permanent panel protection:** `/snrhub_panel` posts one public staff panel that is never used as a temporary interaction response. New Sale and every other private menu open separately, while the cleanup system refuses to delete any public source message.
 - **Loyalty sale write strengthened:** every qualifying counter sale and confirmed website order now increases points with an atomic database update, verifies the new balance before committing, and records the before/added/after totals in the audit entry. Simultaneous staff sales cannot overwrite one another's points.
 - **New Sale timeout fixed:** the Recent Customers dropdown, full alphabetical dropdown and navigation buttons now use separate Discord rows. The permanent panel acknowledges the click immediately before loading customer data, so the sale menu opens reliably instead of showing “didn’t respond in time.”
@@ -30,7 +34,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - **Owner Admin → Birthday Reward** can set a percentage reward, fixed cash reduction, or switch birthday rewards off. Owners can also correct a customer's saved birthday; close spellings of saved names are recognised.
 - Birthday reductions are displayed in the customer checkout, Discord order receipt and daily closing report. The default on first deployment is **20% off one birthday order**.
 - Discord quantity sales now guarantee the deal's loyalty points for **every individual deal sold**: 2 Mega Deals award 2 base points, while 2 Share Boxes award 4 base points. Any Gold, Platinum or SNR VIP membership bonus is added separately on top, and the receipt shows the full calculation.
-- The signed-in website is now a compact app-style dashboard with **Home, Order, Rewards and Visits** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
+- The signed-in website is now a compact app-style dashboard with **Home, Order, Raffle, Rewards and Visits** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
 - Mobile spacing, logo size, dashboard cards and order controls have been tightened so the important information fits on screen faster without removing any features.
 - A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
 - A new valid square SNR Buns brand poster replaces the broken wide logo file and is designed for clean Discord avatar cropping and website display.
@@ -80,7 +84,7 @@ At four or more available points, the website shows **Claim Trading Card Pack**.
 
 Upload every file from this folder to the existing GitHub repository and commit directly to `main`. Do not delete the Railway volume or database. Railway redeploys automatically.
 
-The new file `staff_shifts.py` must be uploaded with `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`, `customer_accounts.py`, `delivery_orders.py`, `snr-logo.png`, `requirements.txt`, `Procfile` and `railway.json`.
+The files `raffles.py` and `staff_shifts.py` must be uploaded with `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`, `customer_accounts.py`, `delivery_orders.py`, `snr-logo.png`, `requirements.txt`, `Procfile` and `railway.json`.
 
 Keep these Railway variables:
 
@@ -98,7 +102,7 @@ Railway supplies `PORT`; do not add it manually. The volume should remain mounte
 
 ## One-time Discord setup
 
-In a private orders channel, an SNR owner runs `/snrhub_orders_setup`. This channel receives delivery and pickup orders only.
+In a private orders channel, an SNR owner runs `/snrhub_orders_setup`. This channel receives delivery, pickup and raffle-payment alerts.
 
 Create another private Discord text channel named `new-accounts-created`, open it and run `/snrhub_accounts_setup`. All future loyalty-account creation notices—and any account notices still waiting to be sent—will go there instead of Delivery Orders. Staff are notified, but do not approve accounts.
 
@@ -121,6 +125,15 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 8. If the journey is wasted after arrival, press **Wasted Journey — Charge £500**. Only the assigned driver or SNR Management can do this.
 9. In **Delivery Orders**, use **Fee Paid** or **Waive Fee** to clear the warning and restore that customer's delivery access.
 10. Open **Staff Shift** and press **Clock Off** when delivery closes. If everyone clocks off, website delivery is disabled but customers can still place pickup orders.
+
+## Raffle workflow
+
+1. An owner opens **More Tools → Raffle Centre → Owner Controls → Create New**, then enters the raffle title, prize and price for each number. The website automatically opens numbers 1–100.
+2. A logged-in customer opens **Raffle**, chooses up to ten available numbers and presses **Request My Numbers**. Their numbers are reserved while payment is waiting.
+3. Discord alerts `SNR Staff` in the channel configured by `/snrhub_orders_setup`. Staff collect the displayed total and press **Confirm Payment**. Press **Reject & Release** if payment is not made.
+4. Staff can use **Add Paid Entry** for an in-person customer, choose their saved name and enter comma-separated numbers such as `4, 17, 82`.
+5. The owner presses **Close Entries** after every pending payment is resolved, then **Draw Winner**. The draw uses only confirmed paid numbers and cannot be drawn twice.
+6. The finished winner and number appear in Discord and on the website. Create the next raffle only after the previous raffle has been drawn or cancelled.
 
 For pickup orders, press **Accept Pickup Order**, then **Ready for Collection** when the food is ready. The customer is alerted on their webpage. Press **Collected & Customer Paid** only after payment; that final step records finance, loyalty and Golden Tickets.
 
@@ -159,6 +172,7 @@ Every active order card and the Delivery Dashboard now show green, orange or red
 - `/snrhub_accounts_pending` — review recent account activity and any older approval requests
 - `/snrhub_claims_pending` — review pack requests
 - `/snrhub_orders_pending` — review delivery orders
+- `/snrhub_raffle` — open the integrated raffle centre
 - `/snrhub_sale` — record a sale
 - `/snrhub_customer` — check a customer
 - `/snrhub_birdy` — generate copy-ready Birdy posts
