@@ -121,8 +121,13 @@ async def send_ephemeral(interaction: discord.Interaction, content=None, *, embe
 
 
 async def delete_response_later(interaction: discord.Interaction, seconds: float) -> None:
-    """Delete an ephemeral result without blocking the bot."""
+    """Delete a temporary response without ever deleting a public source message."""
     await asyncio.sleep(seconds)
+    response_type = getattr(interaction.response.type, "name", "")
+    if (interaction.message and not interaction.message.flags.ephemeral
+            and response_type in {"message_update", "deferred_message_update"}):
+        logging.warning("Refused to delete a public Discord message during temporary-menu cleanup")
+        return
     try:
         await interaction.delete_original_response()
     except (discord.NotFound, discord.HTTPException):
@@ -507,7 +512,9 @@ async def show_customer_picker(interaction, action):
     deferred = (not interaction.response.is_done()
                 and not (interaction.message and interaction.message.flags.ephemeral))
     if deferred:
-        await interaction.response.defer(ephemeral=True)
+        # thinking=True forces a separate private response for a component
+        # click. Without it, Discord defers an update to the public hub panel.
+        await interaction.response.defer(ephemeral=True, thinking=True)
     try:
         view = CustomerPickerView(action)
         count = len(view.names)
