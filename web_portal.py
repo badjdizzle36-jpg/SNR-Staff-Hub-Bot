@@ -343,7 +343,7 @@ def raffle_section(customer: dict, raffles: RaffleStore, form_token: str) -> str
         f'{int(row["number"])} ({"paid" if row["status"] == "confirmed" else "awaiting payment"})'
         for row in mine) or "None yet"
     if raffle["status"] == "closed":
-        action = '<div class="notice"><strong>Entries are closed.</strong><br>The owner can now draw the winner in Discord.</div>'
+        action = '<div class="notice"><strong>Entries are closed.</strong><br>The winning number will be drawn soon.</div>'
     elif not raffles.configured():
         action = '<div class="notice">Raffle alerts are being set up. Please ask SNR staff.</div>'
     elif remaining == 0:
@@ -353,7 +353,7 @@ def raffle_section(customer: dict, raffles: RaffleStore, form_token: str) -> str
     if raffle["status"] != "open" or remaining == 0:
         action = f'<div class="raffle-numbers">{"".join(cells)}</div>' + action
     status_text = "OPEN — choose your numbers" if raffle["status"] == "open" else "CLOSED — draw coming soon"
-    return f'''<section class="app-page">{heading}<div class="drawer-body" data-raffle-id="{int(raffle["id"])}" data-raffle-status="{raffle["status"]}" data-raffle-confirmed="{int(raffle["confirmed_numbers"])}"><div class="raffle-hero"><div class="label">{status_text}</div><h3>{title}</h3><p><strong>Prize: {prize}</strong><br>£{int(raffle["entry_price"]):,} per number • choose up to 10</p></div><div class="raffle-stats"><div><strong>{int(raffle["confirmed_numbers"])}</strong><br>Paid</div><div><strong>{int(raffle["pending_numbers"])}</strong><br>Reserved</div><div><strong>{int(raffle["available_numbers"])}</strong><br>Available</div></div><p><strong>My numbers:</strong> {mine_text}</p><div class="raffle-legend"><span>🟢 Your paid number</span><span>🟠 Awaiting payment</span><span>⬛ Unavailable</span></div>{action}<div class="notice"><strong>How it works</strong><br>Your chosen numbers are reserved immediately. Pay SNR staff, then staff press <b>Confirm Payment</b> in Discord. Only confirmed paid numbers enter the draw.</div><script src="/raffle.js" defer></script></div></section>'''
+    return f'''<section class="app-page">{heading}<div class="drawer-body" data-raffle-id="{int(raffle["id"])}" data-raffle-status="{raffle["status"]}" data-raffle-confirmed="{int(raffle["confirmed_numbers"])}"><div class="raffle-hero"><div class="label">{status_text}</div><h3>{title}</h3><p><strong>Prize: {prize}</strong><br>£{int(raffle["entry_price"]):,} per number • choose up to 10</p></div><div class="raffle-stats"><div><strong>{int(raffle["confirmed_numbers"])}</strong><br>Paid</div><div><strong>{int(raffle["pending_numbers"])}</strong><br>Reserved</div><div><strong>{int(raffle["available_numbers"])}</strong><br>Available</div></div><p><strong>My numbers:</strong> {mine_text}</p><div class="raffle-legend"><span>🟢 Your paid number</span><span>🟠 Awaiting payment</span><span>⬛ Unavailable</span></div>{action}<div class="notice"><strong>How it works</strong><br>Your chosen numbers are reserved immediately. Pay SNR staff in-store, then staff will confirm your payment. Only confirmed paid numbers enter the draw.</div><script src="/raffle.js" defer></script></div></section>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -690,7 +690,7 @@ const refreshBanner=async()=>{try{const r=await fetch("/announcement-status",{ca
                                if name.startswith("number_") and value]
                     result = raffles.request(owner, numbers, key)
                     chosen = ", ".join(str(number) for number in result["numbers"])
-                    self.send_html(200, page("Raffle numbers reserved", f'''<section class="card"><div class="label">🎟️ RAFFLE REQUEST #{int(result["id"])}</div><h1>Your numbers are reserved</h1><p><strong>{chosen}</strong></p><p>Total to pay: <strong>£{int(result["total_price"]):,}</strong></p><div class="notice">Pay SNR staff. Your numbers enter the draw only after staff press <strong>Confirm Payment</strong> in Discord.</div><a class="back" href="/account#raffle">Back to the raffle</a></section>'''))
+                    self.send_html(200, page("Raffle numbers reserved", f'''<section class="card"><div class="label">🎟️ RAFFLE REQUEST #{int(result["id"])}</div><h1>Your numbers are reserved</h1><p><strong>{chosen}</strong></p><p>Total to pay: <strong>£{int(result["total_price"]):,}</strong></p><div class="notice">Please pay SNR staff in-store. Your numbers will enter the draw once staff confirm your payment.</div><a class="back" href="/account#raffle">Back to the raffle</a></section>'''))
                 elif path == "/order":
                     owner = self.owner()
                     if not owner:
