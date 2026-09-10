@@ -4,6 +4,9 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Quick Hub customer redesign:** the signed-in website now opens on a compact phone-first home screen with the customer's loyalty progress, membership, Golden Tickets, visits and website service status visible immediately.
+- Large **Start New Order**, **Live Raffle** and **My Rewards** shortcuts open the correct page without a long scroll. A live current-order card refreshes automatically when staff move the order forward.
+- A fixed **Home, Order, Raffle, Rewards and More** navigation bar stays within thumb reach. Birthday settings, VIP details, recent visits and logout remain safely available under More so the Home screen stays clean.
 - **Integrated SNR Raffle Centre:** owners create one live raffle at a time with numbers 1–100, a prize and a price per number. Logged-in customers can request up to ten available numbers from the new website **Raffle** page.
 - Website requests reserve numbers immediately, but only enter the draw after staff collect payment and press **Confirm Payment** in Discord. Rejecting a request releases its numbers. Simultaneous requests cannot receive the same number.
 - Staff open **More Tools → Raffle Centre** or `/snrhub_raffle` to view the board, approve/reject payments and add paid entries for a saved customer. Owner controls can create, edit, close, reopen, cancel and securely draw the winner.
@@ -34,7 +37,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - **Owner Admin → Birthday Reward** can set a percentage reward, fixed cash reduction, or switch birthday rewards off. Owners can also correct a customer's saved birthday; close spellings of saved names are recognised.
 - Birthday reductions are displayed in the customer checkout, Discord order receipt and daily closing report. The default on first deployment is **20% off one birthday order**.
 - Discord quantity sales now guarantee the deal's loyalty points for **every individual deal sold**: 2 Mega Deals award 2 base points, while 2 Share Boxes award 4 base points. Any Gold, Platinum or SNR VIP membership bonus is added separately on top, and the receipt shows the full calculation.
-- The signed-in website is now a compact app-style dashboard with **Home, Order, Raffle, Rewards and Visits** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
+- The signed-in website is now a compact app-style dashboard with **Home, Order, Raffle, Rewards and More** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
 - Mobile spacing, logo size, dashboard cards and order controls have been tightened so the important information fits on screen faster without removing any features.
 - A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
 - A new valid square SNR Buns brand poster replaces the broken wide logo file and is designed for clean Discord avatar cropping and website display.
