@@ -40,6 +40,68 @@ class DeliveryTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_instore_payment_records_each_item_once_and_locks_staff(self):
+        row = self.orders.create_cart_authenticated("Cody Ortega", {"mega_deal": 2, "share_box": 2},
+            "", "instore-request-12345", fulfillment_type="instore")
+        self.assertEqual(row["price"], 3400)
+        self.assertEqual(row["delivery_fee"], 0)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+        self.assertIn(row["id"], [r["id"] for r in self.orders.pending(unsent=True)])
+        with self.assertRaises(ValueError):
+            self.orders.advance(row["id"], "accepted", "2", "Counter Staff")
+        paid, sales = self.orders.resolve(row["id"], "paid", "2", "Counter Staff")
+        self.assertEqual(paid["status"], "paid")
+        self.assertEqual(paid["assigned_driver_id"], "2")
+        self.assertEqual(len(sales), 4)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 6)
+        self.orders.resolve(row["id"], "paid", "2", "Counter Staff")
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 6)
+        with self.assertRaises(ValueError):
+            self.orders.resolve(row["id"], "paid", "3", "Other Staff")
+
+    def test_instore_cancel_awards_nothing(self):
+        row = self.orders.create_cart_authenticated("Cody Ortega", {"mega_deal": 1}, "",
+            "instore-cancel-12345", fulfillment_type="instore")
+        self.orders.resolve(row["id"], "cancelled", "2", "Counter Staff")
+        with self.assertRaises(ValueError):
+            self.orders.resolve(row["id"], "paid", "2", "Counter Staff")
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 0)
+
+    def test_instore_web_submission_and_payment_status(self):
+        server = start_web_server(self.db, 0)
+        base = f"http://127.0.0.1:{server.server_port}"
+        cookie = {"Cookie": "snr_session=" + self.session}
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        browser = build_opener(NoRedirect())
+        try:
+            body = browser.open(Request(base + "/account", headers=cookie)).read().decode()
+            self.assertIn('data-instore="true"', body)
+            form = HiddenForm(); form.feed(body)
+            payload = urlencode({"order_request_key": form.values["order_request_key"],
+                "fulfillment_type": "instore", "qty_mega_deal": "2"}).encode()
+            with self.assertRaises(HTTPError) as redirect:
+                browser.open(Request(base + "/order", data=payload, headers=cookie))
+            self.assertEqual(redirect.exception.code, 303)
+            self.assertEqual(redirect.exception.headers["Location"], "/account#order")
+            row = self.orders.summary("Cody Ortega", 1)[0]
+            self.assertEqual(row["fulfillment_type"], "instore")
+            self.assertEqual(row["price"], 1000)
+            body = browser.open(Request(base + "/account", headers=cookie)).read().decode()
+            self.assertIn("Sent to counter — awaiting payment", body)
+            self.orders.resolve(row["id"], "paid", "2", "Counter Staff")
+            data = json.loads(browser.open(Request(base + "/order-status", headers=cookie)).read())
+            self.assertEqual(data["status"], "paid")
+            body = browser.open(Request(base + "/account", headers=cookie)).read().decode()
+            self.assertIn("in-store experience", body)
+            self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 2)
+            self.assertEqual(self.orders.daily_summary(200)["instore"], 1)
+            self.assertEqual(self.orders.daily_summary(200)["deliveries"], 0)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_order_uses_server_price_and_requires_location(self):
         with self.assertRaises(ValueError):
             self.orders.create_authenticated("Cody Ortega", "mega_deal", "", "request-key-12345")

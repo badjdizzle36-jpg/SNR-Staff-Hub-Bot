@@ -428,14 +428,16 @@ class DeliveryStore:
                                   discount_code="", fulfillment_type="delivery"):
         key = normalize_name(customer_key)
         fulfillment_type = str(fulfillment_type or "delivery").strip().lower()
-        if fulfillment_type not in ("delivery", "pickup"):
-            raise ValueError("Choose Delivery or Pickup.")
+        if fulfillment_type not in ("delivery", "pickup", "instore"):
+            raise ValueError("Choose In Store, Delivery or Pickup.")
         postal = " ".join(str(postal).strip().split())
         notes = " ".join(str(notes).strip().split())
         if fulfillment_type == "delivery" and not 2 <= len(postal) <= 80:
             raise ValueError("Enter a postal or clear delivery location between 2 and 80 characters.")
         if fulfillment_type == "pickup":
             postal = "SNR Buns — customer collection"
+        elif fulfillment_type == "instore":
+            postal = "SNR Buns — customer at counter"
         if not 10 <= len(request_key) <= 160:
             raise ValueError("Please reopen your account and try again.")
         if len(notes) > 200:
@@ -714,6 +716,8 @@ class DeliveryStore:
             text = "Order closed"
         if pickup and status == "pending":
             text = f"Estimated {10 if busy else 5}–{20 if busy else 10} minutes • queue position {position}"
+        if row.get("fulfillment_type") == "instore" and status == "pending":
+            text = "Your order is with the counter. Please pay SNR staff."
         return {"queue_position": position, "eta_text": text}
 
     def unnotified_reviews(self, limit=20):
@@ -739,7 +743,8 @@ class DeliveryStore:
                 COUNT(*) AS reviews,ROUND(AVG(r.rating),2) AS average_rating,
                 SUM(CASE WHEN r.rating=5 THEN 1 ELSE 0 END) AS five_star_reviews,
                 SUM(CASE WHEN r.fulfillment_type='pickup' THEN 1 ELSE 0 END) AS pickups,
-                SUM(CASE WHEN r.fulfillment_type!='pickup' THEN 1 ELSE 0 END) AS deliveries
+                SUM(CASE WHEN r.fulfillment_type='instore' THEN 1 ELSE 0 END) AS instore,
+                SUM(CASE WHEN r.fulfillment_type='delivery' THEN 1 ELSE 0 END) AS deliveries
                 FROM delivery_reviews r JOIN web_delivery_orders o ON o.id=r.order_id
                 WHERE o.guild_id=? AND r.created_at>=?
                 GROUP BY r.staff_id,r.staff_name
@@ -853,7 +858,8 @@ class DeliveryStore:
         with self.db.connect() as conn:
             paid = conn.execute("""SELECT COUNT(*) AS orders,
                 COALESCE(SUM(CASE WHEN fulfillment_type='pickup' THEN 1 ELSE 0 END),0) AS pickups,
-                COALESCE(SUM(CASE WHEN fulfillment_type!='pickup' THEN 1 ELSE 0 END),0) AS deliveries,
+                COALESCE(SUM(CASE WHEN fulfillment_type='instore' THEN 1 ELSE 0 END),0) AS instore,
+                COALESCE(SUM(CASE WHEN fulfillment_type='delivery' THEN 1 ELSE 0 END),0) AS deliveries,
                 COALESCE(SUM(subtotal),0) AS food_subtotal,
                 COALESCE(SUM(delivery_fee),0) AS delivery_fees,
                 COALESCE(SUM(discount_amount),0) AS code_discounts,
@@ -931,8 +937,8 @@ class DeliveryStore:
             row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
             if not row:
                 raise ValueError("Order not found.")
-            if row["fulfillment_type"] == "pickup":
-                raise ValueError("A pickup order cannot receive a Wasted Journey fee.")
+            if row["fulfillment_type"] != "delivery":
+                raise ValueError("Pickup and in-store orders cannot receive a Wasted Journey fee.")
             self._require_assigned_driver(row, staff_id, allow_override)
             existing = conn.execute("SELECT * FROM delivery_fees WHERE order_id=?", (order_id,)).fetchone()
             if existing:
@@ -988,6 +994,8 @@ class DeliveryStore:
             if not row:
                 raise ValueError("Order not found.")
             fulfillment = row["fulfillment_type"] or "delivery"
+            if fulfillment == "instore":
+                raise ValueError("In-store orders only need Confirm Payment or Cancel Order.")
             if fulfillment == "pickup" and target in ("on_way", "arrived"):
                 raise ValueError("Pickup orders must be marked Ready for Collection.")
             if fulfillment == "delivery" and target == "ready_for_pickup":
@@ -1049,10 +1057,14 @@ class DeliveryStore:
                 raise ValueError("Order not found.")
             if row["status"] == "cancelled":
                 raise ValueError("This order has already been processed.")
+            fulfillment = row["fulfillment_type"] or "delivery"
+            if fulfillment == "instore" and row["status"] == "pending" and not row["assigned_driver_id"]:
+                conn.execute("UPDATE web_delivery_orders SET assigned_driver_id=?,assigned_driver_name=? WHERE id=?",
+                             (str(staff_id), staff_name, order_id))
+                row = conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (order_id,)).fetchone()
             self._require_assigned_driver(row, staff_id, allow_override)
             already_paid = row["status"] == "paid"
-            fulfillment = row["fulfillment_type"] or "delivery"
-            required_status = "ready_for_pickup" if fulfillment == "pickup" else "arrived"
+            required_status = "pending" if fulfillment == "instore" else "ready_for_pickup" if fulfillment == "pickup" else "arrived"
             if not already_paid and row["status"] not in (required_status, "processing"):
                 message = ("Mark the order Ready for Collection before confirming payment."
                            if fulfillment == "pickup" else

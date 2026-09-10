@@ -4,6 +4,9 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Scan Card In Store:** the large gold digital member card is the main Home shortcut. Customers tap it, choose meal quantities and press **Send to Counter - Pay In Store**. This opens the menu; it does not require a camera scan.
+- In-store orders appear in the existing private orders channel, mention SNR staff and display the account name, basket and total. Staff collect payment and press **Confirm Payment** directly. No acceptance, driver or collection steps are needed.
+- In-store ordering has no delivery fee and requires no driver or postal. Customers must be logged in; service must be open. Payment confirmation records each meal's rewards, membership progress, Golden Tickets and finance through the existing system. Repeat clicks cannot add the same sale twice.
 - **Quick Hub customer redesign:** the signed-in website now opens on a compact phone-first home screen with the customer's loyalty progress, membership, Golden Tickets, visits and website service status visible immediately.
 - Large **Start New Order**, **Live Raffle** and **My Rewards** shortcuts open the correct page without a long scroll. A live current-order card refreshes automatically when staff move the order forward.
 - A fixed **Home, Order, Raffle, Rewards and More** navigation bar stays within thumb reach. Birthday settings, VIP details, recent visits and logout remain safely available under More so the Home screen stays clean.

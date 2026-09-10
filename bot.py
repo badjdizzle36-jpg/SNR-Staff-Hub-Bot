@@ -319,7 +319,7 @@ def closing_report_embed(stats: dict, delivery: dict) -> discord.Embed:
     embed.add_field(name="Profit Margin", value=f"**{stats['profit_margin']:.1f}%**", inline=True)
     embed.add_field(name="Loyalty / Tickets", value=f"**{stats['loyalty']} points • {stats['tickets']} tickets**", inline=True)
     embed.add_field(name="Website Orders", value=(f"**{delivery['orders']} paid**\n"
-                    f"{delivery['deliveries']} delivery • {delivery['pickups']} pickup"), inline=True)
+                    f"{delivery['deliveries']} delivery • {delivery['pickups']} pickup • {delivery.get('instore', 0)} in store"), inline=True)
     embed.add_field(name="Order Adjustments", value=(f"Delivery fees: **{money(delivery['delivery_fees'])}**\n"
                     f"Code discounts: **−{money(delivery['code_discounts'])}**\n"
                     f"Birthday rewards: **−{money(delivery['birthday_discounts'])}**"), inline=True)
@@ -1306,7 +1306,7 @@ def review_leaderboard_embed(guild_id, days):
                 f'{medal} **{discord.utils.escape_markdown(row["staff_name"])}** — '
                 f'**{average:.2f}/5** from {int(row["reviews"])} review(s) '
                 f'• {int(row["five_star_reviews"])} five-star '
-                f'• {int(row["deliveries"])} delivery / {int(row["pickups"])} pickup')
+                f'• {int(row["deliveries"])} delivery / {int(row["pickups"])} pickup / {int(row.get("instore", 0))} in store')
         embed.description = "\n".join(lines)
     embed.set_footer(text="Ranked by average stars, then number of reviews • Verified completed orders only")
     return embed
@@ -1314,7 +1314,7 @@ def review_leaderboard_embed(guild_id, days):
 
 def customer_review_embed(row):
     stars = "★" * int(row["rating"]) + "☆" * (5 - int(row["rating"]))
-    mode = "Pickup experience" if row["fulfillment_type"] == "pickup" else "Delivery driver"
+    mode = "In-store experience" if row["fulfillment_type"] == "instore" else "Pickup experience" if row["fulfillment_type"] == "pickup" else "Delivery driver"
     embed = discord.Embed(title=f"⭐ NEW CUSTOMER RATING — ORDER #{row['order_id']}",
                           colour=discord.Colour.gold())
     embed.add_field(name="Customer", value=discord.utils.escape_markdown(row["customer_name"]), inline=True)
@@ -1837,10 +1837,15 @@ def delivery_order_embed(row):
         status = 'COLLECTED & PAID — SALE RECORDED'
     icon = '🛍️' if fulfillment == 'pickup' else '🚗'
     order_type = 'PICKUP' if fulfillment == 'pickup' else 'DELIVERY'
+    if fulfillment == 'instore':
+        icon, order_type = '💳', 'IN-STORE'
+        status = 'PAYMENT CONFIRMED — SALE RECORDED' if row['status'] == 'paid' else 'CUSTOMER AT COUNTER — CONFIRM PAYMENT' if row['status'] == 'pending' else status
     embed = discord.Embed(title=f"{icon} {order_type} ORDER #{row['id']}", colour=colours.get(row['status'], discord.Colour.orange()))
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name='Total Owed', value=f"**{money(row['price'])}**", inline=True)
     embed.add_field(name='Status', value=f"**{status}**", inline=True)
+    if fulfillment == 'instore':
+        embed.description = 'Check the customer name and basket, collect the total owed, then press **Confirm Payment** once. Rewards are added automatically.'
     if row['status'] in ACTIVE_STATUSES:
         health = orders.order_health(row)
         health_icon = {'green': '🟢', 'orange': '🟠', 'red': '🔴'}[health['colour']]
@@ -1873,7 +1878,7 @@ def delivery_order_embed(row):
         breakdown.append(f"Code **{discord.utils.escape_markdown(row.get('discount_code') or '')}**: **−{money(discount)}**")
     if birthday_discount:
         breakdown.append(f"🎂 Birthday reward: **−{money(birthday_discount)}**")
-    fee_label = 'Pickup charge' if fulfillment == 'pickup' else f"{row.get('membership_level') or 'Regular'} delivery"
+    fee_label = 'In-store charge' if fulfillment == 'instore' else 'Pickup charge' if fulfillment == 'pickup' else f"{row.get('membership_level') or 'Regular'} delivery"
     breakdown.append(f"{fee_label}: **{'FREE' if fee == 0 else money(fee)}**")
     breakdown.append(f"Final total: **{money(row['price'])}**")
     embed.add_field(name='Price Breakdown', value="\n".join(breakdown), inline=False)
@@ -1895,7 +1900,9 @@ def delivery_order_embed(row):
                 value=f"{outcome['tickets']} Golden Ticket(s) issued, checked and entered automatically. No winning match on this order.",
                 inline=False,
             )
-    if fulfillment == 'pickup':
+    if fulfillment == 'instore':
+        embed.add_field(name='💳 In Store', value='**Customer is ordering at the SNR Buns counter**', inline=False)
+    elif fulfillment == 'pickup':
         embed.add_field(name='🛍️ Collection', value='**Customer will collect from SNR Buns**', inline=False)
     else:
         embed.add_field(
@@ -1904,7 +1911,7 @@ def delivery_order_embed(row):
             inline=False,
         )
     if row.get('assigned_driver_name'):
-        handler_label = 'Handling Staff' if fulfillment == 'pickup' else 'Driver'
+        handler_label = 'Counter Staff' if fulfillment == 'instore' else 'Handling Staff' if fulfillment == 'pickup' else 'Driver'
         embed.add_field(name=handler_label, value=f"**{discord.utils.escape_markdown(row['assigned_driver_name'])}**", inline=True)
     if row.get('notes'):
         embed.add_field(name='📝 Customer Notes', value=discord.utils.escape_markdown(row['notes'])[:1024], inline=False)
@@ -1996,7 +2003,11 @@ class DeliveryOrderView(discord.ui.View):
         row = orders.get(self.order_id)
         status = row['status'] if row else 'pending'
         fulfillment = (row.get('fulfillment_type') or 'delivery') if row else 'delivery'
-        if status == 'pending':
+        if fulfillment == 'instore':
+            action = discord.ui.Button(label='Confirm Payment', emoji='💳', style=discord.ButtonStyle.success,
+                                       custom_id=f'snr:delivery:{self.order_id}:paid')
+            target = 'paid'
+        elif status == 'pending':
             accept_label = 'Accept Pickup Order' if fulfillment == 'pickup' else 'Accept Delivery'
             action = discord.ui.Button(label=accept_label, emoji='✅', style=discord.ButtonStyle.primary,
                                        custom_id=f'snr:delivery:{self.order_id}:accepted')
@@ -2108,7 +2119,7 @@ class DeliveryOrderView(discord.ui.View):
             response = '🛍️ Marked Ready for Collection. The customer’s webpage is alerting them to come to SNR Buns.'
         elif target == 'paid':
             won = any(result.get('jackpot_won') for result in sales)
-            completed_word = ('Collected' if (row.get('fulfillment_type') or 'delivery') == 'pickup'
+            completed_word = ('Served in store' if row.get('fulfillment_type') == 'instore' else 'Collected' if (row.get('fulfillment_type') or 'delivery') == 'pickup'
                               else 'Delivered')
             response = ((f'🏆 GOLDEN TICKET WINNER! This customer won the £5,000 jackpot. '
                          'Their webpage is alerting them now and the reward is recorded for staff verification.')
