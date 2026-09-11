@@ -27,6 +27,7 @@ from customer_accounts import Accounts
 from customer_services import ACTION_LABELS, CustomerServices
 from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
+from alert_channels import AlertChannels, CHANNEL_TYPES
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -50,6 +51,7 @@ orders = DeliveryStore(db)
 shifts = StaffShifts(db)
 raffles = RaffleStore(db)
 services = CustomerServices(db)
+alert_channels = AlertChannels(db)
 
 
 def money(value: float | int) -> str:
@@ -107,6 +109,73 @@ async def require_staff(interaction: discord.Interaction) -> bool:
     else:
         await interaction.response.send_message("❌ This SNR system is staff-only.", ephemeral=True)
     return False
+
+
+async def routed_alert_channel(row, alert_type):
+    """Use a dedicated owner-selected channel, with the record's old route as fallback."""
+    guild_id = str(row.get("guild_id") or "")
+    channel_id = alert_channels.channel_id(alert_type, guild_id, row.get("channel_id"))
+    if not channel_id:
+        return None
+    channel = bot.get_channel(int(channel_id)) or await bot.fetch_channel(int(channel_id))
+    if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != guild_id:
+        return None
+    return channel
+
+
+def channel_setup_text(guild_id):
+    lines = []
+    for row in alert_channels.status(guild_id):
+        destination = f"<#{row['channel_id']}>" if row["channel_id"] else "Not assigned — using existing fallback"
+        lines.append(f"• **{row['label']}** → {destination}")
+    return ("📂 **SNR ALERT CHANNELS**\n"
+            "Run this screen inside the private channel you want to use, then tap what belongs here.\n\n"
+            + "\n".join(lines))
+
+
+class ChannelSetupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        icons = {
+            "new_accounts": "👤", "active_orders": "🚗", "completed_orders": "✅",
+            "pack_requests": "🎴", "raffle_requests": "🎟️", "customer_help": "💬",
+            "reward_requests": "🎁", "reviews_issues": "⭐",
+        }
+        for index, (alert_type, label) in enumerate(CHANNEL_TYPES.items()):
+            button = discord.ui.Button(label=label, emoji=icons[alert_type],
+                                       style=discord.ButtonStyle.primary, row=index // 4)
+
+            async def callback(interaction, chosen=alert_type, chosen_label=label):
+                if not await require_owner(interaction):
+                    return
+                channel = interaction.channel
+                if not isinstance(channel, discord.TextChannel):
+                    await interaction.response.send_message("Use this inside a private Discord text channel.", ephemeral=True)
+                    return
+                permissions = channel.permissions_for(channel.guild.me)
+                if channel.permissions_for(channel.guild.default_role).view_channel or not (
+                        permissions.view_channel and permissions.send_messages and permissions.embed_links):
+                    await interaction.response.send_message(
+                        "This must be a private staff channel where the bot can view, send messages and embed links.",
+                        ephemeral=True)
+                    return
+                alert_channels.configure(chosen, channel.id, channel.guild.id,
+                                         interaction.user.id, str(interaction.user))
+                # Keep the original feature setup working on installations that have not used the older commands.
+                if chosen == "active_orders":
+                    orders.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
+                elif chosen == "pack_requests":
+                    claims.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
+                elif chosen == "new_accounts":
+                    accounts.configure_notifications(channel.id, channel.guild.id,
+                                                     interaction.user.id, str(interaction.user))
+                await interaction.response.edit_message(
+                    content=f"✅ **{chosen_label}** will now go to {channel.mention}.\n\n"
+                            + channel_setup_text(channel.guild.id),
+                    view=ChannelSetupView(), embed=None)
+
+            button.callback = callback
+            self.add_item(button)
 
 
 async def send_ephemeral(interaction: discord.Interaction, content=None, *, embed=None, view=None,
@@ -1154,6 +1223,12 @@ class OwnerAdminView(discord.ui.View):
         lines = [f"• **{row['action'].replace('_', ' ').title()}** — {discord.utils.escape_markdown(row['details'])[:140]}"
                  for row in rows]
         await send_ephemeral(interaction, "🧾 **LATEST CONTROL HISTORY**\n" + ("\n".join(lines) if lines else "No recorded changes."))
+
+    @discord.ui.button(label="Channel Setup", emoji="📂", style=discord.ButtonStyle.primary, row=3)
+    async def channel_setup(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        await send_ephemeral(interaction, channel_setup_text(interaction.guild_id), view=ChannelSetupView())
 
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
@@ -2366,6 +2441,35 @@ class DeliveryOrderView(discord.ui.View):
         next_view = (DeliveryFeeView(fee['id']) if target == 'wasted_journey'
                      else None if finished else DeliveryOrderView(self.order_id))
         next_embed = delivery_fee_embed(orders.fee_get(fee['id'])) if target == 'wasted_journey' else delivery_order_embed(row)
+        if finished:
+            try:
+                completed_channel = await routed_alert_channel(row, "completed_orders")
+                if not completed_channel:
+                    raise RuntimeError("Completed-delivery channel is unavailable")
+                if completed_channel.permissions_for(completed_channel.guild.default_role).view_channel:
+                    raise RuntimeError("Completed-delivery channel must be private")
+                content, allowed = (staff_ping(completed_channel) if target == 'wasted_journey'
+                                    else (None, discord.AllowedMentions.none()))
+                await completed_channel.send(content=content, embed=next_embed, view=next_view,
+                                             allowed_mentions=allowed)
+                original_ids = {str(interaction.message.id)}
+                try:
+                    await interaction.message.delete()
+                except discord.HTTPException:
+                    logging.exception('Could not remove finished order menu: %s', self.order_id)
+                if row.get('message_id') and str(row['message_id']) not in original_ids:
+                    active_channel = await routed_alert_channel(row, "active_orders")
+                    if active_channel:
+                        try:
+                            await active_channel.get_partial_message(int(row['message_id'])).delete()
+                        except discord.HTTPException:
+                            logging.exception('Could not remove canonical active order: %s', self.order_id)
+                return
+            except Exception:
+                logging.exception('Order completed but could not be moved to completed channel: %s', self.order_id)
+                await interaction.followup.send(
+                    '⚠️ The order was completed correctly, but its Discord completion card could not be moved. '
+                    'Ask the owner to check Channel Setup.', ephemeral=True)
         try:
             await interaction.message.edit(embed=next_embed, view=next_view)
             if row['message_id'] and str(interaction.message.id) != row['message_id']:
@@ -2559,8 +2663,8 @@ async def notify_pack_claims():
         return
     for row in claims.pending(unsent=True)[:20]:
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "pack_requests")
+            if not channel:
                 logging.warning('Pack claim channel is unavailable or belongs to another server: %s', row['id'])
                 continue
             mention, allowed = staff_ping(channel)
@@ -2579,8 +2683,8 @@ async def notify_delivery_orders():
         return
     for row in orders.pending(unsent=True)[:20]:
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "active_orders")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Delivery channel is public; awaiting a private channel: %s', row['id'])
@@ -2599,8 +2703,8 @@ async def notify_late_orders():
         return
     for row in orders.late_alerts()[:20]:
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "active_orders")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Late-order channel is public; waiting for a private channel: %s', row['id'])
@@ -2621,8 +2725,8 @@ async def notify_customer_reviews():
         return
     for row in orders.unnotified_reviews(20):
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "reviews_issues")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Review notification channel is public; waiting for a private channel: %s', row['id'])
@@ -2643,8 +2747,8 @@ async def notify_support_requests():
         return
     for row in orders.pending_support(unsent=True, limit=20):
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "customer_help")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Support alert channel is public; waiting for a private channel: %s', row['id'])
@@ -2663,8 +2767,8 @@ async def notify_account_requests():
         return
     for row in accounts.created_notifications(unsent=True):
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "new_accounts")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Account notification channel is public; waiting for a private channel: %s', row['id'])
@@ -2677,8 +2781,8 @@ async def notify_account_requests():
             logging.exception('Account-created notification failed; will retry: %s', row['id'])
     for row in accounts.pending(unsent=True)[:20]:
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "new_accounts")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Account approval channel is public; waiting for a private channel: %s', row['id'])
@@ -2697,8 +2801,8 @@ async def notify_raffle_requests():
         return
     for row in raffles.pending(unsent=True, limit=20):
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "raffle_requests")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Raffle alert channel is public; waiting for a private channel: %s', row['id'])
@@ -2717,8 +2821,8 @@ async def notify_customer_services():
         return
     for row in services.pending_actions(unsent=True, limit=20):
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "customer_help")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Live Actions channel is public; waiting for a private channel: %s', row['id'])
@@ -2731,8 +2835,8 @@ async def notify_customer_services():
             logging.exception('Customer Live Action alert failed; will retry: %s', row['id'])
     for row in services.pending_rewards(unsent=True, limit=20):
         try:
-            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
-            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+            channel = await routed_alert_channel(row, "reward_requests")
+            if not channel:
                 continue
             if channel.permissions_for(channel.guild.default_role).view_channel:
                 logging.warning('Reward channel is public; waiting for a private channel: %s', row['id'])
@@ -2816,6 +2920,14 @@ async def snr_owner(interaction: discord.Interaction) -> None:
     )
 
 
+@bot.tree.command(name="snrhub_channels", description="Owner: route each SNR alert to this private channel.")
+async def snr_channels(interaction: discord.Interaction) -> None:
+    if not await require_owner(interaction):
+        return
+    await interaction.response.send_message(
+        channel_setup_text(interaction.guild_id), view=ChannelSetupView(), ephemeral=True)
+
+
 @bot.tree.command(name='snrhub_claims_setup', description='Owner: use this private staff channel for website reward alerts.')
 async def claims_setup(interaction: discord.Interaction):
     if not is_owner(interaction):
@@ -2853,7 +2965,8 @@ async def orders_setup(interaction: discord.Interaction):
         return
     orders.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
     await interaction.response.send_message(
-        '✅ Website deliveries and raffle payment alerts enabled in this private staff channel, normally within 10 seconds. '
+        '✅ This is now the fallback website-orders channel. For fully separated alerts, run '
+        '`/snrhub_channels` in each private destination channel and choose its category. '
         'Confirm payments only after collecting the correct amount.',
         ephemeral=True,
     )

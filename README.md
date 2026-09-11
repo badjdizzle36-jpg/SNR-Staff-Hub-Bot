@@ -40,7 +40,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Customers can leave a verified **1–5 star driver or pickup-experience rating**. The order automatically selects the assigned staff member, so customers cannot choose or rate somebody else.
 - Each completed order can be reviewed only once. An optional 250-character comment is saved with the star rating, and the SNR Staff role receives a Discord alert in the private orders channel.
 - Staff can open **More Tools → Staff Ratings** for weekly and monthly leaderboards, or run `/snrhub_ratings`. Rankings show average stars, number of reviews, five-star reviews, deliveries and pickups.
-- New loyalty-account alerts now have their own private Discord destination. Run `/snrhub_accounts_setup` once inside a private `new-accounts-created` channel; account notices will no longer clutter Delivery Orders.
+- Every website alert can now have its own private Discord destination. Run `/snrhub_channels` inside each destination channel and tap the alert type that belongs there. Categories are New Loyalty Accounts, Active Deliveries, Completed Deliveries, Pack Requests, Raffle Number Requests, Customer Help, Reward Requests, and Reviews & Problems.
 - Active delivery and pickup orders now show a visual **live progress tracker** on the customer webpage. Discord actions move the tracker through Placed, Accepted, On Way/Ready, Arrived/Payment and Complete, while the existing webpage alert continues checking every five seconds.
 - Completed website orders now include **Order Again**. It safely refills the old basket and fulfillment choice for review; it never submits a new order until the customer presses Place Order.
 - **Owner Admin → Daily Closing Report** gives an owner-only UK-day snapshot of sales, revenue, production cost, gross profit, margin, paid deliveries/pickups, delivery fees, code discounts, birthday discounts, open orders and wasted journeys. It does not reset data.
@@ -116,7 +116,7 @@ Railway supplies `PORT`; do not add it manually. The volume should remain mounte
 
 ## One-time Discord setup
 
-In a private orders channel, an SNR owner runs `/snrhub_orders_setup`. This channel receives delivery, pickup and raffle-payment alerts.
+For the fully separated setup, create the private staff channels you want. Inside each channel run `/snrhub_channels`, then tap the matching category. Active orders stay in Active Deliveries while they are being handled; after payment, cancellation or a wasted journey, the finished card moves to Completed Deliveries.
 
 Create another private Discord text channel named `new-accounts-created`, open it and run `/snrhub_accounts_setup`. All future loyalty-account creation notices—and any account notices still waiting to be sent—will go there instead of Delivery Orders. Staff are notified, but do not approve accounts.
 
@@ -144,7 +144,7 @@ Open **More Tools → Owner Admin** (or run `/snrhub_owner`) to use the private 
 
 1. An owner opens **More Tools → Raffle Centre → Owner Controls → Create New**, then enters the raffle title, prize and price for each number. The website automatically opens numbers 1–100.
 2. A logged-in customer opens **Raffle**, chooses up to ten available numbers and presses **Request My Numbers**. Their numbers are reserved while payment is waiting.
-3. Discord alerts `SNR Staff` in the channel configured by `/snrhub_orders_setup`. Staff collect the displayed total and press **Confirm Payment**. Press **Reject & Release** if payment is not made.
+3. Discord alerts `SNR Staff` in the Raffle Number Requests channel configured through `/snrhub_channels`. Staff collect the displayed total and press **Confirm Payment**. Press **Reject & Release** if payment is not made.
 4. Staff can use **Add Paid Entry** for an in-person customer, choose their saved name and enter comma-separated numbers such as `4, 17, 82`.
 5. The owner presses **Close Entries** after every pending payment is resolved, then **Draw Winner**. The draw uses only confirmed paid numbers and cannot be drawn twice.
 6. The finished winner and number appear in Discord and on the website. Create the next raffle only after the previous raffle has been drawn or cancelled.
@@ -183,6 +183,7 @@ Every active order card and the Delivery Dashboard now show green, orange or red
 - `/snrhub_orders_setup` — set the private delivery and pickup-order channel
 - `/snrhub_accounts_setup` — set the separate private New Accounts Created alert channel
 - `/snrhub_claims_setup` — optionally set a separate pack-claim channel; new claims alert and mention SNR Staff within a few seconds
+- `/snrhub_channels` — owner one-tap setup for every separate alert channel
 - `/snrhub_accounts_pending` — review recent account activity and any older approval requests
 - `/snrhub_claims_pending` — review pack requests
 - `/snrhub_orders_pending` — review delivery orders
