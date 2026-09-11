@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 from customer_accounts import Accounts, SECURITY_QUESTIONS
+from customer_services import ACTION_LABELS, CustomerServices
 from delivery_orders import DeliveryStore
 from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
@@ -95,6 +96,8 @@ input:focus,select:focus,textarea:focus{outline-color:#e8c86f}
 .customer-shell .tier-current{border-color:#e6c66d;box-shadow:0 0 20px #d9b65222}
 .customer-shell footer{color:#9f947b}
 @media(max-width:560px){body{background:#050506}.customer-shell .quick-hub{box-shadow:none}.customer-shell .quick-content{padding-bottom:30px}}
+.action-centre{margin:13px 0;padding:14px;border:1px solid #6f5b31;border-radius:16px;background:linear-gradient(145deg,#171719,#0b0b0c)}.action-centre h3{margin:0 0 5px;color:#efd180}.action-centre form{margin-top:10px}.action-status{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #63522d55;font-size:13px}.action-status strong{color:#efd180}.reward-shop{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:14px 0}.reward-choice{padding:13px;border:1px solid #62522f;border-radius:14px;background:#111113}.reward-choice strong,.reward-choice small{display:block}.reward-choice small{color:#c8bfa9}.reward-choice form{display:block;margin-top:9px}.reward-choice button{width:100%;padding:10px}.voucher{padding:12px;margin:8px 0;border:1px dashed #d5b45d;border-radius:13px;background:#d5b45d12}.voucher code{color:#f6d77d;font-weight:900}.voucher-used{opacity:.58}.inbox-count{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:99px;background:#e5c365;color:#111;font-size:12px;font-weight:950}@media(max-width:460px){.reward-shop{grid-template-columns:1fr}.action-centre form{flex-direction:column}}
+#service-toast{position:fixed;left:50%;top:18px;transform:translate(-50%,-160%);z-index:110;width:min(560px,92vw);padding:17px;border:2px solid #e2c269;border-radius:16px;background:#0b0b0c;color:#fff8df;text-align:center;font-weight:900;box-shadow:0 15px 45px #000;transition:transform .25s}#service-toast.show{transform:translate(-50%,0)}
 """
 
 
@@ -264,7 +267,8 @@ def rating_popup(customer: dict, orders: DeliveryStore, form_token: str) -> str:
     return f'''<div class="rating-overlay" id="rating-popup" role="dialog" aria-modal="true" aria-labelledby="rating-title"><div class="rating-popup"><div class="label">✅ ORDER #{int(latest["id"])} COMPLETE</div><h2 id="rating-title">How was your order?</h2><p>Rate your {subject} with <strong>{staff_name}</strong>.</p><form method="post" action="/review"><input type="hidden" name="review_request_key" value="{html.escape(form_token, quote=True)}"><input type="hidden" name="order_id" value="{int(latest["id"])}"><div class="rating-options" aria-label="Choose a rating from 1 to 5 stars">{star_buttons}</div><div class="low-rating-reason" id="low-rating-reason"><label><strong>What went wrong?</strong><select name="issue_category"><option value="" selected>Choose a reason</option>{issues}</select></label><p class="muted">A 1–2 star rating alerts SNR management so we can help.</p></div><input type="text" name="comment" maxlength="250" placeholder="Optional short review" aria-label="Optional review"><button type="submit">Send My Rating</button><button class="later" id="rating-later" type="button">Maybe later</button></form>{help_box}</div></div>'''
 
 
-def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts, form_token: str) -> str:
+def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
+                     services: CustomerServices, form_token: str) -> str:
     rows = orders.summary(customer["display_name"])
     service = orders.service_mode()
     fee = orders.outstanding_fee(customer["customer_key"])
@@ -326,18 +330,21 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
         delivery_fee = int(active.get("delivery_fee") or 0)
         discount = int(active.get("discount_amount") or 0)
         birthday_discount = int(active.get("birthday_discount") or 0)
+        voucher_discount = int(active.get("voucher_discount") or 0)
         charge_label = "In-store charge" if instore else "Pickup charge" if pickup else "Delivery"
         discount_line = (f'<br>Discount ({html.escape(active.get("discount_code") or "code")}): '
                          f'<strong>−£{discount:,}</strong>' if discount else "")
         birthday_line = (f'<br>🎂 Birthday reward: <strong>−£{birthday_discount:,}</strong>'
                          if birthday_discount else "")
+        voucher_line = (f'<br>🎫 Voucher ({html.escape(active.get("voucher_code") or "reward")}): '
+                        f'<strong>−£{voucher_discount:,}</strong>' if active.get("voucher_code") else "")
         order_form = (
             f'<div class="notice order-status" data-order-id="{active["id"]}" data-order-status="{active["status"]}">'
             f'<strong>Order #{active["id"]}: {labels[active["status"]]}</strong><br>'
             f'<div class="review-box" id="live-estimate"><strong>🕒 {html.escape(estimate["eta_text"])}</strong></div>'
             f'{"<p>Show your name and order number to staff, then pay at the counter.</p>" if instore else order_tracker(active["status"], pickup)}'
             f'{html.escape(active["deal_name"])}<br>Food subtotal: £{subtotal:,}'
-            f'{discount_line}{birthday_line}<br>{charge_label}: {"FREE" if delivery_fee == 0 else f"£{delivery_fee:,}"}'
+            f'{discount_line}{birthday_line}{voucher_line}<br>{charge_label}: {"FREE" if delivery_fee == 0 else f"£{delivery_fee:,}"}'
             f'<br><strong>Total owed: £{int(active["price"]):,}</strong><br>'
             f'{"At the SNR Buns counter" if instore else "Collection: SNR Buns" if pickup else "Delivery location: " + html.escape(active["postal"])}'
             f'{driver}{note}</div><div id="status-toast" role="status"></div><script src="/delivery.js" defer></script>'
@@ -367,7 +374,12 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
             birthday = orders.birthday_status(customer["customer_key"])
             birthday_notice = (f'<div class="notice"><strong>🎂 Happy Birthday — {html.escape(birthday["reward"])}!</strong><br>Your birthday reward will be applied automatically to this order.</div>'
                                if birthday["eligible"] else "")
-            order_form = (availability if service["mode"] == "closed" else f'''{availability}{birthday_notice}<div id="reorder-message" class="notice reorder-message" role="status"></div><form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><label><strong>How would you like your order?</strong><select id="fulfillment-type" name="fulfillment_type" required>{mode_options}</select></label><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small id="order-fee-label">Membership delivery: {fee_text}</small><br>Total before discount: <span id="delivery-total">£{delivery_fee if drivers and delivery_open else 0:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code"><textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input id="delivery-location" name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" {"required" if drivers and delivery_open else "hidden"}><button type="submit">Place Order</button></div><p class="muted">Pickup is always free. Delivery uses your membership price. Choose up to 10 of each deal (20 deals total). Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>''')
+            checkout_vouchers = [row for row in services.vouchers(customer["customer_key"], active_only=True)
+                                 if row["voucher_kind"] in ("free_delivery", "percent", "fixed")]
+            voucher_options = "".join(f'<option value="{html.escape(row["voucher_code"], quote=True)}">{html.escape(row["title"])} · {html.escape(row["voucher_code"])}</option>' for row in checkout_vouchers)
+            voucher_select = (f'<label><strong>Use a voucher</strong><select name="voucher_code"><option value="">No voucher</option>{voucher_options}</select></label>'
+                              if checkout_vouchers else "")
+            order_form = (availability if service["mode"] == "closed" else f'''{availability}{birthday_notice}<div id="reorder-message" class="notice reorder-message" role="status"></div><form class="delivery-form" method="post" action="/order" data-delivery-fee="{delivery_fee}"><input type="hidden" name="order_request_key" value="{html.escape(form_token, quote=True)}"><label><strong>How would you like your order?</strong><select id="fulfillment-type" name="fulfillment_type" required>{mode_options}</select></label><div class="deal-list">{choices}</div><div class="subtotal" aria-live="polite">Food subtotal: <span id="delivery-subtotal">£0</span><br><small id="order-fee-label">Membership delivery: {fee_text}</small><br>Total before discounts: <span id="delivery-total">£{delivery_fee if drivers and delivery_open else 0:,}</span></div><input name="discount_code" maxlength="20" autocomplete="off" placeholder="Discount code (optional)" aria-label="Discount code">{voucher_select}<textarea name="notes" maxlength="200" placeholder="Optional order notes — meeting point, no ice, call when nearby…" aria-label="Optional order notes"></textarea><div class="location-row"><input id="delivery-location" name="postal" minlength="2" maxlength="80" autocomplete="street-address" placeholder="Required postal or delivery location" aria-label="Postal or delivery location" {"required" if drivers and delivery_open else "hidden"}><button type="submit">Place Order</button></div><p class="muted">Pickup is always free. Delivery uses your membership price. Choose up to 10 of each deal (20 deals total). Rewards are added only after staff confirm payment.</p></form><script src="/delivery.js" defer></script>''')
         else:
             order_form = f'<div class="deal-list">{choices}</div><div class="notice">Online delivery is being set up. Please contact SNR Buns for now.</div>'
     return f'''<section class="app-page delivery" id="delivery"><h2 class="app-page-title">🍔 Click &amp; Collect or Delivery</h2><div class="drawer-body"><p class="muted">Choose your meals and quantities, then collect from SNR Buns or have them delivered.</p>{order_form}<details class="compact-info"><summary>Previous orders</summary><div class="history">{recent or '<p class="muted">No orders yet.</p>'}</div></details></div></section>'''
@@ -430,8 +442,9 @@ def membership_gallery(current: str) -> str:
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
-                  accounts: Accounts, raffles: RaffleStore, claim_token: str, order_token: str,
-                  security_token: str, raffle_token: str) -> str:
+                  accounts: Accounts, raffles: RaffleStore, services: CustomerServices,
+                  claim_token: str, order_token: str, security_token: str, raffle_token: str,
+                  service_token: str) -> str:
     recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
     jackpot = ('''<strong>🏆 YOU HAVE A WINNING GOLDEN TICKET!</strong><br>Your account has won the £5,000 jackpot. Speak to SNR staff to verify and collect the prize.'''
                if int(customer["jackpot_wins"]) else
@@ -495,7 +508,37 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
         quick_order = f'''<button class="quick-order" type="button" data-tab-target="order" aria-selected="false" data-quick-order-id="{int(active_order["id"])}" data-quick-order-status="{active_order["status"]}"><span class="quick-order-icon">{order_icon}</span><span><small>LIVE ORDER #{int(active_order["id"])}</small><strong>{html.escape(quick_labels.get(active_order["status"], active_order["status"]))}</strong><small>{html.escape(active_order["deal_name"])} • £{int(active_order["price"]):,}</small></span><b>›</b></button>'''
     else:
         quick_order = '''<button class="quick-order" type="button" data-tab-target="order" aria-selected="false"><span class="quick-order-icon">🍔</span><span><small>NO ACTIVE ORDER</small><strong>Ready when you are</strong><small>Start a delivery or pickup order</small></span><b>›</b></button>'''
-    return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card quick-hub" id="customer-app">{review_popup}
+    action_rows = services.customer_actions(customer["customer_key"], 4)
+    action_history = "".join(
+        f'<div class="action-status"><span>{html.escape(ACTION_LABELS.get(row["action_type"], row["action_type"]))}'
+        f'{(" · Order #" + str(int(row["order_id"]))) if row.get("order_id") else ""}</span>'
+        f'<strong>{html.escape(row["status"].title())}</strong></div>' for row in action_rows
+    )
+    active_id = int(active_order["id"]) if active_order else 0
+    request_choices = ['<option value="staff_help">Call SNR staff</option>']
+    if active_order:
+        if active_order["status"] == "pending":
+            request_choices.extend(['<option value="change_order">Change my order</option>',
+                                    '<option value="cancel_order">Cancel my order</option>'])
+        if (active_order.get("fulfillment_type") or "delivery") == "delivery":
+            request_choices.append('<option value="driver_help">Driver cannot find me</option>')
+    help_centre = f'''<details class="action-centre"><summary><strong>💬 Need help from SNR staff?</strong></summary><p class="muted">Send one clear request. It appears in the staff Live Actions inbox.</p><form method="post" action="/customer-action"><input type="hidden" name="service_request_key" value="{html.escape(service_token, quote=True)}"><input type="hidden" name="order_id" value="{active_id}"><select name="action_type" required>{''.join(request_choices)}</select><input name="details" maxlength="250" placeholder="Short message for staff"><button type="submit">Send Request</button></form>{action_history}</details>'''
+    catalog = services.catalog()
+    pending_custom = next((row for row in services.pending_rewards() if row["customer_key"] == customer["customer_key"]), None)
+    reward_cards = "".join(
+        f'''<article class="reward-choice"><strong>{html.escape(row["name"])}</strong><small>{int(row["points_cost"])} points</small><form method="post" action="/reward-choice"><input type="hidden" name="service_request_key" value="{html.escape(service_token, quote=True)}"><input type="hidden" name="reward_code" value="{html.escape(row["code"], quote=True)}"><button type="submit" {'disabled' if pending_custom or points < int(row['points_cost']) else ''}>Request</button></form></article>'''
+        for row in catalog)
+    vouchers = services.vouchers(customer["customer_key"])
+    voucher_rows = "".join(
+        f'''<div class="voucher {'voucher-used' if row['status'] != 'active' else ''}"><strong>{html.escape(row['title'])}</strong><br><code>{html.escape(row['voucher_code'])}</code> · {html.escape(row['status'].title())}</div>'''
+        for row in vouchers[:8]) or '<p class="muted">No vouchers yet.</p>'
+    reward_wallet = f'''<section class="app-page quick-more-page"><h2 class="app-page-title">✨ Choose a Reward</h2><div class="drawer-body"><p>Spend your points on the reward you want. Staff approve it once, then it appears in your wallet.</p>{f'<div class="notice">Your {html.escape(pending_custom["reward_name"])} request is awaiting staff.</div>' if pending_custom else ''}<div class="reward-shop">{reward_cards}</div><h3>My voucher wallet</h3>{voucher_rows}</div></section>'''
+    latest_action = action_rows[0] if action_rows else None
+    latest_rewards = services.reward_requests(customer["customer_key"], 1)
+    latest_reward = latest_rewards[0] if latest_rewards else None
+    sync_data = (f' data-action-id="{int(latest_action["id"])}" data-action-status="{latest_action["status"]}"' if latest_action else '')
+    sync_data += (f' data-reward-id="{int(latest_reward["id"])}" data-reward-status="{latest_reward["status"]}"' if latest_reward else '')
+    return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card quick-hub" id="customer-app"{sync_data}>{review_popup}<div id="service-toast" role="status"></div>
       <header class="quick-app-head"><div class="quick-brand"><img src="/snr-logo.png" alt="SNR Buns"><span><strong>SNR Buns</strong><small aria-label="CUSTOMER APP">SNR MEMBERS CLUB</small></span></div><span class="quick-service {service_class}">● {service_text}</span></header>
       <div class="quick-welcome"><div><div class="label">Welcome back</div><div class="name">{html.escape(customer["display_name"])}</div></div><p>{membership["emoji"]} {html.escape(membership["name"])}</p></div>
       <div class="quick-content">{banner}
@@ -510,13 +553,13 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
           <div class="member-actions"><button type="button" data-tab-target="order" data-order-mode="pickup"><span>Click &amp; Collect</span><small>Collect from SNR Buns</small></button><button type="button" data-tab-target="order" data-order-mode="delivery" {'disabled aria-disabled="true"' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else ''}><span>Delivery</span><small>{'Currently unavailable' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else 'Delivered to you'}</small></button></div>
         </section>
         <div class="quick-actions"><button type="button" class="quick-action quick-action-main" data-tab-target="raffle" aria-selected="false"><span>🎟️</span><strong>Live Raffle</strong><small>Choose numbers</small></button></div>
-        <div class="quick-section-title"><strong>Current order</strong><span>LIVE STATUS</span></div>{quick_order}
+        <div class="quick-section-title"><strong>Current order</strong><span>LIVE STATUS</span></div>{quick_order}{help_centre}
         <div class="quick-metrics"><div><small>MEMBERSHIP</small><strong>{membership["emoji"]} {html.escape(membership["name"])}</strong></div><div><small>Golden tickets</small><strong>🎟️ {int(customer["golden_tickets"])}</strong></div><div><small>VISITS</small><strong>🍔 {int(customer["lifetime_sales"])}</strong></div></div>
         <div class="quick-jackpot"><strong>🎟️ £5,000 Golden Ticket Jackpot</strong><div>{jackpot}</div></div>
       </div>
-      <div class="app-view" data-app-view="order" role="tabpanel">{delivery_section(customer, orders, shifts, order_token)}</div>
+      <div class="app-view" data-app-view="order" role="tabpanel">{delivery_section(customer, orders, shifts, services, order_token)}</div>
       <div class="app-view" data-app-view="raffle" role="tabpanel">{raffle_section(customer, raffles, raffle_token)}</div>
-      <div class="app-view" data-app-view="rewards" role="tabpanel">{claim_section(customer, claims, claim_token)}</div>
+      <div class="app-view" data-app-view="rewards" role="tabpanel">{claim_section(customer, claims, claim_token)}{reward_wallet}</div>
       <div class="app-view" data-app-view="visits" role="tabpanel"><div class="grid">{vip}</div>{membership_gallery(membership["name"])}{birthday_box}<section class="app-page quick-more-page" id="history"><h2 class="app-page-title">📋 My Recent Visits</h2><div class="drawer-body">{recent}</div></section><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></div>
       </div>
       <nav class="app-tabs" aria-label="Customer account pages" role="tablist">
@@ -546,8 +589,8 @@ class Limiter:
 
 
 def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
-    limiter, claims, orders, accounts, shifts, raffles = (Limiter(), ClaimStore(db), DeliveryStore(db),
-                                                          Accounts(db), StaffShifts(db), RaffleStore(db))
+    limiter, claims, orders, accounts, shifts, raffles, services = (Limiter(), ClaimStore(db), DeliveryStore(db),
+                                                          Accounts(db), StaffShifts(db), RaffleStore(db), CustomerServices(db))
     form_secret = secrets.token_bytes(32)
 
     def signature(owner: str, token: str) -> str:
@@ -636,8 +679,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_html(401, login_page(db.customer_names(), "Please log in to open a loyalty account."))
                 return
             self.send_html(200, customer_page(
-                customer, claims, orders, shifts, accounts, raffles, make_form_token(owner),
-                make_form_token(owner), make_form_token(owner), make_form_token(owner)
+                customer, claims, orders, shifts, accounts, raffles, services, make_form_token(owner),
+                make_form_token(owner), make_form_token(owner), make_form_token(owner), make_form_token(owner)
             ))
 
         def do_GET(self) -> None:  # noqa: N802
@@ -675,6 +718,7 @@ const reason=document.getElementById("low-rating-reason"),reasonSelect=reason?.q
 const banner=document.getElementById("customer-announcement"),bannerLabel=document.getElementById("announcement-label"),bannerMessage=document.getElementById("announcement-message"),bannerLabels={info:"SNR Update",promo:"Special Offer",urgent:"Important Notice"};
 const refreshBanner=async()=>{try{const r=await fetch("/announcement-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(!banner)return;banner.hidden=!d.active;if(d.active){const style=bannerLabels[d.style]?d.style:"info";banner.className="customer-banner banner-"+style;if(bannerLabel)bannerLabel.textContent=bannerLabels[style];if(bannerMessage)bannerMessage.textContent=d.message||""}}catch(e){}};setInterval(refreshBanner,5000);
 const quickOrder=document.querySelector("[data-quick-order-id]");if(quickOrder)setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json();if(String(d.id)!==quickOrder.dataset.quickOrderId||d.status!==quickOrder.dataset.quickOrderStatus)location.reload()}catch(e){}},3000);
+setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store"});if(!r.ok)return;const d=await r.json(),toast=document.getElementById("service-toast");const actionChanged=d.action_id&&String(d.action_id)===app.dataset.actionId&&d.action_status!==app.dataset.actionStatus;const rewardChanged=d.reward_id&&String(d.reward_id)===app.dataset.rewardId&&d.reward_status!==app.dataset.rewardStatus;if(actionChanged||rewardChanged){if(toast){toast.textContent=actionChanged?(d.action_message||"SNR staff updated your request."):(d.reward_message||"Your reward request was updated.");toast.classList.add("show")}if(navigator.vibrate)navigator.vibrate([150,80,150]);setTimeout(()=>location.reload(),2200)}}catch(e){}},3000);
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
@@ -722,6 +766,23 @@ const quickOrder=document.querySelector("[data-quick-order-id]");if(quickOrder)s
                                       "tickets": outcome["tickets"], "jackpot_won": outcome["jackpot_won"],
                                       "queue_position": estimate["queue_position"], "eta_text": estimate["eta_text"]}
                                      if row else {"id": None, "status": "none", "driver": ""}))
+            elif path == "/service-status":
+                owner = self.owner()
+                if not owner:
+                    self.send_json(401, {"error": "login_required"})
+                    return
+                action_rows = services.customer_actions(owner, 1)
+                action = action_rows[0] if action_rows else None
+                rewards = services.reward_requests(owner, 1)
+                reward = rewards[0] if rewards else None
+                action_message = ""
+                if action:
+                    action_message = action.get("staff_response") or ("SNR staff declined your request." if action["status"] == "declined" else "Your request is waiting for staff.")
+                self.send_json(200, {"action_id": action["id"] if action else None,
+                    "action_status": action["status"] if action else "none", "action_message": action_message,
+                    "reward_id": reward["id"] if reward else None,
+                    "reward_status": reward["status"] if reward else "none",
+                    "reward_message": "Your reward request has been updated."})
             elif path == "/health":
                 data = json.dumps({"status": "ok"}).encode()
                 self.send_response(200)
@@ -819,7 +880,7 @@ const quickOrder=document.querySelector("[data-quick-order-id]");if(quickOrder)s
                     quantities = {deal_key: data.get("qty_" + deal_key, "0") for deal_key in DEALS}
                     result = orders.create_cart_authenticated(
                         owner, quantities, data.get("postal", ""), key, data.get("notes", ""),
-                        data.get("discount_code", ""), fulfillment_type)
+                        data.get("discount_code", ""), fulfillment_type, data.get("voucher_code", ""))
                     if fulfillment_type == "instore":
                         self.redirect("/account#order")
                         return
@@ -860,6 +921,25 @@ const quickOrder=document.querySelector("[data-quick-order-id]");if(quickOrder)s
                         owner, data.get("order_id", ""), data.get("issue_type", ""),
                         data.get("details", ""))
                     self.send_html(200, page("Problem sent", f'''<section class="card"><div class="label">Order #{int(result["order_id"])} help</div><h1>We’ve told SNR staff</h1><div class="notice">Your problem is safely logged. Staff will review it and mark it resolved after helping you.</div><a class="back" href="/account#order">Back to my orders</a></section>'''))
+                elif path == "/customer-action":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("service_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This request has expired. Refresh your account and try again.")
+                    result = services.create_action(owner, data.get("action_type", ""),
+                        data.get("order_id", "") or None, data.get("details", ""), key)
+                    self.send_html(200, page("Request sent", f'''<section class="card"><div class="label">Live Action #{int(result["id"])}</div><h1>SNR staff have been notified</h1><div class="notice">Your request is in the staff inbox. Its result will appear on your account.</div><a class="back" href="/account#home">Back to my account</a></section>'''))
+                elif path == "/reward-choice":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("service_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This reward request has expired. Refresh your account and try again.")
+                    result = services.request_reward(owner, data.get("reward_code", ""), key)
+                    self.send_html(200, page("Reward requested", f'''<section class="card"><div class="label">Reward Request #{int(result["id"])}</div><h1>{html.escape(result["reward_name"])}</h1><div class="notice">Staff have been notified. Your points are only deducted when they approve the reward.</div><a class="back" href="/account#rewards">Back to rewards</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:

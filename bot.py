@@ -24,6 +24,7 @@ from web_portal import start_web_server
 from reward_claims import ClaimStore
 from raffles import RaffleStore
 from customer_accounts import Accounts
+from customer_services import ACTION_LABELS, CustomerServices
 from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
 
@@ -48,6 +49,7 @@ accounts = Accounts(db)
 orders = DeliveryStore(db)
 shifts = StaffShifts(db)
 raffles = RaffleStore(db)
+services = CustomerServices(db)
 
 
 def money(value: float | int) -> str:
@@ -143,6 +145,7 @@ def panel_embed() -> discord.Embed:
             "Use the tools below. Clock In and Clock Out are available here too.\n\n"
             "💷 **New Sale** — record a purchase\n"
             "🚗 **Deliveries** — manage active orders\n"
+            "🔔 **Live Actions** — everything waiting for staff\n"
             "👥 **Customers** — accounts and rewards\n"
             "🕒 **Staff Shift** — clock in or off\n"
             "🧰 **More Tools** — raffle, finance, jackpot, Birdy and owner controls\n\n"
@@ -976,6 +979,29 @@ class UndoSaleConfirmView(discord.ui.View):
             asyncio.create_task(delete_response_later(interaction, 3))
 
 
+class RewardSettingsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        for reward in services.catalog(enabled_only=False):
+            enabled = bool(reward["enabled"])
+            button = discord.ui.Button(
+                label=("ON · " if enabled else "OFF · ") + reward["name"],
+                emoji="✅" if enabled else "⏸️",
+                style=discord.ButtonStyle.success if enabled else discord.ButtonStyle.secondary,
+            )
+
+            async def callback(interaction, code=reward["code"], turn_on=not enabled):
+                if not await require_owner(interaction):
+                    return
+                services.set_reward_enabled(code, turn_on, interaction.user.id, str(interaction.user))
+                await interaction.response.edit_message(
+                    content="✨ **WEBSITE REWARD CHOICES**\nUpdated instantly. Tap another reward if needed.",
+                    view=RewardSettingsView())
+
+            button.callback = callback
+            self.add_item(button)
+
+
 class OwnerAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
@@ -1098,7 +1124,7 @@ class OwnerAdminView(discord.ui.View):
             view=UndoSaleConfirmView(latest),
         )
 
-    @discord.ui.button(label="Customer Banner", emoji="📣",
+    @discord.ui.button(label="Offers & Alerts", emoji="📣",
                        style=discord.ButtonStyle.primary, row=2)
     async def customer_banner(self, interaction, button):
         if not await require_owner(interaction):
@@ -1108,10 +1134,26 @@ class OwnerAdminView(discord.ui.View):
                   if current['active'] else "OFF — customers currently see no announcement")
         await send_ephemeral(
             interaction,
-            f"📣 **Customer Website Announcement**\nCurrent banner: {status}\n\n"
-            "Choose what kind of message to publish. Turning it off removes it from open customer pages within about five seconds.",
+            f"📣 **Customer Offers & Alerts**\nCurrent banner: {status}\n\n"
+            "Post an offer or service message here. Use Discount Codes in this same Owner screen when the offer needs a code, expiry or usage limit. Turning the banner off removes it from customer pages within about five seconds.",
             view=CustomerAnnouncementView(),
         )
+
+    @discord.ui.button(label="Reward Choices", emoji="✨", style=discord.ButtonStyle.success, row=2)
+    async def reward_choices(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        await send_ephemeral(interaction, "✨ **WEBSITE REWARD CHOICES**\nTap a reward to turn it on or off.",
+                             view=RewardSettingsView())
+
+    @discord.ui.button(label="Audit Trail", emoji="🧾", style=discord.ButtonStyle.secondary, row=3)
+    async def audit_trail(self, interaction, button):
+        if not await require_owner(interaction):
+            return
+        rows = services.recent_audit(15)
+        lines = [f"• **{row['action'].replace('_', ' ').title()}** — {discord.utils.escape_markdown(row['details'])[:140]}"
+                 for row in rows]
+        await send_ephemeral(interaction, "🧾 **LATEST CONTROL HISTORY**\n" + ("\n".join(lines) if lines else "No recorded changes."))
 
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
@@ -1229,6 +1271,162 @@ class CustomerAnnouncementView(discord.ui.View):
         asyncio.create_task(delete_response_later(interaction, 5))
 
 
+def custom_reward_embed(row):
+    colour = discord.Colour.gold() if row["status"] == "pending" else discord.Colour.green() if row["status"] == "approved" else discord.Colour.red()
+    embed = discord.Embed(title=f"✨ REWARD REQUEST #{row['id']}", colour=colour)
+    embed.add_field(name="Customer", value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
+    embed.add_field(name="Reward", value=f"**{discord.utils.escape_markdown(row['reward_name'])}**", inline=True)
+    embed.add_field(name="Points", value=f"**{int(row['points_cost'])}**", inline=True)
+    embed.add_field(name="Status", value=f"**{row['status'].upper()}**", inline=False)
+    if row.get("voucher_id"):
+        voucher = next((item for item in services.vouchers(row["customer_key"]) if item["id"] == row["voucher_id"]), None)
+        if voucher:
+            embed.add_field(name="Customer Voucher", value=f"`{voucher['voucher_code']}`", inline=False)
+    embed.set_footer(text="Points are deducted only when staff approve the reward")
+    return embed
+
+
+class CustomRewardRequestView(discord.ui.View):
+    def __init__(self, request_id):
+        super().__init__(timeout=None)
+        self.request_id = int(request_id)
+        for label, emoji, style, decision in (
+            ("Approve & Issue", "✅", discord.ButtonStyle.success, "approved"),
+            ("Decline", "✖️", discord.ButtonStyle.danger, "declined"),
+        ):
+            button = discord.ui.Button(label=label, emoji=emoji, style=style,
+                                       custom_id=f"snr:custom_reward:{self.request_id}:{decision}")
+
+            async def callback(interaction, chosen=decision):
+                if not await require_staff(interaction):
+                    return
+                try:
+                    row = services.resolve_reward(self.request_id, chosen, interaction.user.id, str(interaction.user))
+                except ValueError as exc:
+                    await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+                    return
+                await interaction.response.edit_message(embed=custom_reward_embed(row), view=None)
+
+            button.callback = callback
+            self.add_item(button)
+
+
+def live_action_embed(row):
+    colour = discord.Colour.orange() if row["status"] == "pending" else discord.Colour.green() if row["status"] == "resolved" else discord.Colour.red()
+    embed = discord.Embed(title=f"🔔 LIVE ACTION #{row['id']}", colour=colour)
+    embed.add_field(name="Customer", value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
+    embed.add_field(name="Request", value=f"**{ACTION_LABELS.get(row['action_type'], row['action_type'])}**", inline=True)
+    if row.get("order_id"):
+        embed.add_field(name="Order", value=f"**#{int(row['order_id'])}**", inline=True)
+    if row.get("details"):
+        embed.add_field(name="Customer Message", value=discord.utils.escape_markdown(row["details"]), inline=False)
+    embed.add_field(name="Status", value=f"**{row['status'].upper()}**", inline=True)
+    if row.get("staff_response"):
+        embed.add_field(name="Staff Reply", value=discord.utils.escape_markdown(row["staff_response"]), inline=False)
+    embed.set_footer(text="Sent from the customer’s logged-in website account")
+    return embed
+
+
+class LiveActionReplyModal(discord.ui.Modal, title="Reply to Customer"):
+    response_text = discord.ui.TextInput(label="Message shown on their account", min_length=2, max_length=250,
+                                         placeholder="Example: We are coming to the counter now.")
+
+    def __init__(self, action_id):
+        super().__init__()
+        self.action_id = int(action_id)
+
+    async def on_submit(self, interaction):
+        if not await require_staff(interaction):
+            return
+        row = services.action(self.action_id)
+        try:
+            if row and row["action_type"] == "cancel_order" and row.get("order_id"):
+                order = orders.get(row["order_id"])
+                if order and order["status"] == "pending":
+                    orders.resolve(row["order_id"], "cancelled", interaction.user.id, str(interaction.user), allow_override=True)
+            row = services.resolve_action(self.action_id, "resolved", interaction.user.id,
+                                          str(interaction.user), str(self.response_text))
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=live_action_embed(row), view=None)
+
+
+class LiveActionRequestView(discord.ui.View):
+    def __init__(self, action_id):
+        super().__init__(timeout=None)
+        self.action_id = int(action_id)
+        reply = discord.ui.Button(label="Reply & Resolve", emoji="💬", style=discord.ButtonStyle.success,
+                                  custom_id=f"snr:live_action:{self.action_id}:reply")
+        decline = discord.ui.Button(label="Decline", emoji="✖️", style=discord.ButtonStyle.danger,
+                                    custom_id=f"snr:live_action:{self.action_id}:decline")
+
+        async def reply_callback(interaction):
+            if await require_staff(interaction):
+                await interaction.response.send_modal(LiveActionReplyModal(self.action_id))
+
+        async def decline_callback(interaction):
+            if not await require_staff(interaction):
+                return
+            try:
+                row = services.resolve_action(self.action_id, "declined", interaction.user.id,
+                                              str(interaction.user), "SNR staff could not approve this request.")
+            except ValueError as exc:
+                await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+                return
+            await interaction.response.edit_message(embed=live_action_embed(row), view=None)
+
+        reply.callback = reply_callback
+        decline.callback = decline_callback
+        self.add_item(reply)
+        self.add_item(decline)
+
+
+class RedeemVoucherModal(discord.ui.Modal, title="Redeem Customer Voucher"):
+    voucher_code = discord.ui.TextInput(label="Voucher code", placeholder="SNR-1234ABCD", min_length=8, max_length=20)
+
+    async def on_submit(self, interaction):
+        if not await require_staff(interaction):
+            return
+        try:
+            row = services.redeem_voucher(str(self.voucher_code), interaction.user.id, str(interaction.user))
+        except ValueError as exc:
+            await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"✅ **{discord.utils.escape_markdown(row['title'])}** redeemed for "
+            f"**{discord.utils.escape_markdown(row['customer_name'])}**. The wallet has updated.", ephemeral=True)
+
+
+async def show_live_actions(interaction):
+    if not await require_staff(interaction):
+        return
+    guild_id = str(interaction.guild_id)
+    pending_orders = [row for row in orders.pending() if row["guild_id"] == guild_id]
+    support = [row for row in orders.pending_support(limit=20) if row["guild_id"] == guild_id]
+    packs = [row for row in claims.pending() if row["guild_id"] == guild_id]
+    raffle = [row for row in raffles.pending(limit=20) if row["guild_id"] == guild_id]
+    rewards = [row for row in services.pending_rewards(limit=20) if row["guild_id"] == guild_id]
+    actions = [row for row in services.pending_actions(limit=20) if row["guild_id"] == guild_id]
+    total = len(pending_orders) + len(support) + len(packs) + len(raffle) + len(rewards) + len(actions)
+    summary = (f"🔔 **SNR LIVE ACTIONS — {total} WAITING**\n"
+               f"Orders **{len(pending_orders)}** • Customer help **{len(support) + len(actions)}** • "
+               f"Rewards **{len(packs) + len(rewards)}** • Raffle **{len(raffle)}**")
+    await interaction.response.send_message(summary, ephemeral=True)
+    for row in actions[:10]:
+        await interaction.followup.send(embed=live_action_embed(row), view=LiveActionRequestView(row["id"]), ephemeral=True)
+    for row in rewards[:10]:
+        await interaction.followup.send(embed=custom_reward_embed(row), view=CustomRewardRequestView(row["id"]), ephemeral=True)
+    for row in support[:10]:
+        await interaction.followup.send(embed=support_request_embed(row), view=SupportRequestView(row["id"]), ephemeral=True)
+    for row in packs[:10]:
+        await interaction.followup.send(embed=pack_claim_embed(row), view=PackClaimView(row["id"]), ephemeral=True)
+    for row in raffle[:10]:
+        await interaction.followup.send(embed=raffle_request_embed(row), view=RaffleRequestView(row["id"]), ephemeral=True)
+    for row in pending_orders[:10]:
+        await interaction.followup.send(embed=delivery_order_embed(row), view=DeliveryOrderView(row["id"]), ephemeral=True)
+
+
 class CustomerToolsView(discord.ui.View):
     """Customer jobs grouped away from the everyday sale and delivery buttons."""
 
@@ -1251,6 +1449,11 @@ class CustomerToolsView(discord.ui.View):
     async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await show_account_requests(interaction)
+
+    @discord.ui.button(label="Redeem Voucher", emoji="🎫", style=discord.ButtonStyle.success)
+    async def redeem_voucher(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.send_modal(RedeemVoucherModal())
 
 
 class ShiftToolsView(discord.ui.View):
@@ -1733,6 +1936,11 @@ class StaffPanel(discord.ui.View):
         await send_ephemeral(interaction, f"🔴 Clocked out. {remaining} staff available for delivery." if changed else
                              "ℹ️ You were not clocked in.", delete_after=5)
 
+    @discord.ui.button(label="Live Actions", emoji="🔔", style=discord.ButtonStyle.primary,
+                       custom_id="snr:live_actions", row=1)
+    async def live_actions(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_live_actions(interaction)
+
     @discord.ui.button(label="New Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
     async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
@@ -1892,11 +2100,14 @@ def delivery_order_embed(row):
     fee = int(row.get('delivery_fee') or 0)
     discount = int(row.get('discount_amount') or 0)
     birthday_discount = int(row.get('birthday_discount') or 0)
+    voucher_discount = int(row.get('voucher_discount') or 0)
     breakdown = [f"Food: **{money(subtotal)}**"]
     if discount:
         breakdown.append(f"Code **{discord.utils.escape_markdown(row.get('discount_code') or '')}**: **−{money(discount)}**")
     if birthday_discount:
         breakdown.append(f"🎂 Birthday reward: **−{money(birthday_discount)}**")
+    if row.get('voucher_code'):
+        breakdown.append(f"🎫 Voucher **{discord.utils.escape_markdown(row['voucher_code'])}**: **−{money(voucher_discount)}**")
     fee_label = 'In-store charge' if fulfillment == 'instore' else 'Pickup charge' if fulfillment == 'pickup' else f"{row.get('membership_level') or 'Regular'} delivery"
     breakdown.append(f"{fee_label}: **{'FREE' if fee == 0 else money(fee)}**")
     breakdown.append(f"Final total: **{money(row['price'])}**")
@@ -2500,6 +2711,40 @@ async def notify_raffle_requests():
             logging.exception('Raffle request alert failed; will retry: %s', row['id'])
 
 
+@tasks.loop(seconds=10)
+async def notify_customer_services():
+    if not bot.is_ready():
+        return
+    for row in services.pending_actions(unsent=True, limit=20):
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Live Actions channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=live_action_embed(row),
+                                         view=LiveActionRequestView(row['id']), allowed_mentions=allowed)
+            services.action_notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Customer Live Action alert failed; will retry: %s', row['id'])
+    for row in services.pending_rewards(unsent=True, limit=20):
+        try:
+            channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
+            if not isinstance(channel, discord.TextChannel) or str(channel.guild.id) != row['guild_id']:
+                continue
+            if channel.permissions_for(channel.guild.default_role).view_channel:
+                logging.warning('Reward channel is public; waiting for a private channel: %s', row['id'])
+                continue
+            mention, allowed = staff_ping(channel)
+            message = await channel.send(content=mention, embed=custom_reward_embed(row),
+                                         view=CustomRewardRequestView(row['id']), allowed_mentions=allowed)
+            services.reward_notified(row['id'], message.id)
+        except Exception:
+            logging.exception('Custom reward alert failed; will retry: %s', row['id'])
+
+
 @bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} ({bot.user.id})")
@@ -2517,6 +2762,8 @@ async def on_ready() -> None:
         notify_account_requests.start()
     if not notify_raffle_requests.is_running():
         notify_raffle_requests.start()
+    if not notify_customer_services.is_running():
+        notify_customer_services.start()
 
 
 @bot.event
@@ -2536,6 +2783,10 @@ async def setup_hook() -> None:
         bot.add_view(AccountRequestView(row['id']))
     for row in raffles.pending():
         bot.add_view(RaffleRequestView(row['id']))
+    for row in services.pending_actions():
+        bot.add_view(LiveActionRequestView(row['id']))
+    for row in services.pending_rewards():
+        bot.add_view(CustomRewardRequestView(row['id']))
     result = db.import_legacy_json(LEGACY_DATA_FILE)
     if result["imported"]:
         print(f"Imported {result['imported']} legacy customers.")

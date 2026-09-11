@@ -57,7 +57,8 @@ class DeliveryStore:
                     membership_level TEXT, fulfillment_type TEXT NOT NULL DEFAULT 'delivery',
                     ready_at TEXT, birthday_discount INTEGER NOT NULL DEFAULT 0,
                     late_alert_level INTEGER NOT NULL DEFAULT 0,
-                    birthday_reward_year INTEGER);
+                    birthday_reward_year INTEGER, voucher_code TEXT,
+                    voucher_discount INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS delivery_discount_codes (
                     code TEXT PRIMARY KEY, discount_type TEXT NOT NULL, amount INTEGER NOT NULL,
                     max_uses INTEGER, uses INTEGER NOT NULL DEFAULT 0, expires_on TEXT,
@@ -123,6 +124,8 @@ class DeliveryStore:
                 ("birthday_discount", "INTEGER NOT NULL DEFAULT 0"),
                 ("birthday_reward_year", "INTEGER"),
                 ("late_alert_level", "INTEGER NOT NULL DEFAULT 0"),
+                ("voucher_code", "TEXT"),
+                ("voucher_discount", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE web_delivery_orders ADD COLUMN {name} {definition}")
@@ -425,7 +428,7 @@ class DeliveryStore:
                 "reward": reward, "active": bool(config and config["active"])}
 
     def create_cart_authenticated(self, customer_key, quantities, postal, request_key, notes="",
-                                  discount_code="", fulfillment_type="delivery"):
+                                  discount_code="", fulfillment_type="delivery", voucher_code=""):
         key = normalize_name(customer_key)
         fulfillment_type = str(fulfillment_type or "delivery").strip().lower()
         if fulfillment_type not in ("delivery", "pickup", "instore"):
@@ -512,20 +515,46 @@ class DeliveryStore:
             birthday_discount = (self._discount_amount(birthday_config, subtotal - discount_amount)
                                  if birthday_ready else 0)
             birthday_year = datetime.now(ZoneInfo("Europe/London")).year if birthday_ready else None
-            total = subtotal - discount_amount - birthday_discount + delivery_fee
+            voucher_code = str(voucher_code or "").strip().upper()
+            voucher_discount = 0
+            if voucher_code:
+                has_wallet = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='customer_vouchers'"
+                ).fetchone()
+                voucher = (conn.execute("SELECT * FROM customer_vouchers WHERE voucher_code=?", (voucher_code,)).fetchone()
+                           if has_wallet else None)
+                if not voucher or voucher["customer_key"] != key or voucher["status"] != "active":
+                    raise ValueError("That voucher is not active on your account.")
+                if voucher["voucher_kind"] == "free_delivery":
+                    if fulfillment_type != "delivery":
+                        raise ValueError("Free delivery vouchers can only be used on a delivery order.")
+                    voucher_discount = delivery_fee
+                    delivery_fee = 0
+                elif voucher["voucher_kind"] == "percent":
+                    remaining = max(0, subtotal - discount_amount - birthday_discount)
+                    voucher_discount = min(remaining, (remaining * int(voucher["amount"]) + 50) // 100)
+                elif voucher["voucher_kind"] == "fixed":
+                    voucher_discount = min(max(0, subtotal - discount_amount - birthday_discount), int(voucher["amount"]))
+                else:
+                    raise ValueError("Use that reward with SNR staff in store.")
+            total = subtotal - discount_amount - birthday_discount - voucher_discount + delivery_fee
             cursor = conn.execute("""INSERT INTO web_delivery_orders
                 (customer_key,customer_name,deal_key,deal_name,price,postal,request_key,created_at,
                  channel_id,guild_id,items_json,notes,status_updated_at,subtotal,delivery_fee,
                  discount_amount,discount_code,membership_level,fulfillment_type,birthday_discount,
-                 birthday_reward_year)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 birthday_reward_year,voucher_code,voucher_discount)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (key, customer["display_name"], "cart", description, total, postal, request_key, utc_now(),
                  config["channel_id"], config["guild_id"], items_json, notes, utc_now(), subtotal,
                  delivery_fee, discount_amount, entered_code or None, membership["name"], fulfillment_type,
-                 birthday_discount, birthday_year))
+                 birthday_discount, birthday_year, voucher_code or None, voucher_discount))
+            if voucher_code:
+                conn.execute("""UPDATE customer_vouchers SET status='reserved',order_id=?
+                    WHERE voucher_code=? AND status='active'""", (cursor.lastrowid, voucher_code))
             self.audit(conn, "web_delivery_requested",
                        f"order={cursor.lastrowid};customer={key};items={description};subtotal={subtotal};"
-                       f"delivery_fee={delivery_fee};discount={discount_amount};birthday_discount={birthday_discount};total={total};"
+                       f"delivery_fee={delivery_fee};discount={discount_amount};birthday_discount={birthday_discount};"
+                       f"voucher={voucher_code};voucher_discount={voucher_discount};total={total};"
                        f"code={entered_code};membership={membership['name']};type={fulfillment_type};"
                        f"postal={postal};notes={notes}")
             return dict(conn.execute("SELECT * FROM web_delivery_orders WHERE id=?", (cursor.lastrowid,)).fetchone())
@@ -1048,6 +1077,9 @@ class DeliveryStore:
                 now = utc_now()
                 conn.execute("""UPDATE web_delivery_orders SET status='cancelled',resolved_at=?,resolved_by=?,
                     status_updated_at=? WHERE id=?""", (now, str(staff_id), now, order_id))
+                if row["voucher_code"]:
+                    conn.execute("""UPDATE customer_vouchers SET status='active',order_id=NULL
+                        WHERE voucher_code=? AND status='reserved'""", (row["voucher_code"],))
                 self.audit(conn, "web_delivery_cancelled", f"order={order_id}", str(staff_id), staff_name)
             return self.get(order_id), []
         with self.db.connect() as conn:
@@ -1110,6 +1142,10 @@ class DeliveryStore:
             if order.get("birthday_reward_year"):
                 conn.execute("""UPDATE customer_birthdays SET last_reward_year=?
                     WHERE customer_key=?""", (int(order["birthday_reward_year"]), order["customer_key"]))
+            if order.get("voucher_code"):
+                conn.execute("""UPDATE customer_vouchers SET status='used',used_at=?,used_by=?,used_by_name=?
+                    WHERE voucher_code=? AND status='reserved'""",
+                    (now, str(staff_id), staff_name, order["voucher_code"]))
             self.audit(conn, "web_delivery_paid", f"order={order_id};transactions={transaction_ids}",
                        str(staff_id), staff_name)
         return self.get(order_id), results
