@@ -140,7 +140,7 @@ def panel_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🍔 SNR BUNS — PRO STAFF HUB",
         description=(
-            "Everything starts with one of the five buttons below.\n\n"
+            "Use the tools below. Clock In and Clock Out are available here too.\n\n"
             "💷 **New Sale** — record a purchase\n"
             "🚗 **Deliveries** — manage active orders\n"
             "👥 **Customers** — accounts and rewards\n"
@@ -1714,6 +1714,25 @@ class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    @discord.ui.button(label="Clock In", emoji="🟢", style=discord.ButtonStyle.success,
+                       custom_id="snr:home_clock_in", row=1)
+    async def home_clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_staff(interaction):
+            return
+        changed = shifts.clock_in(interaction.user.id, str(interaction.user), interaction.guild_id)
+        await send_ephemeral(interaction, "🟢 You are clocked in for delivery." if changed else
+                             "ℹ️ You are already clocked in.", delete_after=5)
+
+    @discord.ui.button(label="Clock Out", emoji="🔴", style=discord.ButtonStyle.danger,
+                       custom_id="snr:home_clock_out", row=1)
+    async def home_clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_staff(interaction):
+            return
+        changed = shifts.clock_out(interaction.user.id)
+        remaining = len(shifts.active(interaction.guild_id))
+        await send_ephemeral(interaction, f"🔴 Clocked out. {remaining} staff available for delivery." if changed else
+                             "ℹ️ You were not clocked in.", delete_after=5)
+
     @discord.ui.button(label="New Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
     async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
@@ -1751,7 +1770,7 @@ def pack_claim_embed(row):
                          "Reward: **1 pack containing 2 trading cards**\n"
                          f"Status: **{row['status']}**\n"
                          "The customer’s points stay unchanged while pending. Hand over the pack first, then confirm. "
-                         "Confirming resets their loyalty points to **0**. Cancelling leaves their points unchanged.")
+                         "Confirming deducts **4 points only**. Extra points are kept. Cancelling leaves their points unchanged.")
     return embed
 
 

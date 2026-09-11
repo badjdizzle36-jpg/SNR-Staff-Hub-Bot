@@ -133,7 +133,7 @@ class ClaimStore:
                 cursor = conn.execute('''INSERT INTO web_pack_claims
                     (customer_key,customer_name,request_key,created_at,channel_id,guild_id) VALUES(?,?,?,?,?,?)''',
                     (key,customer['display_name'],request_key,utc_now(),config['channel_id'],config['guild_id']))
-                self.audit(conn, 'web_pack_requested', f'claim={cursor.lastrowid};customer={key};reset_on_handover=1')
+                self.audit(conn, 'web_pack_requested', f'claim={cursor.lastrowid};customer={key};deduct_on_handover=4')
                 result = dict(conn.execute('SELECT * FROM web_pack_claims WHERE id=?', (cursor.lastrowid,)).fetchone())
         if failure:
             raise ValueError('Name or private claim code not accepted. After five incorrect codes, wait 15 minutes or ask staff for a new code.')
@@ -177,7 +177,7 @@ class ClaimStore:
                  config['channel_id'], config['guild_id'])
             )
             self.audit(conn, 'web_pack_requested',
-                       f'claim={cursor.lastrowid};customer={key};reset_on_handover=1;auth=password')
+                       f'claim={cursor.lastrowid};customer={key};deduct_on_handover=4;auth=password')
             return dict(conn.execute(
                 'SELECT * FROM web_pack_claims WHERE id=?', (cursor.lastrowid,)
             ).fetchone())
@@ -206,6 +206,12 @@ class ClaimStore:
                 raise ValueError('Claim not found.')
             if row['status'] != 'pending':
                 raise ValueError('This claim has already been resolved.')
+            cost = 0 if row['points_reserved'] else 4
+            if status == 'fulfilled':
+                customer = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?',
+                                        (row['customer_key'],)).fetchone()
+                if not customer or customer['loyalty_points'] < cost:
+                    raise ValueError('This customer needs four available points before the pack can be handed over.')
             conn.execute('UPDATE web_pack_claims SET status=?,resolved_at=?,resolved_by=? WHERE id=?',
                          (status, utc_now(), str(staff_id), claim_id))
             if status == 'cancelled':
@@ -213,9 +219,9 @@ class ClaimStore:
                     conn.execute('UPDATE customers SET loyalty_points=loyalty_points+4,updated_at=? WHERE customer_key=?',
                                  (utc_now(), row['customer_key']))
             else:
-                conn.execute('''UPDATE customers SET loyalty_points=0,
+                conn.execute('''UPDATE customers SET loyalty_points=loyalty_points-?,
                     card_packs_earned=card_packs_earned+1,
                     card_packs_claimed=card_packs_claimed+1,updated_at=? WHERE customer_key=?''',
-                    (utc_now(), row['customer_key']))
+                    (cost, utc_now(), row['customer_key']))
             self.audit(conn, 'web_pack_'+status, f'claim={claim_id};customer={row["customer_key"]}', str(staff_id), staff_name)
         return self.get(claim_id)

@@ -77,7 +77,7 @@ class DeliveryTests(unittest.TestCase):
         browser = build_opener(NoRedirect())
         try:
             body = browser.open(Request(base + "/account", headers=cookie)).read().decode()
-            self.assertIn('data-instore="true"', body)
+            self.assertIn('data-order-mode="pickup"', body)
             form = HiddenForm(); form.feed(body)
             payload = urlencode({"order_request_key": form.values["order_request_key"],
                 "fulfillment_type": "instore", "qty_mega_deal": "2"}).encode()
@@ -250,7 +250,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn("Regular", body)
             self.assertIn("Membership delivery: £100", body)
             self.assertIn('name="discount_code"', body)
-            self.assertIn("Pickup from SNR Buns", body)
+            self.assertIn("Click &amp; Collect from SNR Buns", body)
             self.assertIn("entered automatically", body)
             self.assertNotIn("Owned by", body)
             for deal in DEALS.values():
