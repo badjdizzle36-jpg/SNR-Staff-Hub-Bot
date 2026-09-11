@@ -46,6 +46,55 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 @media(max-width:560px){.customer-shell .wrap{width:100%;padding:0}.quick-hub{min-height:100vh;border:0;border-radius:0}.quick-app-head{padding:10px 12px}.quick-brand img{width:41px;height:41px}.quick-welcome{padding:12px 13px 6px}.quick-welcome .name{font-size:25px}.quick-content{padding:7px 10px 24px}.quick-loyalty{padding:14px}.quick-loyalty h2{font-size:21px}.quick-actions{gap:7px}.quick-action{min-height:75px;padding:10px}.quick-order{grid-template-columns:43px 1fr auto;padding:10px}.quick-order-icon{width:43px;height:43px}.quick-metrics{gap:5px}.quick-metrics div{padding:8px 3px}.quick-metrics strong{font-size:12px}.quick-hub>.app-tabs{bottom:5px;width:calc(100vw - 10px);border-radius:15px}.quick-hub .app-tab{width:auto}.customer-shell footer{display:none}}
 .unified-card{max-width:600px;margin:8px auto 15px;aspect-ratio:auto;min-height:275px;gap:15px}.unified-card:hover{transform:none}.member-identity{display:flex;align-items:center;gap:14px}.member-identity .card-holder{font-size:14px;font-weight:700}.card-reward{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:0;background:transparent;color:#fff6db;text-align:left;box-shadow:none}.card-reward strong{display:block;font-size:clamp(19px,4.8vw,26px)}.card-reward small{display:block;margin-top:5px}.reward-arrow{font-size:25px;color:#ffe4a3}.member-progress{height:5px;overflow:hidden;border-radius:8px;background:#ffffff26;margin-top:-5px}.member-progress>span{display:block;height:100%;background:linear-gradient(90deg,#b78b35,#fff1b5);border-radius:8px}.member-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;border-top:1px solid #f8dc9444;padding-top:13px}.member-actions button{width:100%;min-width:0;padding:12px 7px;border-radius:11px;background:linear-gradient(120deg,#d9b65f,#fff1b8,#c99c45);color:#221909;box-shadow:none;font-size:13px}.member-actions button+button{background:#180b1180;border:1px solid #ddc78a88;color:#fff1c9}.member-actions button:disabled{opacity:.55;cursor:not-allowed;filter:none}.member-actions span,.member-actions small{display:block}.member-actions small{font-size:9px;color:inherit;opacity:.85;margin-top:4px}.vip-black{background:radial-gradient(ellipse at 90% 0%,#a28b4b33,transparent 65%),linear-gradient(125deg,#08090c,#292a2f 45%,#101114 72%,#050507);border-color:#baa06a;box-shadow:0 14px 35px #0009,inset 0 1px 0 #e8d4a766,inset 0 -1px 0 #000}.vip-black:before{opacity:.35}.vip-black:after{opacity:.45}.vip-black .store-card-top{color:#e9d7aa}.vip-black .store-card-top b{background:#d1b16b1a;border-color:#cbb47888}.vip-black .card-holder,.vip-black strong{text-shadow:0 1px 2px #000}.vip-black .card-holder small{color:#bdb9ad}.vip-black .member-actions button+button{background:#121316}.vip-black:hover{box-shadow:0 14px 35px #0009,inset 0 1px 0 #e8d4a766}@media(max-width:360px){.unified-card{padding:15px;gap:12px}.member-actions button{font-size:11px}.member-identity .card-holder{font-size:12px}}
 .home-pack-form{margin:0;display:block}.home-pack-form button{width:100%;padding:11px;font-size:13px}.home-pack-form button:disabled{opacity:.6;cursor:not-allowed}.membership-link{padding:4px;background:none;border:0;color:#ffe5ad;text-align:left;font-size:12px;box-shadow:none}.membership-gallery{margin:18px 0}.membership-gallery h2{font-size:21px}.membership-gallery>p{font-size:13px}.tier-cards{display:flex;gap:13px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 3px 16px}.tier-tile{flex:0 0 min(285px,88%);scroll-snap-align:start;background:#231516;border:1px solid #806643;border-radius:17px;padding:12px}.tier-current{border:2px solid #ffdf74}.tier-tile svg{display:block;width:100%;height:auto}.tier-tile h3{font-size:17px;color:#ffe3a3;margin:12px 0 5px}.tier-tile p,.tier-tile li{font-size:12px}.tier-tile ul{padding-left:17px;margin:9px 0}.tier-tile li{margin:6px 0}
+/* VIP After Dark website theme. Membership-card artwork above remains unchanged. */
+body{background:radial-gradient(circle at 50% -10%,#5c441f 0,transparent 30%),radial-gradient(circle at 105% 35%,#2b1d08 0,transparent 38%),linear-gradient(145deg,#030303 0%,#0b0b0c 52%,#171109 100%);color:#fff9e8}
+.card:not(.quick-hub){background:linear-gradient(145deg,#171719,#080809);border-color:#8d7439;border-top-color:#e4c36f;box-shadow:0 22px 70px #000b,0 0 30px #d9ad3b14}
+.label,.app-page-title,.section-drawer>summary,.account-choice summary{color:#f0d184}
+.muted,.page-hint,.sale small{color:#c8bfa9}
+input,select,textarea{background:#0b0b0c;color:#fff9e8;border-color:#806a38}
+input:focus,select:focus,textarea:focus{outline-color:#e8c86f}
+.account-choice details,.account-choice details[open]{background:#101012;border-color:#66552f}
+.account-choice details[open]{border-color:#d2ad54}
+.notice{background:#d2ad5412;border-color:#806a38;color:#f3ead3}
+.delivery,.app-page,.section-drawer{background:linear-gradient(150deg,#171719,#09090a);border-color:#8a7038;box-shadow:0 15px 38px #0007}
+.deal-box,.review-box{background:#111113;border-color:#5e4d2e}
+.order-status{background:linear-gradient(135deg,#201b12,#0d0d0e);border-color:#b3944c}
+.reorder-row,.sale{border-bottom-color:#d9bc7130}
+.raffle-hero{background:linear-gradient(135deg,#d6b45d,#82651f);color:#0d0d0d;box-shadow:0 10px 28px #b8933645}
+.raffle-hero .label{color:#18140b}
+.raffle-stats div{background:#101012;border-color:#756033}
+.raffle-number span{background:#171719;border-color:#756033}
+.raffle-number.taken span{background:#09090a;color:#6f6b62;border-color:#28251e}
+.raffle-winner{background:linear-gradient(145deg,#211a0e,#09090a);border-color:#d9b85d}
+.customer-banner,.customer-banner.banner-promo,.customer-banner.banner-urgent{background:linear-gradient(135deg,#1d1a13,#0a0a0b);border-color:#9e8243;box-shadow:0 8px 24px #0008}
+.customer-banner strong,.customer-banner.banner-promo strong,.customer-banner.banner-urgent strong{color:#eed180}
+.service-banner{background:#15130e;border-color:#a88b49}
+.rating-overlay{background:#020202e8}.rating-popup{background:linear-gradient(145deg,#211a0e,#080809);border-color:#d5b45d;box-shadow:0 0 48px #d6aa3b55}
+.customer-shell .quick-hub{background:linear-gradient(180deg,#101011,#050506);border-color:#8f753b;box-shadow:0 22px 75px #000d,0 0 34px #d6ac4018}
+.customer-shell .quick-app-head{background:linear-gradient(90deg,#050506,#15130e);border-bottom-color:#a3894a55}
+.customer-shell .quick-brand img{border-color:#d5b45d;box-shadow:0 0 16px #d5b45d33}
+.customer-shell .quick-brand small{color:#cdbd91;letter-spacing:1.6px}
+.customer-shell .quick-welcome p{background:#19160f;color:#efd282;border:1px solid #6c592f}
+.customer-shell .quick-content{background:linear-gradient(180deg,#0a0a0b,#050506)}
+.customer-shell .quick-action{background:linear-gradient(145deg,#1a1a1c,#0d0d0e);border-color:#725e32;color:#fff8e4}
+.customer-shell .quick-action-main{background:linear-gradient(135deg,#2a2415,#0e0e0f);border-color:#c4a352;box-shadow:inset 0 1px 0 #f2d98922,0 10px 24px #0008}
+.customer-shell .quick-action small{color:#c4baa2}
+.customer-shell .quick-order{background:linear-gradient(145deg,#18181a,#0b0b0c);border-color:#66542f;color:#fff9e9}
+.customer-shell .quick-order-icon{background:#252015;border:1px solid #68572f}
+.customer-shell .quick-order span small{color:#bfb49d}
+.customer-shell .quick-metrics div{background:linear-gradient(145deg,#171719,#0b0b0c);border:1px solid #4e432b}
+.customer-shell .quick-metrics small{color:#aa9d80}
+.customer-shell .quick-jackpot{background:linear-gradient(135deg,#d8b75f,#8d6d25);color:#0c0c0d;box-shadow:0 8px 24px #b8923440}
+.customer-shell .quick-jackpot details summary{color:#0c0c0d}
+.customer-shell .quick-hub>.app-tabs{background:#070708f5;border-color:#8c743d;box-shadow:0 10px 38px #000e,0 0 18px #d0a63b18}
+.customer-shell .quick-hub .app-tab{color:#bcb39f}
+.customer-shell .quick-hub .app-tab[aria-selected="true"]{background:linear-gradient(135deg,#f3d780,#b8892d);color:#111;box-shadow:0 3px 12px #d8b05040}
+.customer-shell .quick-more-page{background:linear-gradient(145deg,#161618,#080809)}
+.customer-shell .vip-card{background:linear-gradient(135deg,#171719,#0a0a0b);border-color:#9e8244;box-shadow:inset 0 0 22px #d0aa4d18}
+.customer-shell .tier-tile{background:#111113;border-color:#665638}
+.customer-shell .tier-current{border-color:#e6c66d;box-shadow:0 0 20px #d9b65222}
+.customer-shell footer{color:#9f947b}
+@media(max-width:560px){body{background:#050506}.customer-shell .quick-hub{box-shadow:none}.customer-shell .quick-content{padding-bottom:30px}}
 """
 
 
@@ -55,7 +104,7 @@ def page(title: str, content: str) -> str:
 
 
 def name_options(names: list[str], selected: str = "") -> str:
-    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your name</option>']
+    items = [f'<option value="" disabled{"" if selected else " selected"}>Choose your character name</option>']
     wanted = normalize_name(selected)
     for name in sorted(set(names), key=normalize_name):
         mark = " selected" if normalize_name(name) == wanted else ""
@@ -447,7 +496,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
     else:
         quick_order = '''<button class="quick-order" type="button" data-tab-target="order" aria-selected="false"><span class="quick-order-icon">🍔</span><span><small>NO ACTIVE ORDER</small><strong>Ready when you are</strong><small>Start a delivery or pickup order</small></span><b>›</b></button>'''
     return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card quick-hub" id="customer-app">{review_popup}
-      <header class="quick-app-head"><div class="quick-brand"><img src="/snr-logo.png" alt="SNR Buns"><span><strong>SNR Buns</strong><small>CUSTOMER APP</small></span></div><span class="quick-service {service_class}">● {service_text}</span></header>
+      <header class="quick-app-head"><div class="quick-brand"><img src="/snr-logo.png" alt="SNR Buns"><span><strong>SNR Buns</strong><small aria-label="CUSTOMER APP">SNR MEMBERS CLUB</small></span></div><span class="quick-service {service_class}">● {service_text}</span></header>
       <div class="quick-welcome"><div><div class="label">Welcome back</div><div class="name">{html.escape(customer["display_name"])}</div></div><p>{membership["emoji"]} {html.escape(membership["name"])}</p></div>
       <div class="quick-content">{banner}
       <div class="app-view active" data-app-view="home" role="tabpanel">{recovery}
