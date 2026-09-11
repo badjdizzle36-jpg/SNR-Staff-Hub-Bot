@@ -211,6 +211,11 @@ class CustomerServices:
             existing = conn.execute("SELECT * FROM customer_live_actions WHERE request_key=?", (request_key,)).fetchone()
             if existing:
                 return dict(existing)
+            pending = conn.execute("""SELECT * FROM customer_live_actions
+                WHERE customer_key=? AND action_type=? AND status='pending'""",
+                (key, action_type)).fetchone()
+            if pending:
+                return dict(pending)
             customer = conn.execute("SELECT display_name FROM customers WHERE customer_key=?", (key,)).fetchone()
             route = self._route(conn)
             if not customer or not route:
@@ -221,10 +226,17 @@ class CustomerServices:
                     raise ValueError("That order does not belong to your account.")
                 if action_type in ("change_order", "cancel_order") and order["status"] != "pending":
                     raise ValueError("That order has already been accepted. Please call SNR staff for help.")
-            cursor = conn.execute("""INSERT INTO customer_live_actions
+            cursor = conn.execute("""INSERT OR IGNORE INTO customer_live_actions
                 (customer_key,customer_name,action_type,order_id,details,request_key,created_at,channel_id,guild_id)
                 VALUES(?,?,?,?,?,?,?,?,?)""", (key, customer["display_name"], action_type,
                 int(order_id) if order_id else None, details, request_key, utc_now(), route["channel_id"], route["guild_id"]))
+            if not cursor.rowcount:
+                pending = conn.execute("""SELECT * FROM customer_live_actions
+                    WHERE customer_key=? AND action_type=? AND status='pending'""",
+                    (key, action_type)).fetchone()
+                if pending:
+                    return dict(pending)
+                raise ValueError("That request could not be sent. Please refresh and try again.")
             self._audit(conn, "customer_live_action_created", f"action={cursor.lastrowid};customer={key};type={action_type};order={order_id}")
             return dict(conn.execute("SELECT * FROM customer_live_actions WHERE id=?", (cursor.lastrowid,)).fetchone())
 

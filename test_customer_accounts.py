@@ -255,6 +255,23 @@ class AccountTests(unittest.TestCase):
             self.assertIn("app-ready", portal_script)
             self.assertIn("data-quick-order-id", portal_script)
             parser = HiddenForm(); parser.feed(body)
+            self.assertIn('class="live-action-form"', body)
+            self.assertIn('value="staff_help"', body)
+            self.assertNotIn('<select name="action_type"', body)
+            action_values = {
+                "service_request_key": parser.values["service_request_key"],
+                "order_id": "", "action_type": "staff_help", "details": "Please help me",
+            }
+            response, action_sent = open_request("/customer-action", action_values, cookie=session_cookie)
+            self.assertEqual(response.status, 200)
+            self.assertIn("SNR staff have been notified", action_sent)
+            response, action_repeated = open_request("/customer-action", action_values, cookie=session_cookie)
+            self.assertEqual(response.status, 200)
+            self.assertIn("SNR staff have been notified", action_repeated)
+            with self.db.connect() as conn:
+                self.assertEqual(conn.execute(
+                    "SELECT COUNT(*) FROM customer_live_actions WHERE status='pending'"
+                ).fetchone()[0], 1)
             now = datetime.now(ZoneInfo("Europe/London"))
             response, birthday_error = open_request("/birthday", {
                 "birthday_request_key": "forged", "birthday_day": str(now.day),

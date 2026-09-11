@@ -42,6 +42,14 @@ class CustomerServicesTests(unittest.TestCase):
         self.assertEqual(resolved["status"], "resolved")
         self.assertEqual(resolved["staff_response"], "Coming now")
 
+    def test_repeated_live_action_returns_pending_request_instead_of_crashing(self):
+        first = self.services.create_action(
+            "Cody Ortega", "staff_help", None, "Please come over", "action-token-first")
+        repeated = self.services.create_action(
+            "Cody Ortega", "staff_help", None, "I tapped again", "action-token-second")
+        self.assertEqual(repeated["id"], first["id"])
+        self.assertEqual(len(self.services.pending_actions()), 1)
+
     def test_free_delivery_voucher_is_reserved_and_restored_if_order_cancelled(self):
         request = self.services.request_reward("Cody Ortega", "FREE_DELIVERY", "delivery-reward-12345")
         self.services.resolve_reward(request["id"], "approved", "2", "Ash")
