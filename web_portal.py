@@ -523,7 +523,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
         f'{(" · Order #" + str(int(row["order_id"]))) if row.get("order_id") else ""}</span>'
         f'<strong>{html.escape(row["status"].title())}</strong></div>' for row in action_rows
     )
-    active_id = int(active_order["id"]) if active_order else 0
+    active_id = str(int(active_order["id"])) if active_order else ""
     request_choices = [("staff_help", "💬 Call SNR staff")]
     if active_order:
         if active_order["status"] == "pending":

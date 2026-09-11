@@ -257,10 +257,11 @@ class AccountTests(unittest.TestCase):
             parser = HiddenForm(); parser.feed(body)
             self.assertIn('class="live-action-form"', body)
             self.assertIn('value="staff_help"', body)
+            self.assertIn('name="order_id" value=""', body)
             self.assertNotIn('<select name="action_type"', body)
             action_values = {
                 "service_request_key": parser.values["service_request_key"],
-                "order_id": "", "action_type": "staff_help", "details": "Please help me",
+                "order_id": "0", "action_type": "staff_help", "details": "Please help me",
             }
             response, action_sent = open_request("/customer-action", action_values, cookie=session_cookie)
             self.assertEqual(response.status, 200)

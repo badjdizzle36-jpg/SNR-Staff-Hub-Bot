@@ -50,6 +50,11 @@ class CustomerServicesTests(unittest.TestCase):
         self.assertEqual(repeated["id"], first["id"])
         self.assertEqual(len(self.services.pending_actions()), 1)
 
+    def test_zero_order_id_is_treated_as_general_staff_help(self):
+        action = self.services.create_action(
+            "Cody Ortega", "staff_help", "0", "Please help", "action-zero-order-token")
+        self.assertIsNone(action["order_id"])
+
     def test_free_delivery_voucher_is_reserved_and_restored_if_order_cancelled(self):
         request = self.services.request_reward("Cody Ortega", "FREE_DELIVERY", "delivery-reward-12345")
         self.services.resolve_reward(request["id"], "approved", "2", "Ash")

@@ -202,6 +202,10 @@ class CustomerServices:
         key = normalize_name(customer_key)
         action_type = str(action_type or "").strip().lower()
         details = " ".join(str(details or "").split())
+        try:
+            order_id = int(order_id or 0) or None
+        except (TypeError, ValueError):
+            raise ValueError("That order number is not valid. Please refresh and try again.")
         if action_type not in ACTION_LABELS:
             raise ValueError("Choose a valid request.")
         if len(details) > 250:
@@ -220,8 +224,8 @@ class CustomerServices:
             route = self._route(conn)
             if not customer or not route:
                 raise ValueError("Customer requests are being set up. Please ask staff.")
-            if order_id:
-                order = conn.execute("SELECT * FROM web_delivery_orders WHERE id=? AND customer_key=?", (int(order_id), key)).fetchone()
+            if order_id is not None:
+                order = conn.execute("SELECT * FROM web_delivery_orders WHERE id=? AND customer_key=?", (order_id, key)).fetchone()
                 if not order:
                     raise ValueError("That order does not belong to your account.")
                 if action_type in ("change_order", "cancel_order") and order["status"] != "pending":
@@ -229,7 +233,7 @@ class CustomerServices:
             cursor = conn.execute("""INSERT OR IGNORE INTO customer_live_actions
                 (customer_key,customer_name,action_type,order_id,details,request_key,created_at,channel_id,guild_id)
                 VALUES(?,?,?,?,?,?,?,?,?)""", (key, customer["display_name"], action_type,
-                int(order_id) if order_id else None, details, request_key, utc_now(), route["channel_id"], route["guild_id"]))
+                order_id, details, request_key, utc_now(), route["channel_id"], route["guild_id"]))
             if not cursor.rowcount:
                 pending = conn.execute("""SELECT * FROM customer_live_actions
                     WHERE customer_key=? AND action_type=? AND status='pending'""",
