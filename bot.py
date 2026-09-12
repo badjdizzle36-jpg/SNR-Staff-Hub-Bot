@@ -4,6 +4,7 @@ import asyncio
 import os
 import logging
 from pathlib import Path
+from urllib.parse import urlencode
 
 import discord
 from discord import app_commands
@@ -456,14 +457,14 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
         )
         return
     if action == "account_reset":
-        code = accounts.issue_setup(name, str(interaction.user.id), str(interaction.user), reset=True)
+        if not await require_owner(interaction):
+            return
         message = (
-            f"🔐 Password reset for **{discord.utils.escape_markdown(customer['display_name'])}**.\n"
-            f"New one-time setup code: `{code}`\n"
-            "Their old password and website sessions are disabled. Give this privately after checking identity. "
-            "It expires after 24 hours."
+            f"🔐 Reset the website password for **{discord.utils.escape_markdown(customer['display_name'])}**?\n"
+            "This will immediately sign them out and disable their old password. "
+            "You will receive a private, one-use reset link to give only to that customer."
         )
-        await send_ephemeral(interaction, message)
+        await send_ephemeral(interaction, message, view=PasswordResetConfirmView(customer['display_name']))
     elif action == "check":
         await send_ephemeral(interaction, embed=customer_embed(customer))
     elif action == "vip":
@@ -1529,6 +1530,47 @@ class CustomerToolsView(discord.ui.View):
     async def redeem_voucher(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await interaction.response.send_modal(RedeemVoucherModal())
+
+    @discord.ui.button(label="Reset Password", emoji="🔑", style=discord.ButtonStyle.danger, row=1)
+    async def reset_password(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_owner(interaction):
+            await show_customer_picker(interaction, "account_reset")
+
+
+class PasswordResetConfirmView(discord.ui.View):
+    """Owner-only confirmation before invalidating a customer's login."""
+
+    def __init__(self, customer_name: str):
+        super().__init__(timeout=90)
+        self.customer_name = customer_name
+
+    @discord.ui.button(label="Create Secure Reset Link", emoji="🔐", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_owner(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            code = accounts.issue_setup(
+                self.customer_name, str(interaction.user.id), str(interaction.user), reset=True)
+            query = urlencode({"name": self.customer_name, "code": code})
+            link = f"{WEBSITE_URL}/staff-reset?{query}"
+            await interaction.edit_original_response(
+                content=(
+                    f"✅ **Password reset started for {discord.utils.escape_markdown(self.customer_name)}**\n"
+                    "Their old password and every active website session are now disabled.\n\n"
+                    f"Send this private one-use link to the correct customer:\n{link}\n\n"
+                    "The link expires after 24 hours and stops working as soon as they choose a new password."
+                ),
+                embed=None,
+                view=None,
+            )
+        except ValueError as exc:
+            await interaction.edit_original_response(content=f"❌ {exc}", embed=None, view=None)
+
+    @discord.ui.button(label="Cancel", emoji="✖️", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_owner(interaction):
+            await interaction.response.edit_message(content="No password changes were made.", embed=None, view=None)
 
 
 class ShiftToolsView(discord.ui.View):

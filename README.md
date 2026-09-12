@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Owner password recovery:** open **Customers → Reset Password**, choose the customer from the searchable 25-name pages, and confirm. The owner receives a private one-use website link to pass to the verified customer. The old password and all active sessions are disabled immediately; the customer chooses their new password privately, and the link expires after 24 hours or after first use.
 - **Membership card gallery:** view all six card designs and their live membership thresholds, bonus points, bonus Golden Tickets and delivery prices under More. Your current level is marked.
 - **Request Pack** is visible on the main member card. It becomes available at four points; pending requests show their status. Staff handover deducts exactly four points and preserves the rest, including points earned while waiting. Older requests with points already reserved are not charged twice.
 - **Clock In / Clock Out** are directly on the permanent Discord home panel. After updating, run `/snrhub_panel` to post the updated panel.
@@ -60,7 +61,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - The website and Discord now explain that meal-deal Golden Tickets are issued, checked and entered automatically. A winning ticket creates an immediate £5,000 alert for both the customer webpage and staff receipt.
 - Customers create a zero-point loyalty account on the website without making a purchase first.
 - New accounts activate immediately with no staff approval. Discord posts an informational alert and mentions the configured `SNR Staff` role.
-- Password resets use the customer's memorable question and answer—no setup code or staff reset is required.
+- Customers can normally reset their own password with their memorable question. If they cannot, the SNR Owner can issue a secure one-use recovery link from Discord without seeing or choosing the new password.
 - Existing older accounts are prompted to add a memorable question after logging in.
 - Customers can order several different deals and choose 0–10 of each (20 deals maximum per order).
 - Customers choose **Delivery** or **Pickup from SNR Buns** on the same order page. Pickup is always free and remains available when no delivery driver is clocked in.

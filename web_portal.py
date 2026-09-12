@@ -201,6 +201,26 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
     </section>''')
 
 
+def staff_reset_page(name: str, code: str, message: str = "") -> str:
+    """One-use password form created from the private owner Discord control."""
+    notice = f'<div class="notice">{html.escape(message)}</div>' if message else ""
+    return page("Reset SNR Password", f'''
+    <section class="card">
+      <div class="label">Secure account recovery</div>
+      <h1>Choose a new password</h1>
+      <p>This private link is for <strong>{html.escape(name)}</strong>. It works once and expires after 24 hours.</p>
+      {notice}
+      <form method="post" action="/staff-reset" style="flex-direction:column">
+        <input type="hidden" name="name" value="{html.escape(name, quote=True)}">
+        <input type="hidden" name="code" value="{html.escape(code, quote=True)}">
+        <input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Create new password (10+ characters)" required>
+        <input type="password" name="confirm" minlength="10" maxlength="128" autocomplete="new-password" placeholder="Repeat new password" required>
+        <button type="submit">Save My New Password</button>
+      </form>
+      <div class="notice">SNR staff cannot see your new password.</div>
+    </section>''')
+
+
 def _sale_date(value: str) -> str:
     try:
         return datetime.fromisoformat(value).astimezone(LONDON).strftime("%d %b %Y")
@@ -700,7 +720,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             ))
 
         def do_GET(self) -> None:  # noqa: N802
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
             if path in ("/snr-logo.png", "/snr-logo.jpg"):
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
@@ -809,6 +830,14 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                 self.wfile.write(data)
             elif path in ("/account", "/card"):
                 self.show_account()
+            elif path == "/staff-reset":
+                query = parse_qs(parsed.query)
+                name = query.get("name", [""])[0][:60]
+                code = query.get("code", [""])[0][:100]
+                if not name or not code:
+                    self.send_html(400, login_page(db.customer_names(), "That password-reset link is incomplete."))
+                else:
+                    self.send_html(200, staff_reset_page(name, code))
             elif path == "/":
                 self.redirect("/account") if self.owner() else self.send_html(200, login_page(db.customer_names()))
             else:
@@ -840,6 +869,12 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                         data.get("security_answer", ""), data.get("password", ""),
                     )
                     self.send_html(200, page("Password reset", '''<section class="card"><div class="label">Password updated</div><h1>Your new password is ready</h1><p>All older website sessions were signed out for your protection.</p><a class="back" href="/">Log in</a></section>'''))
+                elif path == "/staff-reset":
+                    if data.get("password", "") != data.get("confirm", ""):
+                        raise ValueError("The two passwords do not match.")
+                    accounts.set_password(
+                        data.get("name", ""), data.get("code", ""), data.get("password", ""))
+                    self.send_html(200, page("Password reset", '''<section class="card"><div class="label">Password updated</div><h1>Your new password is ready</h1><p>The private reset link has now expired and all older sessions remain signed out.</p><a class="back" href="/">Log in to my card</a></section>'''))
                 elif path == "/logout":
                     accounts.logout(self.session_token())
                     self.redirect("/", "snr_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned")

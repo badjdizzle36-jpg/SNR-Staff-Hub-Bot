@@ -94,6 +94,52 @@ class AccountTests(unittest.TestCase):
         self.assertNotIn("customer chosen password", raw)
         self.assertNotIn("customer new password", raw)
 
+    def test_owner_one_use_reset_link_changes_password_and_revokes_sessions(self):
+        _, old_session = self.create("Cody Ortega", "original password 123")
+        reset_code = self.accounts.issue_setup("Cody Ortega", "99", "Owner", reset=True)
+        self.assertIsNone(self.accounts.owner(old_session))
+        server = start_web_server(self.db, 0)
+        base = f"http://127.0.0.1:{server.server_port}"
+
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        def request(path, values=None):
+            req = Request(base + path, data=urlencode(values).encode() if values else None)
+            try:
+                response = build_opener(NoRedirect()).open(req)
+            except HTTPError as error:
+                response = error
+            return response, response.read().decode()
+
+        try:
+            query = urlencode({"name": "Cody Ortega", "code": reset_code})
+            response, form = request("/staff-reset?" + query)
+            self.assertEqual(response.status, 200)
+            self.assertIn("Choose a new password", form)
+            self.assertIn("Cody Ortega", form)
+            response, success = request("/staff-reset", {
+                "name": "Cody Ortega", "code": reset_code,
+                "password": "replacement password 456", "confirm": "replacement password 456",
+            })
+            self.assertEqual(response.status, 200)
+            self.assertIn("Your new password is ready", success)
+            with self.assertRaises(ValueError):
+                self.accounts.login("Cody Ortega", "original password 123")
+            self.assertEqual(
+                self.accounts.owner(self.accounts.login("Cody Ortega", "replacement password 456")),
+                "cody ortega",
+            )
+            response, reused = request("/staff-reset", {
+                "name": "Cody Ortega", "code": reset_code,
+                "password": "another password 789", "confirm": "another password 789",
+            })
+            self.assertEqual(response.status, 400)
+            self.assertIn("Setup code not accepted", reused)
+        finally:
+            server.shutdown(); server.server_close()
+
     def test_duplicate_self_service_account_cannot_replace_password(self):
         DeliveryStore(self.db).configure(100, 200, "1", "Manager")
         request = self.accounts.request_access(
