@@ -12,7 +12,7 @@ from customer_accounts import Accounts
 from delivery_orders import DeliveryStore
 from reward_claims import ClaimStore
 from snr_core import SNRDatabase
-from web_portal import start_web_server
+from web_portal import start_web_server, order_progress
 
 
 class HiddenForm(HTMLParser):
@@ -27,6 +27,17 @@ class HiddenForm(HTMLParser):
 
 
 class AccountTests(unittest.TestCase):
+    def test_order_progress_uses_fulfillment_stages(self):
+        for status, expected in [("pending", 0), ("accepted", 1), ("on_way", 2), ("arrived", 3), ("processing", 3), ("paid", 4)]:
+            steps, stage = order_progress(status, "delivery")
+            self.assertEqual(stage, expected)
+            self.assertEqual(steps[-1], "Complete")
+        steps, stage = order_progress("ready_for_pickup", "pickup")
+        self.assertEqual(steps[stage], "Ready")
+        self.assertNotIn("On the way", steps)
+        steps, stage = order_progress("processing", "instore")
+        self.assertEqual(steps[stage], "Payment")
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = SNRDatabase(self.tmp.name + "/data.db")

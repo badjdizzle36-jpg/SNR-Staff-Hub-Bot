@@ -4,6 +4,8 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Compact homepage and live progress:** fixes the older CSS rule that hid the delivery illustration. Smaller credit cards, tighter shortcuts and less glow; membership statistics and Golden Ticket information live under More. An active order gets a sticky progress bar above the banner on every customer tab, with delivery or pickup stages and automatic status refresh. The empty current-order panel is removed from Home.
+
 - **Preview 2 artwork and layout correction:** includes the original neon city/burger banner and illustrated Click & Collect and Delivery tiles, a live reward strip, three shortcuts and four bottom navigation buttons. The membership area stays a real credit-card shape. Upload the new `neon-design.png` alongside `web_portal.py`; it is required for the new artwork. The banner's service availability and customer balances are live, not the example values from the design preview.
 
 - **Neon Street Food redesign:** the entire customer website now uses a consistent black city-night interface with red/orange neon, restrained cyan status accents, clearer page hierarchy, compact phone navigation, redesigned login/forms/orders/rewards/raffle/history and responsive desktop layouts. The main live membership display remains a realistic chip-and-contactless credit card, with the customer's membership tier and point balance built into the card face. Existing membership gallery cards keep their individual level colours and credit-card proportions.
