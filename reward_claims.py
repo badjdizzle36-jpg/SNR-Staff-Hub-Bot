@@ -206,22 +206,41 @@ class ClaimStore:
                 raise ValueError('Claim not found.')
             if row['status'] != 'pending':
                 raise ValueError('This claim has already been resolved.')
-            cost = 0 if row['points_reserved'] else 4
+            reward_cost = max(0, int(row['points'] or 4))
+            cost = 0 if row['points_reserved'] else reward_cost
+            points_before = None
+            points_after = None
             if status == 'fulfilled':
                 customer = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?',
                                         (row['customer_key'],)).fetchone()
                 if not customer or customer['loyalty_points'] < cost:
-                    raise ValueError('This customer needs four available points before the pack can be handed over.')
-            conn.execute('UPDATE web_pack_claims SET status=?,resolved_at=?,resolved_by=? WHERE id=?',
-                         (status, utc_now(), str(staff_id), claim_id))
+                    raise ValueError(f'This customer needs {reward_cost} available points before the pack can be handed over.')
+                points_before = int(customer['loyalty_points'])
             if status == 'cancelled':
                 if row['points_reserved']:
-                    conn.execute('UPDATE customers SET loyalty_points=loyalty_points+4,updated_at=? WHERE customer_key=?',
-                                 (utc_now(), row['customer_key']))
+                    conn.execute('UPDATE customers SET loyalty_points=loyalty_points+?,updated_at=? WHERE customer_key=?',
+                                 (reward_cost, utc_now(), row['customer_key']))
             else:
-                conn.execute('''UPDATE customers SET loyalty_points=loyalty_points-?,
+                changed = conn.execute('''UPDATE customers SET loyalty_points=loyalty_points-?,
                     card_packs_earned=card_packs_earned+1,
-                    card_packs_claimed=card_packs_claimed+1,updated_at=? WHERE customer_key=?''',
-                    (cost, utc_now(), row['customer_key']))
-            self.audit(conn, 'web_pack_'+status, f'claim={claim_id};customer={row["customer_key"]}', str(staff_id), staff_name)
-        return self.get(claim_id)
+                    card_packs_claimed=card_packs_claimed+1,updated_at=?
+                    WHERE customer_key=? AND loyalty_points>=?''',
+                    (cost, utc_now(), row['customer_key'], cost))
+                if changed.rowcount != 1:
+                    raise ValueError(f'This customer needs {reward_cost} available points before the pack can be handed over.')
+                points_after = int(conn.execute(
+                    'SELECT loyalty_points FROM customers WHERE customer_key=?',
+                    (row['customer_key'],)).fetchone()['loyalty_points'])
+                expected = int(points_before) - cost
+                if points_after != expected:
+                    raise RuntimeError('The reward was stopped because the remaining loyalty balance could not be verified.')
+            conn.execute('UPDATE web_pack_claims SET status=?,resolved_at=?,resolved_by=? WHERE id=?',
+                         (status, utc_now(), str(staff_id), claim_id))
+            self.audit(conn, 'web_pack_'+status,
+                       f'claim={claim_id};customer={row["customer_key"]};points_before={points_before};points_used={cost};points_after={points_after}',
+                       str(staff_id), staff_name)
+        result = self.get(claim_id)
+        if status == 'fulfilled':
+            result['points_used'] = cost
+            result['remaining_points'] = points_after
+        return result

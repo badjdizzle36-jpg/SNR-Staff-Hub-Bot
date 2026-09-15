@@ -34,6 +34,15 @@ class CustomerServicesTests(unittest.TestCase):
         used = self.services.redeem_voucher(vouchers[0]["voucher_code"], "2", "Ash")
         self.assertEqual(used["status"], "used")
 
+    def test_four_point_reward_from_ten_points_leaves_six(self):
+        with self.db.connect() as conn:
+            conn.execute("UPDATE customers SET loyalty_points=10 WHERE customer_key='cody ortega'")
+        request = self.services.request_reward("Cody Ortega", "FREE_DRINK", "ten-point-reward-request")
+        result = self.services.resolve_reward(request["id"], "approved", "2", "Ash")
+        self.assertEqual(result["points_used"], 4)
+        self.assertEqual(result["remaining_points"], 6)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 6)
+
     def test_live_action_round_trip(self):
         action = self.services.create_action(
             "Cody Ortega", "staff_help", None, "Please come to the counter", "action-token-12345")

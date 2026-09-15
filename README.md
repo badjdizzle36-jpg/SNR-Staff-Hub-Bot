@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Exact reward deductions:** pack claims and chosen free-item rewards now use a checked before/cost/after balance. Claiming a 4-point reward from 10 points leaves 6; extra points are never reset. Discord confirmations display both the points used and the real remaining balance.
 - **Owner password recovery:** open **Customers → Reset Password**, choose the customer from the searchable 25-name pages, and confirm. The owner receives a private one-use website link to pass to the verified customer. The old password and all active sessions are disabled immediately; the customer chooses their new password privately, and the link expires after 24 hours or after first use.
 - **Membership card gallery:** view all six card designs and their live membership thresholds, bonus points, bonus Golden Tickets and delivery prices under More. Your current level is marked.
 - **Request Pack** is visible on the main member card. It becomes available at four points; pending requests show their status. Staff handover deducts exactly four points and preserves the rest, including points earned while waiting. Older requests with points already reserved are not charged twice.

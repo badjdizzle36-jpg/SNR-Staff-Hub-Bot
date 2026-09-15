@@ -1354,6 +1354,13 @@ def custom_reward_embed(row):
     embed.add_field(name="Reward", value=f"**{discord.utils.escape_markdown(row['reward_name'])}**", inline=True)
     embed.add_field(name="Points", value=f"**{int(row['points_cost'])}**", inline=True)
     embed.add_field(name="Status", value=f"**{row['status'].upper()}**", inline=False)
+    if row.get("remaining_points") is not None:
+        embed.add_field(
+            name="Loyalty Balance",
+            value=(f"**{int(row['points_used'])} points used** • "
+                   f"**{int(row['remaining_points'])} remaining**"),
+            inline=False,
+        )
     if row.get("voucher_id"):
         voucher = next((item for item in services.vouchers(row["customer_key"]) if item["id"] == row["voucher_id"]), None)
         if voucher:
@@ -2121,7 +2128,10 @@ class PackClaimView(discord.ui.View):
                     await interaction.followup.send(str(exc), ephemeral=True)
                     return
                 await interaction.followup.send(
-                    'Pack marked as handed over. The customer’s loyalty points are now 0.' if target=='fulfilled' else 'Cancelled. The customer’s points were not changed.', ephemeral=True)
+                    (f"Pack marked as handed over. **{int(row['points_used'])} points used** and "
+                     f"**{int(row['remaining_points'])} points remain**."
+                     if target == 'fulfilled' else
+                     'Cancelled. The customer’s points were not changed.'), ephemeral=True)
                 # Also update the canonical alert if this action came from the pending-request list.
                 try:
                     await interaction.message.edit(embed=pack_claim_embed(row), view=None)

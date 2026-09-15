@@ -157,10 +157,14 @@ class CustomerServices:
             if not row or row["status"] != "pending":
                 raise ValueError("This reward request has already been handled.")
             voucher_id = None
+            points_before = None
+            points_after = None
             if decision == "approved":
                 customer = conn.execute("SELECT loyalty_points FROM customers WHERE customer_key=?", (row["customer_key"],)).fetchone()
                 if not customer or int(customer["loyalty_points"]) < int(row["points_cost"]):
                     raise ValueError("The customer no longer has enough points.")
+                points_before = int(customer["loyalty_points"])
+                points_cost = max(0, int(row["points_cost"]))
                 reward = conn.execute("SELECT * FROM custom_reward_catalog WHERE code=?", (row["reward_code"],)).fetchone()
                 code = "SNR-" + secrets.token_hex(4).upper()
                 cursor = conn.execute("""INSERT INTO customer_vouchers
@@ -168,14 +172,27 @@ class CustomerServices:
                     VALUES(?,?,?,?,?,?,?,?)""", (code, row["customer_key"], row["customer_name"], row["reward_name"],
                     reward["reward_kind"], reward["reward_amount"], f"points:{request_id}", utc_now()))
                 voucher_id = cursor.lastrowid
-                conn.execute("UPDATE customers SET loyalty_points=loyalty_points-?,updated_at=? WHERE customer_key=?",
-                             (int(row["points_cost"]), utc_now(), row["customer_key"]))
+                changed = conn.execute("""UPDATE customers SET loyalty_points=loyalty_points-?,updated_at=?
+                    WHERE customer_key=? AND loyalty_points>=?""",
+                    (points_cost, utc_now(), row["customer_key"], points_cost))
+                if changed.rowcount != 1:
+                    raise ValueError("The customer no longer has enough points.")
+                points_after = int(conn.execute(
+                    "SELECT loyalty_points FROM customers WHERE customer_key=?",
+                    (row["customer_key"],)).fetchone()["loyalty_points"])
+                if points_after != points_before - points_cost:
+                    raise RuntimeError("The reward was stopped because the remaining loyalty balance could not be verified.")
             conn.execute("""UPDATE custom_reward_requests SET status=?,resolved_at=?,resolved_by=?,
                 resolved_by_name=?,voucher_id=? WHERE id=?""", (decision, utc_now(), str(staff_id), staff_name,
                 voucher_id, int(request_id)))
             self._audit(conn, "custom_reward_" + decision,
-                        f"request={int(request_id)};customer={row['customer_key']};voucher={voucher_id}", str(staff_id), staff_name)
-        return self.reward_request(request_id)
+                        f"request={int(request_id)};customer={row['customer_key']};voucher={voucher_id};points_before={points_before};points_used={int(row['points_cost']) if decision == 'approved' else 0};points_after={points_after}",
+                        str(staff_id), staff_name)
+        result = self.reward_request(request_id)
+        if decision == "approved":
+            result["points_used"] = int(row["points_cost"])
+            result["remaining_points"] = points_after
+        return result
 
     def vouchers(self, customer_key, active_only=False):
         where = " AND status='active'" if active_only else ""

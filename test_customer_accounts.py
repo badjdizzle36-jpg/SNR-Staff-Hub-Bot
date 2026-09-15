@@ -208,6 +208,18 @@ class AccountTests(unittest.TestCase):
         claims.resolve(next_claim["id"], "fulfilled", "1", "Staff")
         self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 2)
 
+    def test_pack_claim_from_ten_points_uses_four_and_leaves_six(self):
+        self.create()
+        with self.db.connect() as conn:
+            conn.execute("UPDATE customers SET loyalty_points=10 WHERE customer_key='cody ortega'")
+        claims = ClaimStore(self.db)
+        claims.configure(100, 200, "1", "Manager")
+        request = claims.request_authenticated("Cody Ortega", "ten-point-pack-request")
+        result = claims.resolve(request["id"], "fulfilled", "1", "Staff")
+        self.assertEqual(result["points_used"], 4)
+        self.assertEqual(result["remaining_points"], 6)
+        self.assertEqual(self.db.get_customer("Cody Ortega")["loyalty_points"], 6)
+
     def test_claim_uses_existing_orders_channel_and_cancel_keeps_points(self):
         self.create()
         self.db.record_sale("Cody Ortega", "share_box", "1", "Staff")
