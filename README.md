@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Neon Street Food redesign:** the entire customer website now uses a consistent black city-night interface with red/orange neon, restrained cyan status accents, clearer page hierarchy, compact phone navigation, redesigned login/forms/orders/rewards/raffle/history and responsive desktop layouts. The main live membership display remains a realistic chip-and-contactless credit card, with the customer's membership tier and point balance built into the card face. Existing membership gallery cards keep their individual level colours and credit-card proportions.
 - **Exact reward deductions:** pack claims and chosen free-item rewards now use a checked before/cost/after balance. Claiming a 4-point reward from 10 points leaves 6; extra points are never reset. Discord confirmations display both the points used and the real remaining balance.
 - **Owner password recovery:** open **Customers → Reset Password**, choose the customer from the searchable 25-name pages, and confirm. The owner receives a private one-use website link to pass to the verified customer. The old password and all active sessions are disabled immediately; the customer chooses their new password privately, and the link expires after 24 hours or after first use.
 - **Membership card gallery:** view all six card designs and their live membership thresholds, bonus points, bonus Golden Tickets and delivery prices under More. Your current level is marked.
