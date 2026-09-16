@@ -22,6 +22,7 @@ from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
 from raffles import RaffleStore
 from city_run import BUSINESSES, CityRunStore
+from city_artwork import poster_markup, sticker_svg
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
 
 LONDON = ZoneInfo("Europe/London")
@@ -97,7 +98,8 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 .city-corners{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:13px;padding:13px;border:1px solid #6d5a31;border-radius:15px;background:#111216}.city-corners h3{grid-column:1/-1;margin:0;color:#f3d477;font-size:16px}.city-corner{min-width:0;padding:9px;border-left:3px solid #5a554c;background:#0b0c0f}.city-corner.unlocked{border-left-color:#6be69a;box-shadow:inset 0 0 12px #6be69a18}.city-corner b,.city-corner small{display:block}.city-corner b{font-size:11px;color:#eee5d0}.city-corner small{margin-top:4px;color:#aaa294;font-size:10px;line-height:1.25}
 @media(max-width:700px){.city-board{min-width:760px}.city-board-tile{min-height:88px}.city-board-tile img{height:56px}.city-board-centre{padding:10px}.city-board-title strong{font-size:38px}.city-board-reward b{font-size:8px}}
 /* Collected stickers stay visible on the live board, but are greyed out and stamped. */
-.city-board-page .city-board-viewport{display:block}.city-board-page .city-board-art-wrap{display:block}.city-board-tile.owned{position:relative;filter:grayscale(1) saturate(.15);opacity:.72}.city-board-tile.owned:after{content:'✓ COLLECTED';position:absolute;inset:0;display:grid;place-items:center;background:#08090bb8;color:#fff3b0;font-size:11px;font-weight:950;letter-spacing:.5px;text-shadow:0 1px 4px #000}.city-board-tile.owned>div{background:linear-gradient(90deg,#b9b19f,#e6dfca);color:#39352c}.city-board-tile.owned small{color:#514b40}.city-reveal-result .city-business{width:min(330px,100%);margin:16px auto;overflow:hidden;border:2px solid #d9b85d;border-radius:16px;background:#0b0c10;box-shadow:0 0 28px #d9b85d45;animation:sticker-pop .55s cubic-bezier(.2,.8,.2,1)}.city-reveal-art{display:block;width:100%;height:auto;aspect-ratio:160/112;object-fit:contain;object-position:center;background:#090a0c;image-rendering:auto}.city-reveal-badge{display:inline-block;margin:10px 0;padding:6px 12px;border:1px solid #f4cf6a;border-radius:99px;color:#ffe28b;background:#ffe28b18;font-weight:900;text-transform:uppercase;letter-spacing:1px}@keyframes sticker-pop{0%{opacity:0;transform:scale(.72) rotate(-4deg)}70%{transform:scale(1.04) rotate(1deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+.city-board-page .city-board-viewport{display:none}.city-board-page .city-board-art-wrap{display:block}.city-board-tile.owned{position:relative;filter:grayscale(1) saturate(.15);opacity:.72}.city-board-tile.owned:after{content:'✓ COLLECTED';position:absolute;inset:0;display:grid;place-items:center;background:#08090bb8;color:#fff3b0;font-size:11px;font-weight:950;letter-spacing:.5px;text-shadow:0 1px 4px #000}.city-board-tile.owned>div{background:linear-gradient(90deg,#b9b19f,#e6dfca);color:#39352c}.city-board-tile.owned small{color:#514b40}.city-reveal-result .city-business{width:min(330px,100%);margin:16px auto;overflow:hidden;border:2px solid #d9b85d;border-radius:16px;background:#0b0c10;box-shadow:0 0 28px #d9b85d45;animation:sticker-pop .55s cubic-bezier(.2,.8,.2,1)}.city-reveal-art{display:block;width:100%;height:auto;aspect-ratio:160/112;object-fit:contain;object-position:center;background:#090a0c;image-rendering:auto}.city-reveal-badge{display:inline-block;margin:10px 0;padding:6px 12px;border:1px solid #f4cf6a;border-radius:99px;color:#ffe28b;background:#ffe28b18;font-weight:900;text-transform:uppercase;letter-spacing:1px}@keyframes sticker-pop{0%{opacity:0;transform:scale(.72) rotate(-4deg)}70%{transform:scale(1.04) rotate(1deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+.city-run-hero{padding:12px}.city-run-hero strong{font-size:22px}.city-corners{padding:9px;gap:5px}.city-board-art-wrap small{display:block;text-align:center;font-size:11px;color:#bbb}.city-reveal-art{aspect-ratio:auto;max-height:280px;object-fit:contain}.city-reveal-result .city-business{max-width:230px}@media(prefers-reduced-motion:reduce){.city-reveal-result .city-business{animation:none}}
 /* VIP After Dark website theme. Membership-card artwork above remains unchanged. */
 body{background:radial-gradient(circle at 50% -10%,#5c441f 0,transparent 30%),radial-gradient(circle at 105% 35%,#2b1d08 0,transparent 38%),linear-gradient(145deg,#030303 0%,#0b0b0c 52%,#171109 100%);color:#fff9e8}
 .card:not(.quick-hub){background:linear-gradient(145deg,#171719,#080809);border-color:#8d7439;border-top-color:#e4c36f;box-shadow:0 22px 70px #000b,0 0 30px #d9ad3b14}
@@ -640,22 +642,9 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
         grand_action = f'''<form method="post" action="/city-run-claim"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><input type="hidden" name="reward_key" value="grand"><button type="submit">Claim the Grand-Prize Vehicle</button></form>'''
     else:
         grand_action = '<p class="muted">Collect all 38 businesses to unlock the grand-prize vehicle.</p>'
-    def board_tile(item, route):
-        state = "owned" if item["owned"] else "locked"
-        status = f'{int(item["copies"])} collected' if item["owned"] else "Locked"
-        return f'''<article class="city-board-tile {state}" style="--set-colour:{html.escape(route['colour'], quote=True)}"><img src="/city-art/{html.escape(item['key'], quote=True)}.svg" alt=""><div><strong>{html.escape(item['name'])}</strong><small>{html.escape(status)}</small></div></article>'''
-
-    # The visual board uses a real perimeter layout: 10 tiles across the top,
-    # 9 down each side, and 10 across the bottom (38 total).
-    top, right, left, bottom = board_items[:10], board_items[10:19], board_items[19:28], board_items[28:]
-    reward_tiles = []
-    for route in board["collections"]:
-        reward = route.get("reward") or {}
-        reward_tiles.append(f'''<div class="city-board-reward" style="--set-colour:{html.escape(route['colour'], quote=True)}"><b>{html.escape(route['name'])}</b><small>{int(route['collected'])}/{int(route['total'])} collected</small><span>{html.escape(reward.get('reward_name', 'Route reward'))}</span></div>''')
-    board_markup = f'''<div class="city-board-viewport"><div class="city-board"><div class="city-board-row city-board-top">{''.join(board_tile(i, r) for i, r in top)}</div><div class="city-board-middle"><div class="city-board-column">{''.join(board_tile(i, r) for i, r in left)}</div><div class="city-board-centre"><div class="city-board-title"><small>{status}</small><strong><span>SNR</span><em>CITY RUN</em></strong><p>COLLECT THE CITY • WIN THE RIDE</p></div><div class="city-board-prize"><span>🏎️</span><b>GRAND-PRIZE<br>VEHICLE</b><small>Complete all 38 businesses</small></div><div class="city-board-rewards">{''.join(reward_tiles)}</div></div><div class="city-board-column">{''.join(board_tile(i, r) for i, r in right)}</div></div><div class="city-board-row city-board-bottom">{''.join(board_tile(i, r) for i, r in bottom)}</div></div></div>'''
-    board_art = '''<div class="city-board-art-wrap"><img class="city-board-art" src="/city-run-board.jpg" alt="SNR City Run collection board"><p class="city-board-art-hint">The board shows the full season. Live collected tiles and reward claims are listed below.</p></div>'''
+    board_art = poster_markup(item['key'] for item, _ in board_items if item['owned'])
     corners = ''.join(f'''<div class="city-corner {'unlocked' if corner['unlocked'] else ''}"><b>{'✓' if corner['unlocked'] else '○'} {html.escape(corner['name'])}</b><small>{html.escape(corner['description'])}</small></div>''' for corner in board.get('corners', []))
-    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-run-hero"><small>{status}</small><strong>Collect the businesses.<br>Win the ride.</strong><span>Qualifying meals award City Run stickers. Duplicates can appear, so completing all 38 takes commitment.</span></div><div class="city-run-score"><div><b>{int(board['unique_collected'])}</b><small>OF 38 COLLECTED</small></div><div><b>{available}</b><small>STICKERS READY</small></div><div><b>{int(board['duplicates'])}</b><small>DUPLICATES</small></div></div>{action}{board_art}{board_markup}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
+    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-run-hero"><small>{status}</small><strong>Collect the businesses.<br>Win the ride.</strong><span>Qualifying meals award City Run stickers. Duplicates can appear, so completing all 38 takes commitment.</span></div><div class="city-run-score"><div><b>{int(board['unique_collected'])}</b><small>OF 38 COLLECTED</small></div><div><b>{available}</b><small>STICKERS READY</small></div><div><b>{int(board['duplicates'])}</b><small>DUPLICATES</small></div></div>{action}{board_art}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -936,6 +925,13 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Cache-Control", "public, max-age=86400")
                 self.end_headers()
                 self.wfile.write(data)
+            elif path == "/city-run-brand.png":
+                data = Path(__file__).with_name("city-run-brand.png").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
             elif path == "/city-run-board.jpg":
                 self.send_response(200)
                 self.send_header("Content-Type", "image/jpeg")
@@ -960,7 +956,8 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.wfile.write(data)
             elif path.startswith("/city-art/") and path.endswith(".svg"):
                 business_key = path.removeprefix("/city-art/").removesuffix(".svg")
-                data = city_business_svg(business_key)
+                business = next((b for b in BUSINESSES if b['key'] == business_key), None)
+                data = sticker_svg(business_key, business['name']) if business else None
                 if data is None:
                     self.send_html(404, page("Not found", '<section class="card"><h1>Artwork not found.</h1></section>'))
                     return
@@ -1155,7 +1152,7 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                     message = ("Duplicate found — it has been added to your duplicate total."
                                if duplicate else "New business collected and added to your board!")
                     art_key = html.escape(result["business_key"], quote=True)
-                    self.send_html(200, page("City Run reveal", f'''<section class="card city-reveal-result"><div class="label">🏁 SNR CITY RUN · STICKER REVEALED</div><h1>{html.escape(result["business_name"])}</h1><div class="city-business"><img class="city-reveal-art" src="/city-sticker/{art_key}.jpg" alt="{html.escape(result["business_name"], quote=True)} sticker artwork"><span class="city-reveal-badge">{html.escape(str(result["rarity"]).replace("_", " ").title())}</span></div><p><strong>{html.escape(result["collection_name"])}</strong></p><div class="notice">{html.escape(message)} Your sticker is now placed on your City Run board.</div><p>{int(result["reveals_left"])} sticker reveal(s) remaining.</p><a class="back" href="/account#city-run">View my updated board</a></section>'''))
+                    self.send_html(200, page("City Run reveal", f'''<section class="card city-reveal-result"><div class="label">🏁 SNR CITY RUN · STICKER REVEALED</div><h1>{html.escape(result["business_name"])}</h1><div class="city-business"><img class="city-reveal-art" src="/city-art/{art_key}.svg?v=poster-pro-1" alt="{html.escape(result["business_name"], quote=True)} sticker artwork"><span class="city-reveal-badge">{html.escape(str(result["rarity"]).replace("_", " ").title())}</span></div><p><strong>{html.escape(result["collection_name"])}</strong></p><div class="notice">{html.escape(message)} Your sticker is now placed on your City Run board.</div><p>{int(result["reveals_left"])} sticker reveal(s) remaining.</p><a class="back" href="/account#city-run">View my updated board</a></section>'''))
                 elif path == "/city-run-claim":
                     owner = self.owner()
                     if not owner:

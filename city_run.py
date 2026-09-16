@@ -78,6 +78,13 @@ RECOMMENDED_RARE_PIECES = {
 def ensure_city_run_schema(conn, now: str) -> None:
     """Create and safely seed the campaign without making it live."""
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS city_run_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_key TEXT UNIQUE NOT NULL,
+            description TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            message_id TEXT
+        );
         CREATE TABLE IF NOT EXISTS city_run_campaigns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -266,6 +273,28 @@ def _weighted_choice(rows, owned_keys: set[str] | None = None) -> Any:
             return row
         pick -= weight
     return rows[-1]
+
+
+def queue_event(conn, event_key, description, now):
+    conn.execute('INSERT OR IGNORE INTO city_run_events(event_key,description,created_at) VALUES(?,?,?)',
+                 (event_key, description, now))
+
+
+def queue_completions(conn, campaign_id, customer_key, now):
+    """Called inside the award transaction, not during a sale or network send."""
+    owned = {r['business_key'] for r in conn.execute(
+        'SELECT business_key FROM city_run_customer_cards WHERE campaign_id=? AND customer_key=? AND copies_owned>0',
+        (campaign_id, customer_key))}
+    customer = conn.execute('SELECT display_name FROM customers WHERE customer_key=?', (customer_key,)).fetchone()
+    name = customer['display_name'] if customer else customer_key
+    for route, data in COLLECTIONS.items():
+        keys = {b['key'] for b in BUSINESSES if b['collection_key'] == route}
+        if keys <= owned:
+            reward = conn.execute('SELECT reward_name FROM city_run_rewards WHERE campaign_id=? AND reward_key=?', (campaign_id, route)).fetchone()
+            queue_event(conn, f'set:{campaign_id}:{customer_key}:{route}',
+                        f"{name} completed {data['name']}. Unlocked: {reward['reward_name'] if reward else 'route complete'}. Staff handover is still required.", now)
+    if {b['key'] for b in BUSINESSES} <= owned:
+        queue_event(conn, f'grand:{campaign_id}:{customer_key}', f'{name} collected all 38 businesses. Grand-prize claim unlocked; not yet handed over.', now)
 
 
 def issue_pack_for_sale(conn, sale_id: int, customer_key: str, customer_name: str, now: str) -> int | None:
@@ -491,6 +520,8 @@ class CityRunStore:
                     "INSERT INTO city_run_corner_awards(campaign_id,customer_key,corner_key,bonus_reveals,awarded_at) VALUES(?,?,?,?,?)",
                     (campaign["id"], customer_key, rule["key"], bonus, now),
                 )
+                queue_event(conn, f"corner:{campaign['id']}:{customer_key}:{rule['key']}",
+                            f"{customer_name} unlocked {rule['name']}. Bonus reveals: {bonus}.", now)
                 if bonus:
                     ledger_key = f"corner:{campaign['id']}:{customer_key}:{rule['key']}"
                     conn.execute(
@@ -507,6 +538,8 @@ class CityRunStore:
                         )
 
     def customer_board(self, customer_key: str) -> dict[str, Any]:
+        from snr_core import normalize_name
+        customer_key = normalize_name(customer_key)
         campaign = self.current()
         if not campaign:
             return {"campaign": {}, "collections": [], "available_reveals": 0,
@@ -671,6 +704,7 @@ class CityRunStore:
                 (json.dumps({"customer": key, "business": chosen["business_key"],
                              "duplicate": bool(previous)}), now),
             )
+            queue_completions(conn, campaign['id'], key, now)
         return dict(result)
 
     def unopened_packs(self, customer_key: str) -> list[dict[str, Any]]:
@@ -722,6 +756,7 @@ class CityRunStore:
                 revealed.append({**dict(item), "duplicate": previous is not None,
                                  "copy_number": int(previous["copies_owned"]) + 1 if previous else 1})
             conn.execute("UPDATE city_run_packs SET status='opened',opened_at=? WHERE id=?", (now, pack["id"]))
+            queue_completions(conn, pack['campaign_id'], key, now)
             conn.execute(
                 "INSERT INTO audit_log(action,details,created_at) VALUES('city_run_pack_opened',?,?)",
                 (json.dumps({"pack_id": pack["id"], "customer": key,
@@ -1086,6 +1121,8 @@ class CityRunStore:
                    WHERE id=?""",
                 (status, now, str(staff_id), staff_name, int(claim_id)),
             )
+            queue_event(conn, f"claim:{claim_id}:{status}:{row['requested_at']}",
+                        f"{row['customer_name']} — {row['reward_name']}: {status} by {staff_name}. Claim #{claim_id}.", now)
             conn.execute(
                 """INSERT INTO audit_log(action,staff_id,staff_name,details,created_at)
                    VALUES(?,?,?,?,?)""",
@@ -1101,3 +1138,14 @@ class CityRunStore:
                 "SELECT * FROM city_run_claims WHERE status='pending'" +
                 (" AND message_id IS NULL" if unsent else "") + " ORDER BY id"
             ).fetchall()]
+
+    def pending_events(self):
+        with self.db.connect() as conn:
+            route = conn.execute("SELECT guild_id,channel_id FROM discord_alert_channels WHERE alert_type='city_run_claims' ORDER BY updated_at DESC LIMIT 1").fetchone()
+            if not route:
+                return []
+            return [{**dict(r), **dict(route)} for r in conn.execute('SELECT * FROM city_run_events WHERE message_id IS NULL ORDER BY id LIMIT 20')]
+
+    def mark_event_sent(self, event_id, message_id):
+        with self.db.connect() as conn:
+            conn.execute('UPDATE city_run_events SET message_id=? WHERE id=? AND message_id IS NULL', (str(message_id), event_id))
