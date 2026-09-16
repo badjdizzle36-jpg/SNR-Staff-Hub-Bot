@@ -215,13 +215,11 @@ def panel_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🍔 SNR BUNS — PRO STAFF HUB",
         description=(
-            "Use the tools below. Clock In and Clock Out are available here too.\n\n"
+            "Four clear starting points. Temporary menus replace themselves so this channel stays tidy.\n\n"
             "💷 **New Sale** — record a purchase\n"
-            "🚗 **Deliveries** — manage active orders\n"
-            "🔔 **Live Actions** — everything waiting for staff\n"
+            "🔔 **Live Queue** — every order and request waiting for staff\n"
             "👥 **Customers** — accounts and rewards\n"
-            "🕒 **Staff Shift** — clock in or off\n"
-            "🧰 **More Tools** — raffle, finance, jackpot, Birdy and owner controls\n\n"
+            "🧰 **Staff & Tools** — clocking, reports, raffle and owner controls\n\n"
             "Customers do **not** need Discord."
         ),
         colour=discord.Colour.gold(),
@@ -1585,36 +1583,11 @@ class RedeemVoucherModal(discord.ui.Modal, title="Redeem Customer Voucher"):
 
 
 async def show_live_actions(interaction):
-    if not await require_staff(interaction):
-        return
-    guild_id = str(interaction.guild_id)
-    pending_orders = [row for row in orders.pending() if row["guild_id"] == guild_id]
-    support = [row for row in orders.pending_support(limit=20) if row["guild_id"] == guild_id]
-    packs = [row for row in claims.pending() if row["guild_id"] == guild_id]
-    raffle = [row for row in raffles.pending(limit=20) if row["guild_id"] == guild_id]
-    rewards = [row for row in services.pending_rewards(limit=20) if row["guild_id"] == guild_id]
-    actions = [row for row in services.pending_actions(limit=20) if row["guild_id"] == guild_id]
-    total = len(pending_orders) + len(support) + len(packs) + len(raffle) + len(rewards) + len(actions)
-    summary = (f"🔔 **SNR LIVE ACTIONS — {total} WAITING**\n"
-               f"Orders **{len(pending_orders)}** • Customer help **{len(support) + len(actions)}** • "
-               f"Rewards **{len(packs) + len(rewards)}** • Raffle **{len(raffle)}**")
-    await interaction.response.send_message(summary, ephemeral=True)
-    for row in actions[:10]:
-        await interaction.followup.send(embed=live_action_embed(row), view=LiveActionRequestView(row["id"]), ephemeral=True)
-    for row in rewards[:10]:
-        await interaction.followup.send(embed=custom_reward_embed(row), view=CustomRewardRequestView(row["id"]), ephemeral=True)
-    for row in support[:10]:
-        await interaction.followup.send(embed=support_request_embed(row), view=SupportRequestView(row["id"]), ephemeral=True)
-    for row in packs[:10]:
-        await interaction.followup.send(embed=pack_claim_embed(row), view=PackClaimView(row["id"]), ephemeral=True)
-    for row in raffle[:10]:
-        await interaction.followup.send(embed=raffle_request_embed(row), view=RaffleRequestView(row["id"]), ephemeral=True)
-    for row in pending_orders[:10]:
-        await interaction.followup.send(embed=delivery_order_embed(row), view=DeliveryOrderView(row["id"]), ephemeral=True)
+    await show_live_queue(interaction)
 
 
 class CustomerToolsView(discord.ui.View):
-    """Customer jobs grouped away from the everyday sale and delivery buttons."""
+    """Four customer routes; waiting requests themselves live in Live Queue."""
 
     @discord.ui.button(label="Check Customer", emoji="🔎", style=discord.ButtonStyle.primary)
     async def check_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -1626,22 +1599,26 @@ class CustomerToolsView(discord.ui.View):
         if await require_staff(interaction):
             await show_customer_picker(interaction, "redeem")
 
-    @discord.ui.button(label="Pack Requests", emoji="🎴", style=discord.ButtonStyle.secondary)
-    async def pack_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await require_staff(interaction):
-            await show_pack_requests(interaction)
-
-    @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.secondary)
-    async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await require_staff(interaction):
-            await show_account_requests(interaction)
-
     @discord.ui.button(label="Redeem Voucher", emoji="🎫", style=discord.ButtonStyle.success)
     async def redeem_voucher(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await interaction.response.send_modal(RedeemVoucherModal())
 
-    @discord.ui.button(label="Reset Password", emoji="🔑", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="Account & Security", emoji="🔐", style=discord.ButtonStyle.secondary)
+    async def account_security(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.edit_message(
+                content="🔐 **Account & Security**\nView account activity or reset a customer password.",
+                embed=None, view=AccountSecurityView())
+
+
+class AccountSecurityView(discord.ui.View):
+    @discord.ui.button(label="Account Activity", emoji="👤", style=discord.ButtonStyle.primary)
+    async def account_requests(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await show_account_requests(interaction)
+
+    @discord.ui.button(label="Reset Password", emoji="🔑", style=discord.ButtonStyle.danger)
     async def reset_password(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_owner(interaction):
             await show_customer_picker(interaction, "account_reset")
@@ -1717,6 +1694,17 @@ class ShiftToolsView(discord.ui.View):
             interaction,
             "🟢 **Clocked in for delivery**\n" + message if active else "🔴 No delivery staff are clocked in.",
             delete_after=5)
+
+
+class StaffCommandView(ShiftToolsView):
+    """One compact route to shifts, reports, promotions and owner controls."""
+
+    @discord.ui.button(label="Reports & Admin", emoji="🧰", style=discord.ButtonStyle.primary, row=1)
+    async def reports_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await interaction.response.edit_message(
+                content="🧰 **Reports, Promotions & Admin**\nChoose the area you need.",
+                embed=None, view=MoreToolsView())
 
 
 def review_leaderboard_embed(guild_id, days):
@@ -2147,42 +2135,194 @@ class MoreToolsView(discord.ui.View):
                 view=LeaderboardManagementView() if is_owner(interaction) else None)
 
 
+def live_queue_snapshot(guild_id):
+    """Build one prioritised list instead of posting a message for every waiting job."""
+    guild_key = str(guild_id)
+    pending_orders = [row for row in orders.pending() if row["guild_id"] == guild_key]
+    support = [row for row in orders.pending_support(limit=50) if row["guild_id"] == guild_key]
+    packs = [row for row in claims.pending() if row["guild_id"] == guild_key]
+    raffle = [row for row in raffles.pending(limit=50) if row["guild_id"] == guild_key]
+    rewards = [row for row in services.pending_rewards(limit=50) if row["guild_id"] == guild_key]
+    actions = [row for row in services.pending_actions(limit=50) if row["guild_id"] == guild_key]
+    accounts_waiting = [row for row in accounts.pending() if row["guild_id"] == guild_key]
+    fees = [row for row in orders.outstanding_fees(guild_id, 50) if row["guild_id"] == guild_key]
+    items = []
+
+    def add(kind, row, label, description, emoji, priority):
+        items.append({"kind": kind, "id": int(row["id"]), "row": row,
+                      "label": label[:100], "description": description[:100],
+                      "emoji": emoji, "priority": priority})
+
+    fulfilment_names = {"delivery": "Delivery", "pickup": "Collection", "instore": "In-store"}
+    for row in pending_orders:
+        health = orders.order_health(row)
+        fulfilment = row.get("fulfillment_type") or "delivery"
+        priority = 0 if int(health["level"]) >= 2 else 1 if int(health["level"]) == 1 else 2
+        add("order", row,
+            f"Order #{row['id']} • {fulfilment_names.get(fulfilment, 'Order')} • {row['customer_name']}",
+            f"{str(row['status']).replace('_', ' ').title()} • {health['label']} • {money(row['price'])}",
+            "🚗" if fulfilment == "delivery" else "🛍️" if fulfilment == "pickup" else "💳", priority)
+    for row in support:
+        add("support", row, f"Order problem #{row['order_id']} • {row['customer_name']}",
+            str(row["issue_type"]).replace("_", " ").title(), "🆘", 0)
+    for row in actions:
+        add("action", row, f"Customer help #{row['id']} • {row['customer_name']}",
+            ACTION_LABELS.get(row["action_type"], row["action_type"]), "💬", 1)
+    for row in packs:
+        add("pack", row, f"Pack request #{row['id']} • {row['customer_name']}",
+            f"Use {int(row.get('points') or 4)} loyalty points", "🎴", 3)
+    for row in rewards:
+        add("reward", row, f"Reward request #{row['id']} • {row['customer_name']}",
+            f"{row['reward_name']} • {int(row['points_cost'])} points", "🎁", 3)
+    for row in raffle:
+        add("raffle", row, f"Raffle payment #{row['id']} • {row['customer_name']}",
+            f"Numbers {row['numbers']} • {money(row['total_price'])}", "🎟️", 3)
+    for row in accounts_waiting:
+        add("account", row, f"Account request #{row['id']} • {row['customer_name']}",
+            str(row["request_type"]).replace("_", " ").title(), "👤", 2)
+    for row in fees:
+        add("fee", row, f"Journey fee #{row['id']} • {row['customer_name']}",
+            f"{money(row['amount'])} owed", "⚠️", 1)
+
+    items.sort(key=lambda item: (item["priority"], item["id"]))
+    return {
+        "items": items,
+        "counts": {
+            "orders": len(pending_orders), "help": len(support) + len(actions),
+            "rewards": len(packs) + len(rewards), "raffle": len(raffle),
+            "accounts": len(accounts_waiting), "fees": len(fees),
+        },
+        "total": len(items),
+        "overdue": sum(1 for row in pending_orders if int(orders.order_health(row)["level"]) >= 2),
+        "drivers": len(shifts.active(guild_id)),
+    }
+
+
+def live_queue_embed(snapshot):
+    counts = snapshot["counts"]
+    total = int(snapshot["total"])
+    embed = discord.Embed(
+        title=f"🔔 SNR LIVE QUEUE — {total} WAITING",
+        description=("Choose one job from the dropdown. Only that job opens, keeping Discord clean."
+                     if total else "✅ Everything is clear. There are no staff actions waiting."),
+        colour=discord.Colour.red() if snapshot["overdue"] else
+               discord.Colour.orange() if total else discord.Colour.green(),
+    )
+    embed.add_field(name="Orders", value=f"**{counts['orders']}**", inline=True)
+    embed.add_field(name="Customer Help", value=f"**{counts['help']}**", inline=True)
+    embed.add_field(name="Rewards", value=f"**{counts['rewards']}**", inline=True)
+    embed.add_field(name="Raffle", value=f"**{counts['raffle']}**", inline=True)
+    embed.add_field(name="Accounts / Fees", value=f"**{counts['accounts']} / {counts['fees']}**", inline=True)
+    embed.add_field(name="Drivers On", value=f"**{snapshot['drivers']}**", inline=True)
+    if snapshot["overdue"]:
+        embed.add_field(name="🚨 Needs attention", value=f"**{snapshot['overdue']} overdue order(s)** are placed first.", inline=False)
+    shown = min(total, 25)
+    embed.set_footer(text=(f"Showing the {shown} highest-priority job(s) • Refresh after completing a job"
+                           if total else "Use Refresh to check again"))
+    return embed
+
+
+class LiveQueueDetailView(discord.ui.View):
+    """Adds a route back to the queue without changing the existing action handlers."""
+
+    def __init__(self, action_view):
+        super().__init__(timeout=180)
+        for child in list(action_view.children):
+            action_view.remove_item(child)
+            self.add_item(child)
+        back = discord.ui.Button(label="Back to Live Queue", emoji="⬅️",
+                                 style=discord.ButtonStyle.secondary, row=4)
+
+        async def back_callback(interaction):
+            if not await require_staff(interaction):
+                return
+            snapshot = live_queue_snapshot(interaction.guild_id)
+            await interaction.response.edit_message(
+                content=None, embed=live_queue_embed(snapshot), view=LiveQueueView(snapshot))
+
+        back.callback = back_callback
+        self.add_item(back)
+
+
+class LiveQueueSelect(discord.ui.Select):
+    def __init__(self, items):
+        options = [discord.SelectOption(
+            label=item["label"], value=f"{item['kind']}:{item['id']}",
+            description=item["description"], emoji=item["emoji"])
+            for item in items[:25]]
+        super().__init__(placeholder="Choose the next job to handle", options=options)
+
+    async def callback(self, interaction):
+        if not await require_staff(interaction):
+            return
+        snapshot = live_queue_snapshot(interaction.guild_id)
+        chosen = self.values[0]
+        item = next((entry for entry in snapshot["items"] if
+                     f"{entry['kind']}:{entry['id']}" == chosen), None)
+        if not item:
+            await interaction.response.edit_message(
+                content="✅ That job has already been completed. The queue has been refreshed.",
+                embed=live_queue_embed(snapshot), view=LiveQueueView(snapshot))
+            return
+        row, kind = item["row"], item["kind"]
+        if kind == "order":
+            embed, view = delivery_order_embed(row), DeliveryOrderView(row["id"])
+        elif kind == "support":
+            embed, view = support_request_embed(row), SupportRequestView(row["id"])
+        elif kind == "pack":
+            embed, view = pack_claim_embed(row), PackClaimView(row["id"])
+        elif kind == "raffle":
+            embed, view = raffle_request_embed(row), RaffleRequestView(row["id"])
+        elif kind == "reward":
+            embed, view = custom_reward_embed(row), CustomRewardRequestView(row["id"])
+        elif kind == "action":
+            embed, view = live_action_embed(row), LiveActionRequestView(row["id"])
+        elif kind == "account":
+            embed, view = account_request_embed(row), AccountRequestView(row["id"])
+        else:
+            embed, view = delivery_fee_embed(row), DeliveryFeeView(row["id"])
+        await interaction.response.edit_message(
+            content=None, embed=embed, view=LiveQueueDetailView(view))
+
+
+class LiveQueueView(discord.ui.View):
+    def __init__(self, snapshot):
+        super().__init__(timeout=180)
+        if snapshot["items"]:
+            self.add_item(LiveQueueSelect(snapshot["items"]))
+        refresh = discord.ui.Button(label="Refresh", emoji="🔄", style=discord.ButtonStyle.primary, row=1)
+
+        async def refresh_callback(interaction):
+            if not await require_staff(interaction):
+                return
+            updated = live_queue_snapshot(interaction.guild_id)
+            await interaction.response.edit_message(
+                content=None, embed=live_queue_embed(updated), view=LiveQueueView(updated))
+
+        refresh.callback = refresh_callback
+        self.add_item(refresh)
+
+
+async def show_live_queue(interaction):
+    if not await require_staff(interaction):
+        return
+    snapshot = live_queue_snapshot(interaction.guild_id)
+    await send_ephemeral(interaction, embed=live_queue_embed(snapshot), view=LiveQueueView(snapshot))
+
+
 class StaffPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-
-    @discord.ui.button(label="Clock In", emoji="🟢", style=discord.ButtonStyle.success,
-                       custom_id="snr:home_clock_in", row=1)
-    async def home_clock_in(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await require_staff(interaction):
-            return
-        changed = shifts.clock_in(interaction.user.id, str(interaction.user), interaction.guild_id)
-        await send_ephemeral(interaction, "🟢 You are clocked in for delivery." if changed else
-                             "ℹ️ You are already clocked in.", delete_after=5)
-
-    @discord.ui.button(label="Clock Out", emoji="🔴", style=discord.ButtonStyle.danger,
-                       custom_id="snr:home_clock_out", row=1)
-    async def home_clock_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await require_staff(interaction):
-            return
-        changed = shifts.clock_out(interaction.user.id)
-        remaining = len(shifts.active(interaction.guild_id))
-        await send_ephemeral(interaction, f"🔴 Clocked out. {remaining} staff available for delivery." if changed else
-                             "ℹ️ You were not clocked in.", delete_after=5)
-
-    @discord.ui.button(label="Live Actions", emoji="🔔", style=discord.ButtonStyle.primary,
-                       custom_id="snr:live_actions", row=1)
-    async def live_actions(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_live_actions(interaction)
 
     @discord.ui.button(label="New Sale", emoji="💷", style=discord.ButtonStyle.success, custom_id="snr:record_sale")
     async def record_sale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await show_customer_picker(interaction, "sale")
 
-    @discord.ui.button(label="Deliveries", emoji="🚗", style=discord.ButtonStyle.success, custom_id="snr:delivery_orders")
-    async def delivery_orders(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_delivery_orders(interaction)
+    @discord.ui.button(label="Live Queue", emoji="🔔", style=discord.ButtonStyle.primary,
+                       custom_id="snr:live_actions")
+    async def live_actions(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_live_queue(interaction)
 
     @discord.ui.button(label="Customers", emoji="👥", style=discord.ButtonStyle.primary, custom_id="snr:customers")
     async def customers(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -2191,19 +2331,48 @@ class StaffPanel(discord.ui.View):
                 "👥 **Customer Tools**\nCheck an account, hand over a reward, or view requests.",
                 view=CustomerToolsView(), ephemeral=True)
 
-    @discord.ui.button(label="Staff Shift", emoji="🕒", style=discord.ButtonStyle.primary, custom_id="snr:staff_shift")
-    async def staff_shift(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    @discord.ui.button(label="Staff & Tools", emoji="🧰", style=discord.ButtonStyle.secondary,
+                       custom_id="snr:staff_tools")
+    async def staff_tools(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await interaction.response.send_message(
-                "🕒 **Delivery Shift**\nClock in to open website orders. Clock off when you finish.",
-                view=ShiftToolsView(), ephemeral=True)
+                "🧰 **Staff & Tools**\nClock in or open reports, promotions and owner controls.",
+                view=StaffCommandView(), ephemeral=True)
+
+
+class LegacyStaffPanel(discord.ui.View):
+    """Keep buttons on the previous posted panel working until the owner reposts it."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Clock In", custom_id="snr:home_clock_in")
+    async def clock_in(self, interaction, button):
+        if await require_staff(interaction):
+            changed = shifts.clock_in(interaction.user.id, str(interaction.user), interaction.guild_id)
+            await send_ephemeral(interaction, "🟢 You are clocked in." if changed else "ℹ️ You are already clocked in.", delete_after=5)
+
+    @discord.ui.button(label="Clock Out", custom_id="snr:home_clock_out")
+    async def clock_out(self, interaction, button):
+        if await require_staff(interaction):
+            changed = shifts.clock_out(interaction.user.id)
+            await send_ephemeral(interaction, "🔴 You are clocked off." if changed else "ℹ️ You were not clocked in.", delete_after=5)
+
+    @discord.ui.button(label="Deliveries", custom_id="snr:delivery_orders")
+    async def deliveries(self, interaction, button):
+        await show_live_queue(interaction)
+
+    @discord.ui.button(label="Staff Shift", custom_id="snr:staff_shift")
+    async def staff_shift(self, interaction, button):
+        if await require_staff(interaction):
+            await interaction.response.send_message(
+                "🧰 **Staff & Tools**", view=StaffCommandView(), ephemeral=True)
 
     @discord.ui.button(label="More Tools", emoji="🧰", style=discord.ButtonStyle.secondary, custom_id="snr:more_tools")
     async def more_tools(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await interaction.response.send_message(
-                "🧰 **More Tools**\nRaffles, finance, Golden Tickets, Birdy posts and owner controls.",
-                view=MoreToolsView(), ephemeral=True)
+                "🧰 **Staff & Tools**", view=StaffCommandView(), ephemeral=True)
 
 
 def pack_claim_embed(row):
@@ -3031,6 +3200,7 @@ async def on_ready() -> None:
 @bot.event
 async def setup_hook() -> None:
     bot.add_view(StaffPanel())
+    bot.add_view(LegacyStaffPanel())
     for row in claims.pending():
         bot.add_view(PackClaimView(row['id']))
     for row in orders.pending():
@@ -3168,7 +3338,7 @@ async def claims_pending(interaction: discord.Interaction):
 
 @bot.tree.command(name='snrhub_orders_pending', description='Review website delivery orders awaiting payment.')
 async def orders_pending(interaction: discord.Interaction):
-    await show_delivery_orders(interaction)
+    await show_live_queue(interaction)
 
 
 @bot.tree.command(name='snrhub_raffle', description='Open the integrated SNR raffle centre.')
