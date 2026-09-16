@@ -617,6 +617,10 @@ class SNRDatabase:
             "loyalty_after": int(results[-1]["loyalty_after"]),
             "base_loyalty_awarded": base_points,
             "membership_loyalty_awarded": total_points - base_points,
+            # Aggregate City Run reveal credits across every item in the batch;
+            # the last row alone would under-report 2×/3× Share Box purchases.
+            "city_run_stickers_awarded": sum(int(result.get("city_run_stickers_awarded", 0)) for result in results),
+            "city_run_reveals_awarded": sum(int(result.get("city_run_reveals_awarded", 0)) for result in results),
             "tickets_awarded": sum(int(result["tickets_awarded"]) for result in results),
             "jackpot_won": bool(winners),
             "jackpot_reward_codes": [result["jackpot_reward_code"] for result in winners],

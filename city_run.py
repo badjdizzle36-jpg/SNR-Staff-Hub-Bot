@@ -46,6 +46,10 @@ BUSINESSES = tuple(
 )
 
 RARITY_WEIGHTS = {"common": 1000, "rare": 45, "ultra_rare": 1}
+# Once a customer owns a business, it remains in the draw at a higher weight.
+# This keeps duplicates meaningful and makes a full 38-business collection a
+# genuine long-term chase rather than something completed in a few reveals.
+DUPLICATE_WEIGHT_MULTIPLIER = 5
 REWARD_KEYS = tuple(COLLECTIONS) + ("grand",)
 APPROVED_REWARDS = {
     "food": ("Free Quick Fix", "Complete Food & Cafes and claim one free SNR Quick Fix.", "food", None, 20),
@@ -244,13 +248,20 @@ def ensure_city_run_schema(conn, now: str) -> None:
         )
 
 
-def _weighted_choice(rows) -> Any:
-    total = sum(RARITY_WEIGHTS.get(row["rarity"], 0) for row in rows)
+def _weighted_choice(rows, owned_keys: set[str] | None = None) -> Any:
+    owned_keys = owned_keys or set()
+    total = sum(
+        RARITY_WEIGHTS.get(row["rarity"], 0)
+        * (DUPLICATE_WEIGHT_MULTIPLIER if row["business_key"] in owned_keys else 1)
+        for row in rows
+    )
     if total <= 0:
         raise RuntimeError("City Run cannot issue packs until its collectible rarities are configured.")
     pick = secrets.randbelow(total)
     for row in rows:
         weight = RARITY_WEIGHTS.get(row["rarity"], 0)
+        if row["business_key"] in owned_keys:
+            weight *= DUPLICATE_WEIGHT_MULTIPLIER
         if pick < weight:
             return row
         pick -= weight
@@ -606,7 +617,13 @@ class CityRunStore:
                    ORDER BY i.business_key""",
                 (campaign["id"],),
             ).fetchall()
-            chosen = _weighted_choice(rows)
+            owned_keys = {
+                row["business_key"] for row in conn.execute(
+                    "SELECT business_key FROM city_run_customer_cards WHERE campaign_id=? AND customer_key=?",
+                    (campaign["id"], key),
+                ).fetchall()
+            }
+            chosen = _weighted_choice(rows, owned_keys)
             previous = conn.execute(
                 """SELECT copies_owned FROM city_run_customer_cards
                    WHERE campaign_id=? AND customer_key=? AND business_key=?""",

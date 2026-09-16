@@ -384,17 +384,22 @@ def sale_embed(result: dict) -> discord.Embed:
         inline=True,
     )
     awarded_points = int(result.get("loyalty_awarded", deal.loyalty_points))
+    city_run_stickers = int(result.get("city_run_stickers_awarded", result.get("city_run_reveals_awarded", 0)))
     awarded_tickets = int(result.get("tickets_awarded", deal.golden_tickets))
     base_points = int(result.get("base_loyalty_awarded", deal.loyalty_points))
     membership_points = int(result.get("membership_loyalty_awarded", awarded_points - base_points))
     loyalty_value = (
+        (f"🏁 City Run stickers: **+{city_run_stickers}** reveal credit(s)\n"
+         f"Share Box earns 2 per item • **{city_run_stickers}** added for this sale")
+        if city_run_stickers
+        else (
         (f"**{deal.loyalty_points} per deal × {quantity} = +{base_points} base points**\n"
          + (f"Membership bonus: +{membership_points}\n" if membership_points else "")
          + f"Added now: **+{awarded_points}** → **{customer['loyalty_points']} total**")
         if awarded_points
-        else f"No point on this deal • **{customer['loyalty_points']} total**"
+        else f"No point on this deal • **{customer['loyalty_points']} total**")
     )
-    embed.add_field(name="Loyalty", value=loyalty_value, inline=True)
+    embed.add_field(name="Loyalty / City Run", value=loyalty_value, inline=True)
     embed.add_field(name="Golden Tickets", value=f"+{awarded_tickets}", inline=True)
     membership = customer["membership"]
     embed.add_field(name="Membership", value=f"{membership['emoji']} **{membership['name']}**", inline=True)
