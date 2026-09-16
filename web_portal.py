@@ -171,6 +171,8 @@ body{background:#030305;color:#f6f3e9}.customer-shell .wrap{width:min(941px,100%
 @supports not (aspect-ratio:1 / 1){.customer-shell .unified-card{height:277px}.customer-shell .member-actions button{height:210px}.tier-tile svg{height:auto}}
 @media(max-width:560px){.customer-shell .quick-welcome{grid-template-columns:minmax(0,1fr) auto;gap:8px;min-height:48px}.customer-shell .quick-welcome .name{font-size:clamp(16px,5vw,23px)}.customer-shell .quick-welcome .membership-link{max-width:120px;padding:7px 8px;font-size:10px}.customer-shell .unified-card{width:100%;max-width:360px;min-height:218px;padding:15px;gap:5px}.customer-shell .card-chip{width:40px;height:30px}.customer-shell .card-balance strong{font-size:35px}.card-number{font-size:10px;letter-spacing:.08em}.customer-shell .store-card-bottom{grid-template-columns:minmax(0,1fr) minmax(95px,1fr) auto;gap:6px}.customer-shell .card-holder span{font-size:9px}.customer-shell .card-reward{padding:6px}.customer-shell .card-reward strong{font-size:8px}.card-network{font-size:12px}.card-network small{font-size:5px}.customer-shell .member-actions button{height:auto}.tier-tile svg{border-radius:14px}}
 @media(max-width:360px){.customer-shell .quick-welcome .membership-link{max-width:100px}.customer-shell .unified-card{min-height:205px;padding:13px}.customer-shell .card-balance strong{font-size:31px}.card-number{font-size:9px}.customer-shell .card-reward{display:none}.customer-shell .store-card-bottom{grid-template-columns:minmax(0,1fr) auto}}
+.monthly-leaderboard{margin:12px 0;padding:0;overflow:hidden;border:1px solid #74592a;border-radius:16px;background:radial-gradient(circle at 88% 0,#d99d2725,transparent 35%),linear-gradient(145deg,#15100a,#07080b 55%);box-shadow:0 10px 28px #0008}.monthly-leaderboard header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;border-bottom:1px solid #6b542e;background:linear-gradient(90deg,#2a1b08,#0b0b0e)}.monthly-leaderboard header span,.monthly-leaderboard header small,.monthly-leaderboard header strong{display:block}.monthly-leaderboard header small{color:#d7b65e;font-size:8px;letter-spacing:.16em}.monthly-leaderboard header strong{margin-top:2px;color:#fff4d1;font-size:20px}.monthly-leaderboard header>b{flex:none;padding:5px 8px;border:1px solid #705c32;border-radius:99px;color:#eed17a;font-size:10px}.leader-prize{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 15px;background:#c9982118;color:#e8d9b0;font-size:11px}.leader-prize strong{flex:none;color:#ffd969}.monthly-leaderboard ol{list-style:none;margin:0;padding:4px 15px}.leader-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #ffffff10}.leader-row:last-child{border-bottom:0}.leader-row>span:nth-child(2),.leader-row strong,.leader-row small{display:block;min-width:0}.leader-row strong{overflow:hidden;color:#f5efdf;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.leader-row small{color:#928d83;font-size:9px}.leader-row>b{color:#e9ca70;font-size:13px;font-variant-numeric:tabular-nums}.leader-rank{text-align:center;color:#d8b75e;font-weight:900}.leader-first{margin:3px -7px;padding:9px 7px;border:1px solid #9b762f;border-radius:10px;background:linear-gradient(90deg,#cb92121a,transparent)}.leader-empty{padding:20px;text-align:center;color:#d7c8a4}.leader-own{margin:5px 12px 10px;padding:9px 11px;border:1px solid #2b8773;border-radius:10px;background:#0b2a23;color:#cffff0;font-size:11px}.leader-rules{display:block;padding:0 15px 12px;color:#746f66;font-size:8px;text-align:center}.leader-rules:before{content:'Leaderboard: '}
+@media(max-width:560px){.monthly-leaderboard header{padding:12px}.monthly-leaderboard header strong{font-size:17px}.leader-prize{align-items:flex-start;padding:9px 12px;font-size:10px}.monthly-leaderboard ol{padding-inline:12px}.leader-row{padding:8px 0}.leader-own{margin-inline:9px}.leader-rules{padding-inline:10px}}
 """
 
 
@@ -555,6 +557,23 @@ def membership_gallery(current: str) -> str:
     return '<section class="membership-gallery"><h2>All membership cards</h2><p>Swipe to compare all six levels. Bonuses are added to each meal deal’s normal rewards. Click &amp; Collect is free at every level.</p><div class="tier-cards">' + ''.join(tiles) + '</div></section>'
 
 
+def leaderboard_section(board: dict) -> str:
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    rows = "".join(
+        f'''<li class="leader-row {'leader-first' if row['rank'] == 1 else ''}"><span class="leader-rank">{medals.get(row['rank'], '#' + str(row['rank']))}</span><span><strong>{html.escape(row['display_name'])}</strong><small>{int(row['purchases'])} purchase(s)</small></span><b>£{int(row['spend']):,}</b></li>'''
+        for row in board["rows"][:5]
+    ) or '<li class="leader-empty">Make the first purchase this month and take the crown!</li>'
+    own = board.get("own")
+    if own and int(own["rank"]) == 1:
+        chase = "👑 You are leading! Keep your crown until the month ends."
+    elif own and int(own["gap_to_next"]) > 0:
+        chase = (f'''You are <strong>#{int(own["rank"])}</strong> with <strong>£{int(own["spend"]):,}</strong>. '''
+                 f'''Another <strong>£{int(own["gap_to_next"]):,}</strong> takes the next position.''')
+    else:
+        chase = "Your next completed purchase starts your climb."
+    return f'''<section class="monthly-leaderboard"><header><span><small>MONTHLY CUSTOMER CHASE</small><strong>🏆 SNR Champions</strong></span><b>{int(board['days_left'])} days left</b></header><div class="leader-prize"><strong>🎁 Monthly Giveaway</strong><span>The #1 spender at month end becomes SNR Champion and wins the monthly giveaway.</span></div><ol>{rows}</ol><p class="leader-own">{chase}</p><small class="leader-rules">Confirmed purchases only • cancelled and voided sales do not count • resets every calendar month</small></section>'''
+
+
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
                   accounts: Accounts, raffles: RaffleStore, services: CustomerServices,
                   claim_token: str, order_token: str, security_token: str, raffle_token: str,
@@ -569,6 +588,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
             if fee else '')
     membership = customer["membership"]
     card_suffix = f'{int(hashlib.sha256(customer["customer_key"].encode()).hexdigest()[-8:], 16) % 10000:04d}'
+    leaderboard = leaderboard_section(orders.db.monthly_leaderboard(customer["display_name"], limit=5))
     next_text = (f'''<p class="muted">Complete {membership["remaining"]} more purchase(s) to unlock {html.escape(membership["next_level"])}.</p>'''
                  if membership["next_level"] else '<p class="muted">You have reached your current highest membership level.</p>')
     delivery_benefit = ("FREE delivery" if int(membership["delivery_fee"]) == 0
@@ -681,7 +701,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
         <div class="member-actions"><button type="button" data-tab-target="order" data-order-mode="pickup"><span>🛍️ Click &amp; Collect</span><small>Order ahead and collect</small></button><button type="button" data-tab-target="order" data-order-mode="delivery" {'disabled aria-disabled="true"' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else ''}><span>🛵 Delivery</span><small>{'Currently unavailable' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else 'SNR Buns to your door'}</small></button></div>
         <button class="neon-reward-banner" type="button" data-tab-target="rewards"><span aria-hidden="true">♔</span><strong>{points // 4 if points >= 4 else points}<small>{'PACK(S) AVAILABLE' if points >= 4 else 'OF 4 POINTS'}</small></strong><span>{'REWARD READY' if points >= 4 else 'EARN YOUR NEXT REWARD'}<small>{'Choose your reward or request a pack' if points >= 4 else str(4 - points) + ' more points to your next pack'}</small></span><b>›</b></button>
         <details class="card-tools"><summary>Request a pack · Cards &amp; benefits</summary>{request_pack}<button type="button" class="membership-link" data-tab-target="visits">View cards &amp; benefits ↗</button></details>
-        <div class="quick-actions"><button type="button" class="quick-action" data-tab-target="raffle"><span>♧</span><strong>Raffle ›</strong></button><button type="button" class="quick-action" data-tab-target="order"><span>▤</span><strong>My orders ›</strong></button><button type="button" class="quick-action" data-tab-target="visits"><span>▥</span><strong>Visits ›</strong></button></div>
+        <div class="quick-actions"><button type="button" class="quick-action" data-tab-target="raffle"><span>♧</span><strong>Raffle ›</strong></button><button type="button" class="quick-action" data-tab-target="order"><span>▤</span><strong>My orders ›</strong></button><button type="button" class="quick-action" data-tab-target="visits"><span>▥</span><strong>Visits ›</strong></button></div>{leaderboard}
         <div class="order-sync-anchor" hidden>{quick_order}</div>{help_centre}
       </div>
       <div class="app-view" data-app-view="order" role="tabpanel">{delivery_section(customer, orders, shifts, services, order_token)}</div>

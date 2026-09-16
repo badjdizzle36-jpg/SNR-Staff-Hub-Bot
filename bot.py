@@ -288,6 +288,35 @@ def customer_embed(customer: dict) -> discord.Embed:
     return embed
 
 
+def customer_leaderboard_embed() -> discord.Embed:
+    board = db.monthly_leaderboard(limit=10)
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    lines = []
+    for row in board["rows"]:
+        marker = medals.get(row["rank"], f"**#{row['rank']}**")
+        lines.append(
+            f"{marker} **{discord.utils.escape_markdown(row['display_name'])}** — "
+            f"**{money(row['spend'])}** • {row['purchases']} purchase(s)"
+        )
+    embed = discord.Embed(
+        title="🏆 SNR CHAMPIONS — MONTHLY CUSTOMER CHASE",
+        description=(
+            f"**{board['period']} • {board['days_left']} days left**\n"
+            "Every confirmed purchase moves customers up the table. The **#1 spender at month end** "
+            "becomes SNR Champion and wins the monthly giveaway.\n\n"
+            + ("\n".join(lines) if lines else "No qualifying purchases yet — the first customer takes the crown!")
+        ),
+        colour=discord.Colour.gold(),
+    )
+    embed.add_field(
+        name="🎁 Monthly Giveaway",
+        value="The final #1 customer qualifies for the monthly prize. Owner/staff confirm the winner and prize handover.",
+        inline=False,
+    )
+    embed.set_footer(text="Confirmed non-voided sales only • Automatically resets each calendar month")
+    return embed
+
+
 def sale_embed(result: dict) -> discord.Embed:
     deal = result["deal"]
     customer = result["customer"]
@@ -1106,6 +1135,7 @@ class OwnerAdminView(discord.ui.View):
         active = shifts.active(interaction.guild_id)
         fees = orders.outstanding_fees(interaction.guild_id)
         stats = db.report(today=True)
+        monthly = db.monthly_leaderboard(limit=1)
         active_codes = orders.discount_codes(active_only=True)
         announcement = orders.customer_announcement()
         embed = discord.Embed(title="👑 SNR OWNER DASHBOARD", colour=discord.Colour.gold())
@@ -1115,6 +1145,13 @@ class OwnerAdminView(discord.ui.View):
         embed.add_field(name="Delivery Staff", value=f"**{len(active)} clocked in**", inline=True)
         embed.add_field(name="Fees Owed", value=f"**{len(fees)} • {money(sum(row['amount'] for row in fees))}**", inline=True)
         embed.add_field(name="Discount Codes", value=f"**{len(active_codes)} active**", inline=True)
+        leader = monthly["leader"]
+        embed.add_field(
+            name="🏆 Monthly Customer Chase",
+            value=(f"**#{leader['rank']} {discord.utils.escape_markdown(leader['display_name'])}** — "
+                   f"{money(leader['spend'])}" if leader else "No qualifying purchases yet"),
+            inline=False,
+        )
         banner_text = (f"ON — {announcement['style'].title()}: {announcement['message']}"
                        if announcement['active'] else "OFF")
         embed.add_field(name="Customer Banner", value=f"**{discord.utils.escape_markdown(banner_text[:250])}**", inline=False)
@@ -2038,6 +2075,11 @@ class MoreToolsView(discord.ui.View):
     async def raffle_centre(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
             await send_ephemeral(interaction, embed=raffle_embed(raffles.current()), view=RaffleCentreView())
+
+    @discord.ui.button(label="Customer Leaderboard", emoji="🏆", style=discord.ButtonStyle.primary, row=1)
+    async def customer_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await send_ephemeral(interaction, embed=customer_leaderboard_embed())
 
 
 class StaffPanel(discord.ui.View):

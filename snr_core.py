@@ -728,6 +728,64 @@ class SNRDatabase:
     def latest_jackpot_winner(self) -> str | None:
         return self.jackpot_status().get("last_winner")
 
+    def monthly_leaderboard(
+        self, customer_name: str | None = None, limit: int = 10,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Rank real, non-voided sales for the current London calendar month."""
+        london = ZoneInfo("Europe/London")
+        current = now or datetime.now(london)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=london)
+        else:
+            current = current.astimezone(london)
+        month_start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if month_start.month == 12:
+            next_month = month_start.replace(year=month_start.year + 1, month=1)
+        else:
+            next_month = month_start.replace(month=month_start.month + 1)
+        start_utc = month_start.astimezone(timezone.utc).isoformat(timespec="seconds")
+        end_utc = next_month.astimezone(timezone.utc).isoformat(timespec="seconds")
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT s.customer_key, c.display_name, COUNT(*) AS purchases,
+                          COALESCE(SUM(s.price),0) AS spend
+                   FROM sales s JOIN customers c ON c.customer_key=s.customer_key
+                   WHERE s.voided=0 AND s.created_at>=? AND s.created_at<?
+                   GROUP BY s.customer_key, c.display_name
+                   ORDER BY spend DESC, purchases DESC, c.display_name COLLATE NOCASE""",
+                (start_utc, end_utc),
+            ).fetchall()
+        ranked = []
+        for position, row in enumerate(rows, 1):
+            item = dict(row)
+            item["rank"] = position
+            item["spend"] = int(item["spend"])
+            item["purchases"] = int(item["purchases"])
+            ranked.append(item)
+        own = None
+        if customer_name:
+            wanted = normalize_name(customer_name)
+            own = next((dict(row) for row in ranked if row["customer_key"] == wanted), None)
+            if own is None:
+                own = {"customer_key": wanted, "display_name": customer_name, "rank": len(ranked) + 1,
+                       "spend": 0, "purchases": 0}
+            if own["rank"] == 1:
+                own["gap_to_next"] = 0
+            elif ranked:
+                target = ranked[int(own["rank"]) - 2] if int(own["rank"]) <= len(ranked) else ranked[-1]
+                own["gap_to_next"] = max(0, int(target["spend"]) - int(own["spend"]) + 1)
+            else:
+                own["gap_to_next"] = 0
+        return {
+            "period": current.strftime("%B %Y"),
+            "days_left": max(0, (next_month.date() - current.date()).days),
+            "rows": ranked[:max(1, min(int(limit), 25))],
+            "own": own,
+            "total_customers": len(ranked),
+            "leader": ranked[0] if ranked else None,
+        }
+
     def report(self, days: int | None = None, today: bool = False) -> dict[str, Any]:
         where = "WHERE voided = 0"
         params: tuple[Any, ...] = ()

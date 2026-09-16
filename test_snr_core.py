@@ -48,6 +48,20 @@ class TestSNRCore(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.record_sale_quantity("Cody Ortega", "share_box", 0, "1", "Staff")
 
+    def test_monthly_leaderboard_ranks_confirmed_spend_and_ignores_voids(self):
+        self.db.record_sale("Leader", "share_box", "1", "Staff")
+        self.db.record_sale_quantity("Chaser", "mega_deal", 2, "1", "Staff")
+        self.db.record_sale("Starter", "quick_fix", "1", "Staff")
+        voided = self.db.record_sale("Voided Customer", "mega_deal", "1", "Staff", price_override=5000)
+        with self.db.connect() as conn:
+            conn.execute("UPDATE sales SET voided=1 WHERE transaction_id=?", (voided["transaction_id"],))
+        board = self.db.monthly_leaderboard("Starter", limit=10)
+        self.assertEqual([row["display_name"] for row in board["rows"]], ["Leader", "Chaser", "Starter"])
+        self.assertEqual(board["leader"]["spend"], 1200)
+        self.assertEqual(board["own"]["rank"], 3)
+        self.assertEqual(board["own"]["gap_to_next"], 851)
+        self.assertNotIn("Voided Customer", [row["display_name"] for row in board["rows"]])
+
     def test_simultaneous_counter_sales_cannot_lose_loyalty_points(self):
         def record(index):
             return self.db.record_sale(

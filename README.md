@@ -4,6 +4,8 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **SNR Champions monthly leaderboard:** the website shows a fun top-five customer chase, the logged-in customer's position, exact spend needed to overtake the next place, and days remaining. Staff can open the top ten from **More Tools → Customer Leaderboard**, while the owner dashboard shows the current leader. Rankings use confirmed, non-voided spend and reset automatically each London calendar month. The final #1 customer qualifies for the monthly giveaway, with staff confirming the prize handover.
+
 - **Permanent Discord records:** owner-triggered bot replies no longer receive timed deletion. Pack requests remain in the pack-request channel after handover or cancellation with their final status, new-account notices remain visible, and resolved delivery-fee records remain available for audit. Completed orders still move from Active Deliveries into Completed Deliveries so the active queue stays accurate.
 
 - **Premium member cards and phone fix:** the live card and six-level gallery now look like restrained luxury payment cards, with metallic EMV chips, contactless marks, masked member numbers, cardholder details and an SNR Elite signature. The customer header no longer collapses long names into a vertical column. Responsive sizing and older-browser fallbacks cover iOS Safari, ordinary desktop/mobile browsers and embedded in-game phone browsers.
