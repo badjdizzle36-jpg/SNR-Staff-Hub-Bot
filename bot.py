@@ -182,6 +182,9 @@ class ChannelSetupView(discord.ui.View):
 async def send_ephemeral(interaction: discord.Interaction, content=None, *, embed=None, view=None,
                          delete_after=None) -> None:
     """Replace a temporary menu, or send a fresh private response."""
+    # Owner actions are an audit trail. Never schedule their bot response for deletion.
+    if delete_after and is_owner(interaction):
+        delete_after = None
     if interaction.response.is_done():
         await interaction.followup.send(
             content=content, embed=embed, view=view, ephemeral=True, delete_after=delete_after)
@@ -2139,9 +2142,7 @@ class PackClaimView(discord.ui.View):
                         channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
                         canonical = channel.get_partial_message(int(row['message_id']))
                         await canonical.edit(embed=pack_claim_embed(row), view=None)
-                        await canonical.delete(delay=120)
-                    else:
-                        await interaction.message.delete(delay=120)
+                    # Pack requests are permanent audit records. The resolved status stays visible.
                 except discord.HTTPException:
                     logging.exception('Claim resolved but alert refresh failed: %s', self.claim_id)
             button.callback = callback
@@ -2344,8 +2345,8 @@ class DeliveryFeeView(discord.ui.View):
                     ephemeral=True,
                 )
                 try:
+                    # Keep resolved fee records visible for owner and staff review.
                     await interaction.message.edit(embed=delivery_fee_embed(fee), view=None)
-                    await interaction.message.delete(delay=12 * 3600)
                 except discord.HTTPException:
                     logging.exception('Fee resolved but Discord message refresh failed: %s', self.fee_id)
 
@@ -2683,9 +2684,7 @@ class AccountRequestView(discord.ui.View):
                 channel = bot.get_channel(int(row['channel_id'])) or await bot.fetch_channel(int(row['channel_id']))
                 canonical = channel.get_partial_message(int(row['message_id']))
                 await canonical.edit(embed=account_request_embed(row), view=None)
-                await canonical.delete(delay=120)
-            else:
-                await interaction.message.delete(delay=120)
+            # Account requests remain as a permanent audit record after resolution.
         except discord.HTTPException:
             logging.exception('Account request resolved but message refresh failed: %s', self.request_id)
 
@@ -2828,7 +2827,7 @@ async def notify_account_requests():
             mention, allowed = staff_ping(channel)
             message = await channel.send(content=mention, embed=account_created_embed(row), allowed_mentions=allowed)
             accounts.request_notified(row['id'], message.id)
-            await message.delete(delay=5 * 60)
+            # New-account notifications are important and remain in their configured channel.
         except Exception:
             logging.exception('Account-created notification failed; will retry: %s', row['id'])
     for row in accounts.pending(unsent=True)[:20]:

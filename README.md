@@ -4,6 +4,8 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Permanent Discord records:** owner-triggered bot replies no longer receive timed deletion. Pack requests remain in the pack-request channel after handover or cancellation with their final status, new-account notices remain visible, and resolved delivery-fee records remain available for audit. Completed orders still move from Active Deliveries into Completed Deliveries so the active queue stays accurate.
+
 - **Premium member cards and phone fix:** the live card and six-level gallery now look like restrained luxury payment cards, with metallic EMV chips, contactless marks, masked member numbers, cardholder details and an SNR Elite signature. The customer header no longer collapses long names into a vertical column. Responsive sizing and older-browser fallbacks cover iOS Safari, ordinary desktop/mobile browsers and embedded in-game phone browsers.
 
 - **Compact homepage and live progress:** fixes the older CSS rule that hid the delivery illustration. Smaller credit cards, tighter shortcuts and less glow; membership statistics and Golden Ticket information live under More. An active order gets a sticky progress bar above the banner on every customer tab, with delivery or pickup stages and automatic status refresh. The empty current-order panel is removed from Home.
