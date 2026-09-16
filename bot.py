@@ -427,6 +427,49 @@ def sale_embed(result: dict) -> discord.Embed:
     return embed
 
 
+async def announce_city_run_milestones(order_row: dict, before: dict | None, after: dict | None) -> None:
+    """Announce newly completed City Run sets once, in the configured staff channel."""
+    if not after or not after.get("campaign") or after["campaign"].get("status") != "active":
+        return
+    before_routes = {r.get("key"): r for r in (before or {}).get("collections", [])}
+    newly_complete = [
+        route for route in after.get("collections", [])
+        if route.get("complete") and not before_routes.get(route.get("key"), {}).get("complete")
+    ]
+    before_grand = bool((before or {}).get("grand_complete"))
+    grand_now = bool(after.get("grand_complete")) and not before_grand
+    if not newly_complete and not grand_now:
+        return
+    channel = await routed_alert_channel(order_row, "city_run_claims")
+    if not channel:
+        logging.warning("City Run milestone channel is not configured for guild %s", order_row.get("guild_id"))
+        return
+    for route in newly_complete:
+        reward = route.get("reward") or {}
+        embed = discord.Embed(
+            title="🏁 CITY RUN SET COMPLETED",
+            description=(f"**{route.get('name', 'Collection')}** has been completed by "
+                         f"**{order_row.get('customer_name', 'a customer')}**."),
+            colour=discord.Colour.gold(),
+        )
+        if reward.get("reward_name"):
+            embed.add_field(name="Unlocked reward", value=str(reward["reward_name"]), inline=False)
+        embed.set_footer(text="Customer can now request this reward from the City Run board.")
+        await channel.send(content=staff_ping(channel)[0], embed=embed,
+                           allowed_mentions=staff_ping(channel)[1])
+    if grand_now:
+        await channel.send(
+            content=staff_ping(channel)[0],
+            embed=discord.Embed(
+                title="👑 CITY RUN GRAND BOARD COMPLETED",
+                description=(f"**{order_row.get('customer_name', 'A customer')}** collected all 38 businesses "
+                             "and unlocked the grand-prize vehicle claim."),
+                colour=discord.Colour.purple(),
+            ),
+            allowed_mentions=staff_ping(channel)[1],
+        )
+
+
 def finance_embed(stats: dict, title: str) -> discord.Embed:
     embed = discord.Embed(title=title, colour=discord.Colour.green())
     embed.add_field(name="Sales", value=f"**{stats['sales']}**", inline=True)
@@ -755,12 +798,14 @@ async def record_express_sale(interaction: discord.Interaction, customer_name: s
     """Record one staff action, show its receipt for ten seconds, and never double-submit."""
     await interaction.response.defer(ephemeral=True)
     await interaction.edit_original_response(content="⏳ Recording sale…", embed=None, view=None)
+    before_board = city_run.customer_board(customer_name)
     try:
         async with db_lock:
             result = db.record_sale_quantity(
                 customer_name, deal_key, quantity,
                 str(interaction.user.id), str(interaction.user))
         receipt = sale_embed(result)
+        after_board = city_run.customer_board(customer_name)
     except ValueError as exc:
         await interaction.edit_original_response(
             content=f"❌ Could not record this sale: {exc}", embed=None, view=None)
@@ -773,6 +818,9 @@ async def record_express_sale(interaction: discord.Interaction, customer_name: s
             embed=None, view=None)
         return
     await interaction.edit_original_response(content=None, embed=receipt, view=None)
+    await announce_city_run_milestones(
+        {"guild_id": str(interaction.guild_id), "channel_id": str(interaction.channel_id),
+         "customer_name": customer_name}, before_board, after_board)
     asyncio.create_task(delete_response_later(interaction, 10))
 
 
@@ -1125,6 +1173,7 @@ class UndoSaleConfirmView(discord.ui.View):
         if not await require_owner(interaction):
             return
         await interaction.response.defer(ephemeral=True)
+        before_board = city_run.customer_board(row['customer_key']) if target == 'paid' else None
         try:
             async with db_lock:
                 result = db.undo_counter_sale_batch(
@@ -2930,6 +2979,7 @@ class DeliveryOrderView(discord.ui.View):
                     row, sales = orders.resolve(
                         self.order_id, target, str(interaction.user.id), str(interaction.user),
                         allow_override=can_override_driver)
+                    after_board = city_run.customer_board(row['customer_key'])
         except ValueError as exc:
             await interaction.followup.send(f'❌ {exc}', ephemeral=True)
             # Replace a stale menu with the real current step. This commonly
@@ -2974,6 +3024,8 @@ class DeliveryOrderView(discord.ui.View):
         else:
             response = 'Order cancelled. No sale or rewards were added. The customer’s webpage has been updated.'
         await interaction.followup.send(response, ephemeral=True)
+        if target == 'paid':
+            await announce_city_run_milestones(row, before_board, after_board)
         finished = target in ('paid', 'cancelled', 'wasted_journey')
         next_view = (DeliveryFeeView(fee['id']) if target == 'wasted_journey'
                      else None if finished else DeliveryOrderView(self.order_id))
