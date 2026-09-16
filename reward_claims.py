@@ -95,6 +95,44 @@ class ClaimStore:
                                 (normalize_name(name),)).fetchall()
         return [dict(row) for row in rows]
 
+    def retire_pending(self) -> dict:
+        """Retire the physical trading-card scheme without losing customer points.
+
+        Newer pending requests have not deducted anything. Very old requests may
+        have reserved four points at request time; those are refunded exactly
+        once before every pending request is cancelled.
+        """
+        refunded = 0
+        cancelled = 0
+        with self.db.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            rows = conn.execute(
+                "SELECT * FROM web_pack_claims WHERE status='pending' ORDER BY id"
+            ).fetchall()
+            now = utc_now()
+            for row in rows:
+                points = max(0, int(row['points'] or 4))
+                if int(row['points_reserved'] or 0):
+                    conn.execute(
+                        '''UPDATE customers SET loyalty_points=loyalty_points+?,updated_at=?
+                           WHERE customer_key=?''',
+                        (points, now, row['customer_key'])
+                    )
+                    refunded += points
+                conn.execute(
+                    '''UPDATE web_pack_claims SET status='cancelled',resolved_at=?,
+                       resolved_by='system: City Run migration',points_reserved=0
+                       WHERE id=? AND status='pending' ''',
+                    (now, row['id'])
+                )
+                cancelled += 1
+            if rows:
+                self.audit(
+                    conn, 'web_pack_scheme_retired',
+                    f'cancelled={cancelled};points_refunded={refunded}'
+                )
+        return {'cancelled': cancelled, 'points_refunded': refunded}
+
     def request(self, name, code, request_key):
         key = normalize_name(name)
         if not 10 <= len(request_key) <= 160 or len(code) > 100:

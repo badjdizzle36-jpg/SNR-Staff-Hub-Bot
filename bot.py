@@ -29,6 +29,7 @@ from customer_services import ACTION_LABELS, CustomerServices
 from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
 from alert_channels import AlertChannels, CHANNEL_TYPES
+from city_run import CityRunStore
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -47,6 +48,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 db = SNRDatabase(DATABASE_PATH, JACKPOT_POOL_SIZE)
 db_lock = asyncio.Lock()
 claims = ClaimStore(db)
+claims.retire_pending()
+city_run = CityRunStore(db)
 accounts = Accounts(db)
 orders = DeliveryStore(db)
 shifts = StaffShifts(db)
@@ -129,8 +132,9 @@ def channel_setup_text(guild_id):
     for row in alert_channels.status(guild_id):
         destination = f"<#{row['channel_id']}>" if row["channel_id"] else "Not assigned — using existing fallback"
         lines.append(f"• **{row['label']}** → {destination}")
-    return ("📂 **SNR ALERT CHANNELS**\n"
-            "Run this screen inside the private channel you want to use, then tap what belongs here.\n\n"
+    return ("📂 **SNR CHANNEL ROUTING**\n"
+            "Run this screen inside the destination channel, then tap what belongs there. "
+            "Operational alerts must be private; **Owner Announcements** may be public.\n\n"
             + "\n".join(lines))
 
 
@@ -138,8 +142,9 @@ class ChannelSetupView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=300)
         icons = {
+            "announcements": "📣",
             "new_accounts": "👤", "active_orders": "🚗", "completed_orders": "✅",
-            "pack_requests": "🎴", "raffle_requests": "🎟️", "customer_help": "💬",
+            "city_run_claims": "🏁", "raffle_requests": "🎟️", "customer_help": "💬",
             "reward_requests": "🎁", "reviews_issues": "⭐",
         }
         for index, (alert_type, label) in enumerate(CHANNEL_TYPES.items()):
@@ -154,10 +159,15 @@ class ChannelSetupView(discord.ui.View):
                     await interaction.response.send_message("Use this inside a private Discord text channel.", ephemeral=True)
                     return
                 permissions = channel.permissions_for(channel.guild.me)
-                if channel.permissions_for(channel.guild.default_role).view_channel or not (
-                        permissions.view_channel and permissions.send_messages and permissions.embed_links):
+                if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
                     await interaction.response.send_message(
-                        "This must be a private staff channel where the bot can view, send messages and embed links.",
+                        "The bot needs permission to view this channel, send messages and embed links.",
+                        ephemeral=True)
+                    return
+                if (chosen != "announcements"
+                        and channel.permissions_for(channel.guild.default_role).view_channel):
+                    await interaction.response.send_message(
+                        "Operational alerts must use a private staff channel. Only **Owner Announcements** may use a public channel.",
                         ephemeral=True)
                     return
                 alert_channels.configure(chosen, channel.id, channel.guild.id,
@@ -165,8 +175,6 @@ class ChannelSetupView(discord.ui.View):
                 # Keep the original feature setup working on installations that have not used the older commands.
                 if chosen == "active_orders":
                     orders.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
-                elif chosen == "pack_requests":
-                    claims.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
                 elif chosen == "new_accounts":
                     accounts.configure_notifications(channel.id, channel.guild.id,
                                                      interaction.user.id, str(interaction.user))
@@ -1159,6 +1167,46 @@ class RewardSettingsView(discord.ui.View):
             self.add_item(button)
 
 
+class DiscordAnnouncementModal(discord.ui.Modal, title="Post Permanent SNR Announcement"):
+    headline = discord.ui.TextInput(
+        label="Announcement headline", placeholder="Example: SNR Buns is open", min_length=2, max_length=100)
+    message = discord.ui.TextInput(
+        label="Announcement message", placeholder="Write the full announcement here",
+        style=discord.TextStyle.paragraph, min_length=2, max_length=1800)
+
+    async def on_submit(self, interaction):
+        if not await require_owner(interaction):
+            return
+        route = alert_channels.get("announcements", interaction.guild_id)
+        if not route:
+            await interaction.response.send_message(
+                "❌ No announcements channel is selected yet. Go into the channel you want, run "
+                "`/snrhub_channels`, then press **Owner Announcements**.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            channel = bot.get_channel(int(route["channel_id"])) or await bot.fetch_channel(int(route["channel_id"]))
+            if not isinstance(channel, discord.TextChannel) or channel.guild.id != interaction.guild_id:
+                raise ValueError("The configured announcements channel is no longer available in this server.")
+            embed = discord.Embed(
+                title=f"📣 {str(self.headline).strip()}",
+                description=str(self.message).strip(), colour=discord.Colour.gold(),
+                timestamp=discord.utils.utcnow())
+            embed.set_thumbnail(url=f"{WEBSITE_URL}/snr-logo.png")
+            embed.set_footer(text=f"Official SNR Buns announcement • Posted by {interaction.user.display_name}")
+            posted = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            alert_channels.record_owner_announcement(
+                interaction.guild_id, channel.id, posted.id,
+                interaction.user.id, str(interaction.user), str(self.headline))
+            await interaction.edit_original_response(
+                content=(f"✅ Permanent announcement posted in {channel.mention}.\n"
+                         "It has **no automatic deletion timer** and will remain unless somebody manually deletes it."),
+                embed=None, view=None)
+        except (discord.HTTPException, ValueError) as exc:
+            await interaction.edit_original_response(
+                content=f"❌ The announcement could not be posted: {exc}", embed=None, view=None)
+
+
 class OwnerAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
@@ -1331,6 +1379,11 @@ class OwnerAdminView(discord.ui.View):
         if await require_owner(interaction):
             await send_ephemeral(
                 interaction, embed=customer_leaderboard_embed(), view=LeaderboardManagementView())
+
+    @discord.ui.button(label="Post Announcement", emoji="📣", style=discord.ButtonStyle.success, row=4)
+    async def post_announcement(self, interaction, button):
+        if await require_owner(interaction):
+            await interaction.response.send_modal(DiscordAnnouncementModal())
 
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
@@ -2067,6 +2120,96 @@ class RaffleCentreView(discord.ui.View):
                                  embed=raffle_embed(raffles.current()), view=RaffleOwnerView())
 
 
+def city_run_status_embed():
+    status = city_run.current()
+    board_status = str(status.get("status") or "missing").upper()
+    colour = (discord.Colour.green() if board_status == "ACTIVE" else
+              discord.Colour.orange() if board_status == "DRAFT" else discord.Colour.dark_grey())
+    embed = discord.Embed(
+        title="🏁 SNR CITY RUN CONTROL CENTRE",
+        description=("Digital collect-to-win campaign linked to website loyalty points.\n"
+                     "**1 loyalty point = 1 secure business reveal.**"),
+        colour=colour,
+    )
+    embed.add_field(name="Season", value=board_status, inline=True)
+    embed.add_field(name="Businesses configured",
+                    value=f"{int(status.get('configured_pieces') or 0)}/38", inline=True)
+    embed.add_field(name="Rewards configured",
+                    value=f"{int(status.get('configured_rewards') or 0)}/9", inline=True)
+    embed.add_field(
+        name="Approved rewards",
+        value=("Food: Quick Fix • Nightlife: Mega Deal • Mechanics: Share Box\n"
+               "Motors: £1,000 • Shops: £2,500 • Luxury: £5,000\n"
+               "Finance: 1 month VIP • Services: £10,000 • All 38: vehicle"),
+        inline=False,
+    )
+    embed.set_footer(text="Physical trading-card packs are retired. Existing loyalty balances stay protected.")
+    return embed
+
+
+class CityRunOwnerView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        status = city_run.current().get("status")
+        if status == "draft":
+            recommended = discord.ui.Button(
+                label="Apply Recommended Rarities", emoji="🎯",
+                style=discord.ButtonStyle.primary)
+            start = discord.ui.Button(
+                label="Start Season", emoji="🏁", style=discord.ButtonStyle.success)
+
+            async def apply_recommended(interaction):
+                if not await require_owner(interaction):
+                    return
+                try:
+                    city_run.apply_recommended_rarities(
+                        str(interaction.user.id), str(interaction.user))
+                except ValueError as exc:
+                    await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+                    return
+                await interaction.response.edit_message(
+                    content="✅ Recommended scarcity applied. Review the summary, then start the season when ready.",
+                    embed=city_run_status_embed(), view=CityRunOwnerView())
+
+            async def activate(interaction):
+                if not await require_owner(interaction):
+                    return
+                try:
+                    city_run.activate(str(interaction.user.id), str(interaction.user))
+                except ValueError as exc:
+                    await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+                    return
+                await interaction.response.edit_message(
+                    content="✅ City Run is now live. Existing customer points are available as reveals.",
+                    embed=city_run_status_embed(), view=CityRunOwnerView())
+
+            recommended.callback = apply_recommended
+            start.callback = activate
+            self.add_item(recommended)
+            self.add_item(start)
+        elif status in ("active", "paused"):
+            target = "paused" if status == "active" else "active"
+            toggle = discord.ui.Button(
+                label="Pause Season" if target == "paused" else "Resume Season",
+                emoji="⏸️" if target == "paused" else "▶️",
+                style=discord.ButtonStyle.danger if target == "paused" else discord.ButtonStyle.success)
+
+            async def toggle_status(interaction):
+                if not await require_owner(interaction):
+                    return
+                try:
+                    city_run.set_status(target, str(interaction.user.id), str(interaction.user))
+                except ValueError as exc:
+                    await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+                    return
+                await interaction.response.edit_message(
+                    content=f"✅ City Run is now **{target}**.",
+                    embed=city_run_status_embed(), view=CityRunOwnerView())
+
+            toggle.callback = toggle_status
+            self.add_item(toggle)
+
+
 class MoreToolsView(discord.ui.View):
     """Occasional staff tools, kept off the everyday hub."""
 
@@ -2113,7 +2256,14 @@ class MoreToolsView(discord.ui.View):
                 "⭐ **Verified Driver & Experience Ratings**\nChoose the period you want to check.",
                 view=ReviewPeriodView())
 
-    @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="City Run", emoji="🏁", style=discord.ButtonStyle.primary, row=1)
+    async def city_run_centre(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_staff(interaction):
+            await send_ephemeral(
+                interaction, embed=city_run_status_embed(),
+                view=CityRunOwnerView() if is_owner(interaction) else None)
+
+    @discord.ui.button(label="Owner Admin", emoji="👑", style=discord.ButtonStyle.danger, row=1)
     async def owner_admin(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_owner(interaction):
             await send_ephemeral(
@@ -2140,7 +2290,7 @@ def live_queue_snapshot(guild_id):
     guild_key = str(guild_id)
     pending_orders = [row for row in orders.pending() if row["guild_id"] == guild_key]
     support = [row for row in orders.pending_support(limit=50) if row["guild_id"] == guild_key]
-    packs = [row for row in claims.pending() if row["guild_id"] == guild_key]
+    city_claims = [row for row in city_run.pending_claims() if row["guild_id"] == guild_key]
     raffle = [row for row in raffles.pending(limit=50) if row["guild_id"] == guild_key]
     rewards = [row for row in services.pending_rewards(limit=50) if row["guild_id"] == guild_key]
     actions = [row for row in services.pending_actions(limit=50) if row["guild_id"] == guild_key]
@@ -2168,9 +2318,9 @@ def live_queue_snapshot(guild_id):
     for row in actions:
         add("action", row, f"Customer help #{row['id']} • {row['customer_name']}",
             ACTION_LABELS.get(row["action_type"], row["action_type"]), "💬", 1)
-    for row in packs:
-        add("pack", row, f"Pack request #{row['id']} • {row['customer_name']}",
-            f"Use {int(row.get('points') or 4)} loyalty points", "🎴", 3)
+    for row in city_claims:
+        add("city_run", row, f"City Run claim #{row['id']} • {row['customer_name']}",
+            row["reward_name"], "🏁", 2)
     for row in rewards:
         add("reward", row, f"Reward request #{row['id']} • {row['customer_name']}",
             f"{row['reward_name']} • {int(row['points_cost'])} points", "🎁", 3)
@@ -2189,7 +2339,7 @@ def live_queue_snapshot(guild_id):
         "items": items,
         "counts": {
             "orders": len(pending_orders), "help": len(support) + len(actions),
-            "rewards": len(packs) + len(rewards), "raffle": len(raffle),
+            "rewards": len(city_claims) + len(rewards), "raffle": len(raffle),
             "accounts": len(accounts_waiting), "fees": len(fees),
         },
         "total": len(items),
@@ -2269,8 +2419,8 @@ class LiveQueueSelect(discord.ui.Select):
             embed, view = delivery_order_embed(row), DeliveryOrderView(row["id"])
         elif kind == "support":
             embed, view = support_request_embed(row), SupportRequestView(row["id"])
-        elif kind == "pack":
-            embed, view = pack_claim_embed(row), PackClaimView(row["id"])
+        elif kind == "city_run":
+            embed, view = city_run_claim_embed(row), CityRunClaimView(row["id"])
         elif kind == "raffle":
             embed, view = raffle_request_embed(row), RaffleRequestView(row["id"])
         elif kind == "reward":
@@ -2373,6 +2523,59 @@ class LegacyStaffPanel(discord.ui.View):
         if await require_staff(interaction):
             await interaction.response.send_message(
                 "🧰 **Staff & Tools**", view=StaffCommandView(), ephemeral=True)
+
+
+def city_run_claim_embed(row):
+    status = str(row["status"]).replace("_", " ").title()
+    colour = (discord.Colour.orange() if row["status"] == "pending" else
+              discord.Colour.green() if row["status"] == "fulfilled" else
+              discord.Colour.red())
+    embed = discord.Embed(
+        title=f"🏁 CITY RUN REWARD CLAIM #{int(row['id'])}",
+        description=(f"**Customer:** {discord.utils.escape_markdown(row['customer_name'])}\n"
+                     f"**Reward:** {discord.utils.escape_markdown(row['reward_name'])}\n"
+                     f"**Status:** {status}"),
+        colour=colour,
+    )
+    embed.add_field(name="Verified collection reward",
+                    value=discord.utils.escape_markdown(row["reward_description"]), inline=False)
+    embed.set_footer(text="The website verifies the completed City Run collection before creating this claim.")
+    return embed
+
+
+class CityRunClaimView(discord.ui.View):
+    def __init__(self, claim_id):
+        super().__init__(timeout=None)
+        self.claim_id = int(claim_id)
+        fulfilled = discord.ui.Button(
+            label="Reward Given", emoji="✅", style=discord.ButtonStyle.success,
+            custom_id=f"snr:city-run:{self.claim_id}:fulfilled")
+        cancelled = discord.ui.Button(
+            label="Cancel Claim", emoji="✖️", style=discord.ButtonStyle.danger,
+            custom_id=f"snr:city-run:{self.claim_id}:cancelled")
+
+        async def resolve(interaction, target):
+            if not await require_staff(interaction):
+                return
+            try:
+                row = city_run.resolve_claim(
+                    self.claim_id, target, str(interaction.user.id), str(interaction.user))
+            except ValueError as exc:
+                await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
+                return
+            await interaction.response.edit_message(
+                content=None, embed=city_run_claim_embed(row), view=None)
+
+        async def fulfil_callback(interaction):
+            await resolve(interaction, "fulfilled")
+
+        async def cancel_callback(interaction):
+            await resolve(interaction, "cancelled")
+
+        fulfilled.callback = fulfil_callback
+        cancelled.callback = cancel_callback
+        self.add_item(fulfilled)
+        self.add_item(cancelled)
 
 
 def pack_claim_embed(row):
@@ -2985,23 +3188,22 @@ async def show_account_requests(interaction):
 
 
 @tasks.loop(seconds=2)
-async def notify_pack_claims():
+async def notify_city_run_claims():
     if not bot.is_ready():
         return
-    for row in claims.pending(unsent=True)[:20]:
+    for row in city_run.pending_claims(unsent=True)[:20]:
         try:
-            channel = await routed_alert_channel(row, "pack_requests")
+            channel = await routed_alert_channel(row, "city_run_claims")
             if not channel:
-                logging.warning('Pack claim channel is unavailable or belongs to another server: %s', row['id'])
+                logging.warning('City Run claim channel is unavailable or belongs to another server: %s', row['id'])
                 continue
             mention, allowed = staff_ping(channel)
-            content = mention or "🎴 **New website reward claim**"
-            message = await channel.send(content=content, embed=pack_claim_embed(row),
-                                         view=PackClaimView(row['id']), allowed_mentions=allowed)
-            claims.notified(row['id'], message.id)
+            content = mention or "🏁 **New City Run reward claim**"
+            message = await channel.send(content=content, embed=city_run_claim_embed(row),
+                                         view=CityRunClaimView(row['id']), allowed_mentions=allowed)
+            city_run.mark_claim_notified(row['id'], message.id)
         except Exception:
-            # Leave the durable outbox row unsent so the next pass retries it.
-            logging.exception('Pack claim alert delivery failed; will retry: %s', row['id'])
+            logging.exception('City Run claim alert delivery failed; will retry: %s', row['id'])
 
 
 @tasks.loop(seconds=10)
@@ -3179,8 +3381,8 @@ async def notify_customer_services():
 @bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} ({bot.user.id})")
-    if not notify_pack_claims.is_running():
-        notify_pack_claims.start()
+    if not notify_city_run_claims.is_running():
+        notify_city_run_claims.start()
     if not notify_delivery_orders.is_running():
         notify_delivery_orders.start()
     if not notify_late_orders.is_running():
@@ -3201,8 +3403,8 @@ async def on_ready() -> None:
 async def setup_hook() -> None:
     bot.add_view(StaffPanel())
     bot.add_view(LegacyStaffPanel())
-    for row in claims.pending():
-        bot.add_view(PackClaimView(row['id']))
+    for row in city_run.pending_claims():
+        bot.add_view(CityRunClaimView(row['id']))
     for row in orders.pending():
         bot.add_view(DeliveryOrderView(row['id']))
     for row in orders.outstanding_fees():
@@ -3256,8 +3458,56 @@ async def snr_channels(interaction: discord.Interaction) -> None:
         channel_setup_text(interaction.guild_id), view=ChannelSetupView(), ephemeral=True)
 
 
-@bot.tree.command(name='snrhub_claims_setup', description='Owner: use this private staff channel for website reward alerts.')
-async def claims_setup(interaction: discord.Interaction):
+@bot.tree.command(name="snrhub_create_channels", description="Owner: create and wire the SNR alert channels automatically.")
+async def snr_create_channels(interaction: discord.Interaction) -> None:
+    """Create one destination per alert type, reusing an existing same-name channel."""
+    if not await require_owner(interaction):
+        return
+    guild = interaction.guild
+    if guild is None:
+        await interaction.response.send_message("Use this command inside your SNR Discord server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    names = {
+        "announcements": "snr-announcements",
+        "new_accounts": "snr-new-loyalty",
+        "active_orders": "snr-active-deliveries",
+        "completed_orders": "snr-completed-deliveries",
+        "city_run_claims": "snr-city-run-claims",
+        "raffle_requests": "snr-raffle-requests",
+        "customer_help": "snr-customer-help",
+        "reward_requests": "snr-reward-requests",
+        "reviews_issues": "snr-reviews-problems",
+    }
+    me = guild.me
+    created = []
+    for alert_type, channel_name in names.items():
+        channel = discord.utils.get(guild.text_channels, name=channel_name)
+        if channel is None:
+            overwrites = None
+            if alert_type != "announcements" and me is not None:
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                    me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True),
+                }
+            channel = await guild.create_text_channel(channel_name, overwrites=overwrites,
+                                                      reason="SNR alert channel setup")
+            created.append(channel.mention)
+        alert_channels.configure(alert_type, channel.id, guild.id, interaction.user.id, str(interaction.user))
+        if alert_type == "active_orders":
+            orders.configure(channel.id, guild.id, interaction.user.id, str(interaction.user))
+        elif alert_type == "new_accounts":
+            accounts.configure_notifications(channel.id, guild.id, interaction.user.id, str(interaction.user))
+    made = ", ".join(created) if created else "No new channels were needed; existing SNR channels were reused."
+    await interaction.followup.send(
+        "✅ **SNR channels are ready and linked.**\n" + made +
+        "\n\nDelivery, account, raffle, reward, City Run and review alerts now route separately.",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(name='snrhub_city_run_claims_setup', description='Owner: use this private channel for City Run reward claims.')
+async def city_run_claims_setup(interaction: discord.Interaction):
     if not is_owner(interaction):
         await interaction.response.send_message(f'{OWNER_ROLE_NAME} only.', ephemeral=True)
         return
@@ -3269,8 +3519,12 @@ async def claims_setup(interaction: discord.Interaction):
     if channel.permissions_for(channel.guild.default_role).view_channel or not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
         await interaction.response.send_message('Choose a private staff channel where this bot can view, send messages and embed links.', ephemeral=True)
         return
-    claims.configure(channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
-    await interaction.response.send_message('Website pack claims enabled. New alerts will appear here, normally within 10 seconds. Customers must log in to request their own pack.', ephemeral=True)
+    alert_channels.configure(
+        'city_run_claims', channel.id, channel.guild.id,
+        interaction.user.id, str(interaction.user))
+    await interaction.response.send_message(
+        '✅ City Run reward claims will appear here. The website verifies each completed collection before sending a claim.',
+        ephemeral=True)
 
 
 @bot.tree.command(name='snrhub_orders_setup', description='Owner: use this private channel for website delivery orders.')
@@ -3331,9 +3585,14 @@ async def accounts_pending(interaction: discord.Interaction):
     await show_account_requests(interaction)
 
 
-@bot.tree.command(name='snrhub_claims_pending', description='Review website pack requests awaiting handover.')
-async def claims_pending(interaction: discord.Interaction):
-    await show_pack_requests(interaction)
+@bot.tree.command(name='snrhub_city_run', description='Open the SNR City Run status and owner controls.')
+async def city_run_command(interaction: discord.Interaction):
+    if await require_staff(interaction):
+        await interaction.response.send_message(
+            embed=city_run_status_embed(),
+            view=CityRunOwnerView() if is_owner(interaction) else None,
+            ephemeral=True,
+        )
 
 
 @bot.tree.command(name='snrhub_orders_pending', description='Review website delivery orders awaiting payment.')

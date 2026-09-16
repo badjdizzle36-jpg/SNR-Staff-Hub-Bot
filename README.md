@@ -4,12 +4,13 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Permanent owner announcements:** route **Owner Announcements** from `/snrhub_channels`, then use **Owner Admin → Post Announcement**. The bot posts a public branded announcement with no deletion timer and records it in the audit trail. Temporary private menus remain temporary, while owner announcements stay visible unless someone deliberately deletes them.
 - **Discord Command Centre V2:** the permanent hub now has only four starting buttons—New Sale, Live Queue, Customers and Staff & Tools. Live Queue combines orders, collections, in-store payments, customer help, rewards, raffle payments, account work and outstanding journey fees into one prioritised dropdown instead of opening many separate messages. Overdue orders rise to the top, and temporary screens replace themselves to keep Discord clean.
 - **Owner-managed monthly leaderboard:** open **More Tools → Customer Leaderboard** or **Owner Admin → Manage Leaderboard** to remove testing accounts from the monthly chase and restore them later. This never deletes their account, points, membership or sales history.
 - **Smaller premium loyalty card:** the Home card now keeps its credit-card proportions while using much less screen space—310px wide on normal phones and 286px on compact phones—with the points, chip, cardholder and reward progress still readable.
 - **SNR Champions monthly leaderboard:** the website shows a fun top-five customer chase, the logged-in customer's position, exact spend needed to overtake the next place, and days remaining. Staff can open the top ten from **More Tools → Customer Leaderboard**, while the owner dashboard shows the current leader. Rankings use confirmed, non-voided spend and reset automatically each London calendar month. The final #1 customer qualifies for the monthly giveaway, with staff confirming the prize handover.
 
-- **Permanent Discord records:** owner-triggered bot replies no longer receive timed deletion. Pack requests remain in the pack-request channel after handover or cancellation with their final status, new-account notices remain visible, and resolved delivery-fee records remain available for audit. Completed orders still move from Active Deliveries into Completed Deliveries so the active queue stays accurate.
+- **Permanent Discord records:** owner-triggered bot replies no longer receive timed deletion. City Run reward claims remain in their channel with their final status, new-account notices remain visible, and resolved delivery-fee records remain available for audit. Completed orders still move from Active Deliveries into Completed Deliveries so the active queue stays accurate.
 
 - **Premium member cards and phone fix:** the live card and six-level gallery now look like restrained luxury payment cards, with metallic EMV chips, contactless marks, masked member numbers, cardholder details and an SNR Elite signature. The customer header no longer collapses long names into a vertical column. Responsive sizing and older-browser fallbacks cover iOS Safari, ordinary desktop/mobile browsers and embedded in-game phone browsers.
 
@@ -18,10 +19,10 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - **Preview 2 artwork and layout correction:** includes the original neon city/burger banner and illustrated Click & Collect and Delivery tiles, a live reward strip, three shortcuts and four bottom navigation buttons. The membership area stays a real credit-card shape. Upload the new `neon-design.png` alongside `web_portal.py`; it is required for the new artwork. The banner's service availability and customer balances are live, not the example values from the design preview.
 
 - **Neon Street Food redesign:** the entire customer website now uses a consistent black city-night interface with red/orange neon, restrained cyan status accents, clearer page hierarchy, compact phone navigation, redesigned login/forms/orders/rewards/raffle/history and responsive desktop layouts. The main live membership display remains a realistic chip-and-contactless credit card, with the customer's membership tier and point balance built into the card face. Existing membership gallery cards keep their individual level colours and credit-card proportions.
-- **Exact reward deductions:** pack claims and chosen free-item rewards now use a checked before/cost/after balance. Claiming a 4-point reward from 10 points leaves 6; extra points are never reset. Discord confirmations display both the points used and the real remaining balance.
+- **SNR City Run:** all 38 confirmed RP businesses are split across eight digital collection routes. One loyalty point creates one secure reveal credit. Existing balances are copied into the first season when the owner starts it, without removing or resetting the loyalty balance.
 - **Owner password recovery:** open **Customers → Reset Password**, choose the customer from the searchable 25-name pages, and confirm. The owner receives a private one-use website link to pass to the verified customer. The old password and all active sessions are disabled immediately; the customer chooses their new password privately, and the link expires after 24 hours or after first use.
 - **Membership card gallery:** view all six card designs and their live membership thresholds, bonus points, bonus Golden Tickets and delivery prices under More. Your current level is marked.
-- **Request Pack** is visible on the main member card. It becomes available at four points; pending requests show their status. Staff handover deducts exactly four points and preserves the rest, including points earned while waiting. Older requests with points already reserved are not charged twice.
+- **Physical trading-card packs retired:** no new pack can be requested or handed out. Pending requests are cancelled automatically; only legacy requests that had already reserved points are refunded. Historical records remain for audit.
 - **Clock In / Clock Out** are directly on the permanent Discord home panel. After updating, run `/snrhub_panel` to post the updated panel.
 - **Scan Card In Store:** the large gold digital member card is the main Home shortcut. Customers tap it, choose meal quantities and press **Send to Counter - Pay In Store**. This opens the menu; it does not require a camera scan.
 - In-store orders appear in the existing private orders channel, mention SNR staff and display the account name, basket and total. Staff collect payment and press **Confirm Payment** directly. No acceptance, driver or collection steps are needed.
@@ -29,11 +30,11 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - **Quick Hub customer redesign:** the signed-in website now opens on a compact phone-first home screen with the customer's loyalty progress, membership, Golden Tickets, visits and website service status visible immediately.
 - **VIP After Dark redesign:** the website surrounding the loyalty card now uses a premium black, charcoal and gold visual system across login, ordering, rewards, raffle and navigation. The existing membership-card artwork and each level's individual card colour remain unchanged.
 - **Two-way Live Actions:** customers can call staff, request an order change or cancellation, or report a driver-location problem from the existing Home screen. Requests alert the private Discord channel and appear together under the permanent panel's Live Actions button. Staff replies and decisions update the customer's open webpage automatically.
-- **Choice-based rewards and voucher wallet:** owners can enable or pause individual reward choices. Customers request the reward they prefer inside the existing Rewards page; staff approval deducts the exact listed points and issues a one-use voucher. Free-delivery and money-off vouchers can be selected at checkout, are reserved against the order, become used after payment, and return to the wallet if the order is cancelled. In-store item vouchers can be redeemed by staff from Customer Tools.
-- **Unified staff inbox:** Live Actions brings together open orders, customer problems, pack claims, custom rewards, raffle payments and direct customer requests without adding another customer website tab or replacing the specialist controls already in use.
+- **Existing voucher wallet preserved:** vouchers issued before City Run remain visible and redeemable. New loyalty points feed City Run instead of the retired point-spend catalogue.
+- **Unified staff inbox:** Live Actions brings together open orders, customer problems, City Run claims, raffle payments and direct customer requests without adding duplicate customer tabs.
 - **Owner operations controls:** Offers & Alerts connects the existing website banner and expiring/limited discount-code tools, Reward Choices controls the website catalogue, and Audit Trail displays the latest recorded actions. Existing sale undo remains available.
-- Large **Start New Order**, **Live Raffle** and **My Rewards** shortcuts open the correct page without a long scroll. A live current-order card refreshes automatically when staff move the order forward.
-- A fixed **Home, Order, Raffle, Rewards and More** navigation bar stays within thumb reach. Birthday settings, VIP details, recent visits and logout remain safely available under More so the Home screen stays clean.
+- Large Order, Raffle and City Run shortcuts open the correct page without a long scroll. A live current-order card refreshes automatically when staff move the order forward.
+- A fixed **Home, Order, City Run and More** navigation bar stays within thumb reach. Birthday settings, VIP details, existing vouchers, recent visits and logout remain safely available under More.
 - **Integrated SNR Raffle Centre:** owners create one live raffle at a time with numbers 1–100, a prize and a price per number. Logged-in customers can request up to ten available numbers from the new website **Raffle** page.
 - Website requests reserve numbers immediately, but only enter the draw after staff collect payment and press **Confirm Payment** in Discord. Rejecting a request releases its numbers. Simultaneous requests cannot receive the same number.
 - Staff open **More Tools → Raffle Centre** or `/snrhub_raffle` to view the board, approve/reject payments and add paid entries for a saved customer. Owner controls can create, edit, close, reopen, cancel and securely draw the winner.
@@ -56,7 +57,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - Customers can leave a verified **1–5 star driver or pickup-experience rating**. The order automatically selects the assigned staff member, so customers cannot choose or rate somebody else.
 - Each completed order can be reviewed only once. An optional 250-character comment is saved with the star rating, and the SNR Staff role receives a Discord alert in the private orders channel.
 - Staff can open **More Tools → Staff Ratings** for weekly and monthly leaderboards, or run `/snrhub_ratings`. Rankings show average stars, number of reviews, five-star reviews, deliveries and pickups.
-- Every website alert can now have its own private Discord destination. Run `/snrhub_channels` inside each destination channel and tap the alert type that belongs there. Categories are New Loyalty Accounts, Active Deliveries, Completed Deliveries, Pack Requests, Raffle Number Requests, Customer Help, Reward Requests, and Reviews & Problems.
+- Every website alert can now have its own private Discord destination. Run `/snrhub_channels` inside each destination channel and tap the alert type that belongs there. Categories include New Loyalty Accounts, Active Deliveries, Completed Deliveries, City Run Reward Claims, Raffle Number Requests, Customer Help, Reward Requests, and Reviews & Problems.
 - Active delivery and pickup orders now show a visual **live progress tracker** on the customer webpage. Discord actions move the tracker through Placed, Accepted, On Way/Ready, Arrived/Payment and Complete, while the existing webpage alert continues checking every five seconds.
 - Completed website orders now include **Order Again**. It safely refills the old basket and fulfillment choice for review; it never submits a new order until the customer presses Place Order.
 - **Owner Admin → Daily Closing Report** gives an owner-only UK-day snapshot of sales, revenue, production cost, gross profit, margin, paid deliveries/pickups, delivery fees, code discounts, birthday discounts, open orders and wasted journeys. It does not reset data.
@@ -64,7 +65,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - **Owner Admin → Birthday Reward** can set a percentage reward, fixed cash reduction, or switch birthday rewards off. Owners can also correct a customer's saved birthday; close spellings of saved names are recognised.
 - Birthday reductions are displayed in the customer checkout, Discord order receipt and daily closing report. The default on first deployment is **20% off one birthday order**.
 - Discord quantity sales now guarantee the deal's loyalty points for **every individual deal sold**: 2 Mega Deals award 2 base points, while 2 Share Boxes award 4 base points. Any Gold, Platinum or SNR VIP membership bonus is added separately on top, and the receipt shows the full calculation.
-- The signed-in website is now a compact app-style dashboard with **Home, Order, Raffle, Rewards and More** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
+- The signed-in website is now a compact app-style dashboard with **Home, Order, City Run and More** pages. Customers tap between pages instead of scrolling through the entire system, and the navigation stays visible on phones.
 - Mobile spacing, logo size, dashboard cards and order controls have been tightened so the important information fits on screen faster without removing any features.
 - A dedicated **SNR Owner** control centre gives owners a private dashboard, manual staff clock-off, VIP management and bot-logo control.
 - A new valid square SNR Buns brand poster replaces the broken wide logo file and is designed for clean Discord avatar cropping and website display.
@@ -86,13 +87,13 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 - The confirmation asks customers to allow 5–7 minutes.
 - Delivery orders move through Waiting, Accepted, Driver On The Way, Driver Arrived and Delivered/Paid.
 - The customer page checks for delivery updates every five seconds and shows a bright status notification.
-- Loyalty customers see a visual progress bar toward their four-point trading-card pack.
+- Loyalty customers see a visual progress bar across all 38 City Run businesses.
 - Website delivery is available while at least one staff member is clocked in; pickup ordering stays open without a driver.
 - The uncluttered hub has five starting buttons: **New Sale**, **Deliveries**, **Customers**, **Staff Shift** and **More Tools**. Clock controls live together inside **Staff Shift**. Shifts expire after eight hours if somebody forgets to clock off.
 - **New Sale** supports quantities from ×1 to ×10, so several identical deals can be recorded together with one combined receipt.
 - Record Sale, Check Customer and Redeem Reward include an alphabetically ordered 25-name dropdown with **Previous Names** and **Next Names**, plus **Type / Suggest Name** for spelling correction.
 - Delivery Orders opens a dashboard showing the live queue, drivers, today’s revenue and gross profit.
-- New-account notices disappear after five minutes. Completed older account approvals and pack alerts disappear after two minutes. Completed delivery alerts remain for 12 hours.
+- New-account notices, City Run claim records and owner announcements stay available for staff audit. Completed delivery alerts move to Completed Deliveries so the active queue stays accurate.
 - Paid multi-deal orders record every selected deal in sales, finance, loyalty and Golden Tickets exactly once.
 - After a driver is marked Arrived, staff can mark a delivery as a **Wasted Journey**. This adds a £500 account fee, closes the order without recording a sale or rewards, and blocks new web deliveries.
 - Outstanding fees appear in red on the customer's webpage and as a warning stamp beside their name in Discord. The Delivery Orders dashboard lets staff mark a fee **Paid** or **Waived**; every action is audited.
@@ -108,13 +109,13 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 | SNR Blue Light Deal | £600 | 8 food + 8 drinks | 0 | 1 |
 | SNR Share Box | £1,200 | 10 food + 10 drinks | 2 | 4 |
 
-At four or more available points, the website enables **Request Pack — 4 Points**. Staff click **Handed Over** after giving the two-card pack, which deducts exactly four points. For example, eight points become four and six become two. Cancelling leaves points unchanged.
+When City Run is active, every loyalty point earned produces one reveal credit. Customers reveal digital business stickers on the website, complete routes for the configured RP rewards, and send a verified claim to Discord. Reveals never reset the displayed loyalty balance.
 
 ## Update the existing Railway service
 
 Upload every file from this folder to the existing GitHub repository and commit directly to `main`. Do not delete the Railway volume or database. Railway redeploys automatically.
 
-The files `raffles.py` and `staff_shifts.py` must be uploaded with `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`, `customer_accounts.py`, `delivery_orders.py`, `snr-logo.png`, `requirements.txt`, `Procfile` and `railway.json`.
+The files `city_run.py`, `raffles.py` and `staff_shifts.py` must be uploaded with `bot.py`, `snr_core.py`, `web_portal.py`, `reward_claims.py`, `customer_accounts.py`, `delivery_orders.py`, `snr-logo.png`, `requirements.txt`, `Procfile` and `railway.json`.
 
 Keep these Railway variables:
 
@@ -198,10 +199,10 @@ Every active order card and the Delivery Dashboard now show green, orange or red
 - `/snrhub_owner` — open the owner-only control centre
 - `/snrhub_orders_setup` — set the private delivery and pickup-order channel
 - `/snrhub_accounts_setup` — set the separate private New Accounts Created alert channel
-- `/snrhub_claims_setup` — optionally set a separate pack-claim channel; new claims alert and mention SNR Staff within a few seconds
+- `/snrhub_city_run_claims_setup` — set the private City Run reward-claim channel
 - `/snrhub_channels` — owner one-tap setup for every separate alert channel
 - `/snrhub_accounts_pending` — review recent account activity and any older approval requests
-- `/snrhub_claims_pending` — review pack requests
+- `/snrhub_city_run` — view City Run status and owner controls
 - `/snrhub_orders_pending` — review delivery orders
 - `/snrhub_raffle` — open the integrated raffle centre
 - `/snrhub_sale` — record a sale

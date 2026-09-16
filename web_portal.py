@@ -21,12 +21,37 @@ from delivery_orders import DeliveryStore
 from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
 from raffles import RaffleStore
+from city_run import BUSINESSES, CityRunStore
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
 
 LONDON = ZoneInfo("Europe/London")
 MAX_REQUESTS_PER_MINUTE = 15
 ACTIVE_ORDER_STATUSES = ("accepted", "on_way", "arrived", "ready_for_pickup", "processing")
 LOGO_IMAGE = Path(__file__).with_name("snr-logo.png").read_bytes()
+CITY_RUN_BOARD_IMAGE = Path(__file__).with_name("city-run-board.jpg").read_bytes()
+
+
+def city_business_svg(business_key: str) -> bytes | None:
+    """Small exact-name vector artwork; fast enough for embedded game phones."""
+    business = next((row for row in BUSINESSES if row["key"] == business_key), None)
+    if not business:
+        return None
+    icons = {
+        "food": '<path d="M42 65c2-17 14-27 34-27s32 10 34 27H42zm-3 8h74v9H39zm8 17h58l-6 12H53z"/><circle cx="61" cy="54" r="2"/><circle cx="77" cy="49" r="2"/><circle cx="92" cy="55" r="2"/>',
+        "nightlife": '<path d="M47 35h58L82 66v25h15v10H55V91h15V66L47 35zm15 10 14 15 14-15H62z"/><path d="M115 39l4 9 10 1-8 7 3 10-9-5-9 5 3-10-8-7 10-1z"/>',
+        "mechanics": '<path d="M51 41a22 22 0 0 0 28 27l27 27-12 12-27-27a22 22 0 0 1-27-28l13 13 12-4 4-12-18-8z"/><circle cx="101" cy="101" r="4"/>',
+        "motors": '<path d="M38 79l9-24h58l12 24 8 3v17h-12v-8H48v8H36V82l2-3zm17-16-6 16h56l-8-16H55z"/><circle cx="57" cy="88" r="8"/><circle cx="105" cy="88" r="8"/>',
+        "shops": '<path d="M49 53h64l-6 55H55l-6-55zm15 0c0-14 7-23 17-23s17 9 17 23h-8c0-9-3-14-9-14s-9 5-9 14h-8z"/><path d="M63 72h36" fill="none" stroke="currentColor" stroke-width="6"/>',
+        "luxury": '<path d="M45 54l16-20h40l16 20-36 54-36-54zm18 0 18 39 18-39-10-12H73L63 54z"/><path d="M45 54h72M81 93V42" fill="none" stroke="currentColor" stroke-width="5"/>',
+        "finance": '<path d="M38 52l43-24 43 24v9H38v-9zm8 18h12v34H46V70zm23 0h12v34H69V70zm23 0h12v34H92V70zm-52 42h82v10H40z"/>',
+        "services": '<path d="M81 27l38 14v29c0 26-16 42-38 55-22-13-38-29-38-55V41l38-14zm0 19-8 17-19 3 14 13-3 19 16-9 16 9-3-19 14-13-19-3-8-17z"/>',
+    }
+    initials = "".join(word[0] for word in business["name"].replace("&", " ").split()[:3]).upper()
+    colour = business["colour"]
+    name = html.escape(business["name"])
+    short_name = html.escape(business["name"][:25])
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 112" role="img" aria-label="{name}"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="{colour}" stop-opacity=".78"/><stop offset=".6" stop-color="#15171d"/><stop offset="1" stop-color="#050608"/></linearGradient><radialGradient id="l"><stop stop-color="#fff" stop-opacity=".3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><rect width="160" height="112" rx="14" fill="url(#g)"/><circle cx="130" cy="15" r="45" fill="url(#l)"/><g fill="#fff4d0" color="#fff4d0" transform="translate(5 0) scale(.75)">{icons[business['collection_key']]}</g><rect x="9" y="84" width="142" height="20" rx="7" fill="#050608" fill-opacity=".78"/><text x="15" y="98" fill="#fff" font-family="Arial,sans-serif" font-size="9" font-weight="700">{short_name}</text><text x="146" y="22" fill="#fff7cf" text-anchor="end" font-family="Arial,sans-serif" font-size="10" font-weight="900">{initials}</text></svg>'''
+    return svg.encode("utf-8")
 
 CSS = """
 :root{--gold:#ffe53b;--cream:#fff9e8;--muted:#f4d8ce}*{box-sizing:border-box}
@@ -48,6 +73,11 @@ form{display:flex;gap:10px;margin-top:18px}input,select,textarea{min-width:0;fle
 @media(max-width:560px){.customer-shell .wrap{width:100%;padding:0}.quick-hub{min-height:100vh;border:0;border-radius:0}.quick-app-head{padding:10px 12px}.quick-brand img{width:41px;height:41px}.quick-welcome{padding:12px 13px 6px}.quick-welcome .name{font-size:25px}.quick-content{padding:7px 10px 24px}.quick-loyalty{padding:14px}.quick-loyalty h2{font-size:21px}.quick-actions{gap:7px}.quick-action{min-height:75px;padding:10px}.quick-order{grid-template-columns:43px 1fr auto;padding:10px}.quick-order-icon{width:43px;height:43px}.quick-metrics{gap:5px}.quick-metrics div{padding:8px 3px}.quick-metrics strong{font-size:12px}.quick-hub>.app-tabs{bottom:5px;width:calc(100vw - 10px);border-radius:15px}.quick-hub .app-tab{width:auto}.customer-shell footer{display:none}}
 .unified-card{max-width:600px;margin:8px auto 15px;aspect-ratio:auto;min-height:275px;gap:15px}.unified-card:hover{transform:none}.member-identity{display:flex;align-items:center;gap:14px}.member-identity .card-holder{font-size:14px;font-weight:700}.card-reward{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:0;background:transparent;color:#fff6db;text-align:left;box-shadow:none}.card-reward strong{display:block;font-size:clamp(19px,4.8vw,26px)}.card-reward small{display:block;margin-top:5px}.reward-arrow{font-size:25px;color:#ffe4a3}.member-progress{height:5px;overflow:hidden;border-radius:8px;background:#ffffff26;margin-top:-5px}.member-progress>span{display:block;height:100%;background:linear-gradient(90deg,#b78b35,#fff1b5);border-radius:8px}.member-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;border-top:1px solid #f8dc9444;padding-top:13px}.member-actions button{width:100%;min-width:0;padding:12px 7px;border-radius:11px;background:linear-gradient(120deg,#d9b65f,#fff1b8,#c99c45);color:#221909;box-shadow:none;font-size:13px}.member-actions button+button{background:#180b1180;border:1px solid #ddc78a88;color:#fff1c9}.member-actions button:disabled{opacity:.55;cursor:not-allowed;filter:none}.member-actions span,.member-actions small{display:block}.member-actions small{font-size:9px;color:inherit;opacity:.85;margin-top:4px}.vip-black{background:radial-gradient(ellipse at 90% 0%,#a28b4b33,transparent 65%),linear-gradient(125deg,#08090c,#292a2f 45%,#101114 72%,#050507);border-color:#baa06a;box-shadow:0 14px 35px #0009,inset 0 1px 0 #e8d4a766,inset 0 -1px 0 #000}.vip-black:before{opacity:.35}.vip-black:after{opacity:.45}.vip-black .store-card-top{color:#e9d7aa}.vip-black .store-card-top b{background:#d1b16b1a;border-color:#cbb47888}.vip-black .card-holder,.vip-black strong{text-shadow:0 1px 2px #000}.vip-black .card-holder small{color:#bdb9ad}.vip-black .member-actions button+button{background:#121316}.vip-black:hover{box-shadow:0 14px 35px #0009,inset 0 1px 0 #e8d4a766}@media(max-width:360px){.unified-card{padding:15px;gap:12px}.member-actions button{font-size:11px}.member-identity .card-holder{font-size:12px}}
 .home-pack-form{margin:0;display:block}.home-pack-form button{width:100%;padding:11px;font-size:13px}.home-pack-form button:disabled{opacity:.6;cursor:not-allowed}.membership-link{padding:4px;background:none;border:0;color:#ffe5ad;text-align:left;font-size:12px;box-shadow:none}.membership-gallery{margin:18px 0}.membership-gallery h2{font-size:21px}.membership-gallery>p{font-size:13px}.tier-cards{display:flex;gap:13px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 3px 16px}.tier-tile{flex:0 0 min(285px,88%);scroll-snap-align:start;background:#231516;border:1px solid #806643;border-radius:17px;padding:12px}.tier-current{border:2px solid #ffdf74}.tier-tile svg{display:block;width:100%;height:auto}.tier-tile h3{font-size:17px;color:#ffe3a3;margin:12px 0 5px}.tier-tile p,.tier-tile li{font-size:12px}.tier-tile ul{padding-left:17px;margin:9px 0}.tier-tile li{margin:6px 0}
+.city-run-hero{padding:18px;border-radius:18px;background:radial-gradient(circle at 85% 15%,#ffd95d66,transparent 35%),linear-gradient(135deg,#24150e,#11151d 58%,#08252b);border:1px solid #d6b459;box-shadow:0 12px 35px #0008}.city-run-hero small,.city-run-hero strong,.city-run-hero span{display:block}.city-run-hero small{color:#f1cf74;letter-spacing:1.4px;font-weight:900}.city-run-hero strong{font-size:28px;line-height:1.05;margin:7px 0}.city-run-hero span{color:#d4cab5}.city-run-score{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:12px 0}.city-run-score div{padding:10px 5px;border-radius:13px;background:#111216;border:1px solid #6e5b30;text-align:center}.city-run-score b,.city-run-score small{display:block}.city-run-score b{font-size:20px;color:#f0ce73}.city-run-score small{font-size:9px;color:#bcb5a6}.city-reveal-form{display:block;margin:12px 0}.city-reveal-form button{width:100%;background:linear-gradient(135deg,#f5d770,#d89418);color:#191006}.city-reveal-form button:disabled{opacity:.5}.city-route{margin-top:10px;border:1px solid #5e5238;border-radius:15px;background:#101113;overflow:hidden}.city-route>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px;cursor:pointer;list-style:none}.city-route>summary::-webkit-details-marker{display:none}.city-route>summary strong{color:#f4dfaa}.city-route>summary span{flex:none;padding:4px 8px;border-radius:99px;background:#ffffff0e;font-size:11px}.city-business-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:0 10px 12px}.city-business{min-width:0;overflow:hidden;border-radius:12px;background:#191a1d;border:1px solid #3c3d42}.city-business-art{display:grid;place-items:center;min-height:72px;background:#090a0c}.city-business-art img{display:block;width:100%;height:auto;aspect-ratio:10/7;object-fit:cover}.city-business-copy{padding:8px}.city-business-copy strong,.city-business-copy small{display:block}.city-business-copy strong{font-size:11px;line-height:1.2;overflow-wrap:anywhere}.city-business-copy small{margin-top:4px;color:#a9a497;font-size:9px}.city-business.locked{filter:saturate(.15);opacity:.55}.city-business.owned{border-color:var(--set-colour);box-shadow:inset 0 0 14px color-mix(in srgb,var(--set-colour) 20%,transparent)}.city-reveal-result{text-align:center}.city-reveal-result .city-business{max-width:300px;margin:15px auto}.city-draft{padding:22px;text-align:center;border:1px solid #6d5a31;border-radius:16px;background:#111216}
+.city-route-reward{padding:0 10px 12px}.city-route-reward form,.city-grand form{display:block;margin:8px 0}.city-route-reward button,.city-grand button{width:100%}.city-grand{margin-top:13px;padding:16px;border:1px solid #d3ae51;border-radius:15px;background:linear-gradient(135deg,#251b0c,#111216)}.city-grand>strong{display:block;color:#f3d477;font-size:19px}.city-grand .muted{margin-bottom:0}
+/* Full GTA-style City Run board. The inner board stays wide and scrolls safely on LB/iOS. */
+.city-board-viewport{width:100vw;position:relative;left:50%;transform:translateX(-50%);overflow-x:auto;padding:5px 12px 14px;scrollbar-width:thin}.city-board{width:min(1120px,calc(100vw - 24px));min-width:860px;margin:0 auto;padding:8px;border:3px solid #b8903e;border-radius:14px;background:linear-gradient(145deg,#090b10,#17120c);box-shadow:0 12px 35px #000b,inset 0 0 0 1px #f5d77655}.city-board-row{display:grid;gap:6px}.city-board-top,.city-board-bottom{grid-template-columns:repeat(10,minmax(0,1fr))}.city-board-middle{display:grid;grid-template-columns:1fr 3.15fr 1fr;gap:6px;margin:6px 0}.city-board-column{display:grid;grid-template-rows:repeat(9,minmax(0,1fr));gap:6px}.city-board-centre{min-width:0;display:grid;grid-template-columns:1.15fr .85fr;grid-template-rows:auto 1fr;gap:9px;padding:14px;border:1px solid #c09b4b;border-radius:8px;background:radial-gradient(circle at 75% 18%,#294d6755,transparent 45%),linear-gradient(145deg,#0b1927,#132535 55%,#101012);box-shadow:inset 0 0 35px #c08c2930}.city-board-tile{min-width:0;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;min-height:100px;border:2px solid var(--set-colour);border-radius:7px;background:#111217;box-shadow:0 3px 9px #0009}.city-board-tile img{display:block;width:100%;height:68px;object-fit:cover;background:#08090b}.city-board-tile>div{min-height:32px;padding:4px 5px;background:#f5ecd3;color:#12100d}.city-board-tile strong,.city-board-tile small{display:block}.city-board-tile strong{font-size:10px;line-height:1.08;overflow-wrap:anywhere}.city-board-tile small{margin-top:2px;font-size:8px;font-weight:900;color:#665b4a;text-transform:uppercase}.city-board-tile.locked{filter:saturate(.35);opacity:.72}.city-board-tile.owned{box-shadow:0 0 10px color-mix(in srgb,var(--set-colour) 65%,transparent)}.city-board-tile.owned>div{background:linear-gradient(90deg,#fff1c4,#fff8e8)}.city-board-title{grid-row:1/-1;display:flex;flex-direction:column;justify-content:center;text-align:center}.city-board-title small{color:#f8d777;letter-spacing:2px;font-weight:900}.city-board-title strong{display:block;margin:8px 0 0;font-size:clamp(28px,5vw,64px);line-height:.8;letter-spacing:-2px;text-shadow:0 3px 0 #000,0 0 22px #f7c42b66}.city-board-title strong span{display:block;color:#f2c64f}.city-board-title strong em{display:block;color:#f2f0e9;font-style:normal;font-size:.58em;letter-spacing:1px}.city-board-title p{margin:12px auto 0;padding:5px 8px;border:1px solid #e9c867;border-radius:4px;color:#f7d77f;font-size:10px;font-weight:900;letter-spacing:.5px}.city-board-prize{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:9px;text-align:center;border:1px solid #d5ad52;border-radius:8px;background:linear-gradient(145deg,#33200f,#0f1117)}.city-board-prize span{font-size:clamp(34px,5vw,62px);filter:drop-shadow(0 4px 8px #000)}.city-board-prize b{font-size:14px;line-height:1.05;color:#f5d67b}.city-board-prize small{margin-top:6px;font-size:9px;color:#d8ccb1}.city-board-rewards{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding-top:7px;border-top:1px solid #d5ad5244}.city-board-reward{min-width:0;padding:7px 6px;border-left:3px solid var(--set-colour);background:#080a0f99}.city-board-reward b,.city-board-reward small,.city-board-reward span{display:block}.city-board-reward b{font-size:9px;color:#f5e8c3}.city-board-reward small{font-size:9px;color:#c3b89e}.city-board-reward span{margin-top:2px;color:var(--set-colour);font-size:9px;font-weight:900;overflow-wrap:anywhere}.city-board-details{margin-top:12px}.city-board-details>summary{cursor:pointer;color:#efcf79;font-weight:900}.city-board-route-list{margin-top:8px}.city-board-route-list .city-route{margin-top:8px}.city-board-art-wrap{margin:14px auto 6px;max-width:980px;padding:8px;border:2px solid #c9a354;border-radius:16px;background:#0a0c10;box-shadow:0 12px 34px #000b}.city-board-art{display:block;width:100%;height:auto;border-radius:10px}.city-board-art-hint{margin:8px 5px 2px;color:#bdb5a6;font-size:12px;text-align:center}.city-board-page .city-board-viewport{display:none}
+@media(max-width:700px){.city-board{min-width:760px}.city-board-tile{min-height:88px}.city-board-tile img{height:56px}.city-board-centre{padding:10px}.city-board-title strong{font-size:38px}.city-board-reward b{font-size:8px}}
 /* VIP After Dark website theme. Membership-card artwork above remains unchanged. */
 body{background:radial-gradient(circle at 50% -10%,#5c441f 0,transparent 30%),radial-gradient(circle at 105% 35%,#2b1d08 0,transparent 38%),linear-gradient(145deg,#030303 0%,#0b0b0c 52%,#171109 100%);color:#fff9e8}
 .card:not(.quick-hub){background:linear-gradient(145deg,#171719,#080809);border-color:#8d7439;border-top-color:#e4c36f;box-shadow:0 22px 70px #000b,0 0 30px #d9ad3b14}
@@ -322,35 +352,6 @@ def _sale_date(value: str) -> str:
         return "Previous visit"
 
 
-def claim_section(customer: dict, claims: ClaimStore, form_token: str) -> str:
-    rows = claims.summary(customer["display_name"])
-    pending = next((row for row in rows if row["status"] == "pending"), None)
-    labels = {"pending": "Waiting for staff", "fulfilled": "Pack collected", "cancelled": "Cancelled"}
-    history_rows = "".join(
-        f'<div class="reward-history-row"><span>Request #{int(row["id"])}</span>'
-        f'<strong>{labels.get(row["status"], row["status"].title())}</strong></div>' for row in rows
-    )
-    history = (f'<details class="reward-history"><summary>Pack history ({len(rows)})</summary>'
-               f'<div class="reward-history-list">{history_rows}</div></details>') if rows else ""
-    points = int(customer["loyalty_points"])
-    progress = min(points, 4)
-    progress_bar = f'''<div class="loyalty-progress"><div class="progress-track" role="progressbar" aria-label="{progress} of 4 loyalty points" aria-valuemin="0" aria-valuemax="4" aria-valuenow="{progress}"><div class="progress-fill" style="width:{progress * 25}%"></div></div></div>'''
-    if pending:
-        next_text = "Your pack request is with staff"
-        action = '<div class="reward-ready">✅ Request sent — collect your pack from SNR Buns.</div>'
-    elif not claims.configured():
-        next_text = f"{points} available point{'s' if points != 1 else ''}"
-        action = '<div class="reward-ready">Pack requests are temporarily unavailable.</div>'
-    elif points < 4:
-        remaining = 4 - points
-        next_text = f"{remaining} more point{'s' if remaining != 1 else ''} to unlock your pack"
-        action = ""
-    else:
-        next_text = "Your free pack is ready"
-        action = f'<form method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(form_token, quote=True)}"><button type="submit">Request My Pack</button></form>'
-    return f'''<section class="app-page" id="rewards"><h2 class="app-page-title">🎁 Trading Card Reward</h2><div class="drawer-body"><div class="reward-summary"><div class="reward-summary-head"><strong>{html.escape(next_text)}</strong><span class="reward-count">{points} / 4</span></div>{progress_bar}<p class="reward-rule">4 points = 1 pack containing 2 trading cards. Only 4 points are used.</p><div class="reward-action">{action}</div></div>{history}</div></section>'''
-
-
 def order_tracker(status: str, pickup: bool) -> str:
     steps = ([('pending', 'Placed'), ('accepted', 'Accepted'), ('ready_for_pickup', 'Ready'),
               ('processing', 'Payment'), ('paid', 'Collected')]
@@ -583,10 +584,64 @@ def leaderboard_section(board: dict) -> str:
     return f'''<section class="monthly-leaderboard"><header><span><small>MONTHLY CUSTOMER CHASE</small><strong>🏆 SNR Champions</strong></span><b>{int(board['days_left'])} days left</b></header><div class="leader-prize"><strong>🎁 Monthly Giveaway</strong><span>The #1 spender at month end becomes SNR Champion and wins the monthly giveaway.</span></div><ol>{rows}</ol><p class="leader-own">{chase}</p><small class="leader-rules">Confirmed purchases only • cancelled and voided sales do not count • resets every calendar month</small></section>'''
 
 
+def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) -> str:
+    board = city_run.customer_board(customer["customer_key"])
+    campaign = board.get("campaign") or {}
+    if not campaign or campaign.get("status") == "draft":
+        return '''<section class="app-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-draft"><h2>City Run is being prepared</h2><p>Your existing loyalty balance is protected. It will become digital business reveals when the season opens.</p></div></div></section>'''
+    routes = []
+    board_items = []
+    for route in board["collections"]:
+        cards = []
+        for item in route["items"]:
+            state = "owned" if item["owned"] else "locked"
+            status = (f'{int(item["copies"])} collected' if item["owned"] else "Not collected")
+            board_items.append((item, route))
+            cards.append(f'''<article class="city-business {state}" style="--set-colour:{html.escape(route['colour'], quote=True)}"><div class="city-business-art"><img src="/city-art/{html.escape(item['key'], quote=True)}.svg" alt=""></div><div class="city-business-copy"><strong>{html.escape(item['name'])}</strong><small>{html.escape(status)}</small></div></article>''')
+        reward = route.get("reward") or {}
+        claim = route.get("claim") or {}
+        if claim:
+            reward_action = f'''<div class="notice"><strong>{html.escape(reward.get('reward_name') or route['name'])}</strong><br>Claim status: {html.escape(str(claim['status']).replace('_', ' ').title())}</div>'''
+        elif route["complete"] and reward:
+            reward_action = f'''<form method="post" action="/city-run-claim"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><input type="hidden" name="reward_key" value="{html.escape(route['key'], quote=True)}"><button type="submit">Claim {html.escape(reward['reward_name'])}</button></form>'''
+        elif reward:
+            reward_action = f'''<p class="muted">Complete this route to unlock: <strong>{html.escape(reward['reward_name'])}</strong></p>'''
+        else:
+            reward_action = ""
+        routes.append(f'''<details class="city-route" {'open' if route['collected'] else ''}><summary><strong>{html.escape(route['name'])}</strong><span>{int(route['collected'])}/{int(route['total'])}{' ✓' if route['complete'] else ''}</span></summary><div class="city-business-grid">{''.join(cards)}</div><div class="city-route-reward">{reward_action}</div></details>''')
+    available = int(board["available_reveals"])
+    action = f'''<form class="city-reveal-form" method="post" action="/city-run-reveal"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><button type="submit" {'disabled' if available < 1 or campaign.get('status') != 'active' else ''}>{'Reveal a Business Sticker' if available else 'Earn a Point to Reveal'}</button></form>'''
+    status = "PAUSED" if campaign.get("status") == "paused" else "SEASON LIVE"
+    grand = board.get("grand_reward") or {}
+    grand_claim = board.get("grand_claim") or {}
+    if grand_claim:
+        grand_action = f'''<div class="notice">Grand-prize claim: <strong>{html.escape(str(grand_claim['status']).title())}</strong></div>'''
+    elif board.get("grand_complete") and grand:
+        grand_action = f'''<form method="post" action="/city-run-claim"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><input type="hidden" name="reward_key" value="grand"><button type="submit">Claim the Grand-Prize Vehicle</button></form>'''
+    else:
+        grand_action = '<p class="muted">Collect all 38 businesses to unlock the grand-prize vehicle.</p>'
+    def board_tile(item, route):
+        state = "owned" if item["owned"] else "locked"
+        status = f'{int(item["copies"])} collected' if item["owned"] else "Locked"
+        return f'''<article class="city-board-tile {state}" style="--set-colour:{html.escape(route['colour'], quote=True)}"><img src="/city-art/{html.escape(item['key'], quote=True)}.svg" alt=""><div><strong>{html.escape(item['name'])}</strong><small>{html.escape(status)}</small></div></article>'''
+
+    # The visual board uses a real perimeter layout: 10 tiles across the top,
+    # 9 down each side, and 10 across the bottom (38 total).
+    top, right, left, bottom = board_items[:10], board_items[10:19], board_items[19:28], board_items[28:]
+    reward_tiles = []
+    for route in board["collections"]:
+        reward = route.get("reward") or {}
+        reward_tiles.append(f'''<div class="city-board-reward" style="--set-colour:{html.escape(route['colour'], quote=True)}"><b>{html.escape(route['name'])}</b><small>{int(route['collected'])}/{int(route['total'])} collected</small><span>{html.escape(reward.get('reward_name', 'Route reward'))}</span></div>''')
+    board_markup = f'''<div class="city-board-viewport"><div class="city-board"><div class="city-board-row city-board-top">{''.join(board_tile(i, r) for i, r in top)}</div><div class="city-board-middle"><div class="city-board-column">{''.join(board_tile(i, r) for i, r in left)}</div><div class="city-board-centre"><div class="city-board-title"><small>{status}</small><strong><span>SNR</span><em>CITY RUN</em></strong><p>COLLECT THE CITY • WIN THE RIDE</p></div><div class="city-board-prize"><span>🏎️</span><b>GRAND-PRIZE<br>VEHICLE</b><small>Complete all 38 businesses</small></div><div class="city-board-rewards">{''.join(reward_tiles)}</div></div><div class="city-board-column">{''.join(board_tile(i, r) for i, r in right)}</div></div><div class="city-board-row city-board-bottom">{''.join(board_tile(i, r) for i, r in bottom)}</div></div></div>'''
+    board_art = '''<div class="city-board-art-wrap"><img class="city-board-art" src="/city-run-board.jpg" alt="SNR City Run collection board"><p class="city-board-art-hint">Your collection status is shown below. Tap “View route rewards” to see live collected tiles and claimable rewards.</p></div>'''
+    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-run-hero"><small>{status}</small><strong>Collect the businesses.<br>Win the ride.</strong><span>Every loyalty point gives one secure digital business reveal.</span></div><div class="city-run-score"><div><b>{int(board['unique_collected'])}</b><small>OF 38 COLLECTED</small></div><div><b>{available}</b><small>REVEALS READY</small></div><div><b>{int(board['duplicates'])}</b><small>DUPLICATES</small></div></div>{action}{board_art}<div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
+
+
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
                   accounts: Accounts, raffles: RaffleStore, services: CustomerServices,
+                  city_run: CityRunStore,
                   claim_token: str, order_token: str, security_token: str, raffle_token: str,
-                  service_token: str) -> str:
+                  service_token: str, city_run_token: str) -> str:
     recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
     jackpot = ('''<strong>🏆 YOU HAVE A WINNING GOLDEN TICKET!</strong><br>Your account has won the £5,000 jackpot. Speak to SNR staff to verify and collect the prize.'''
                if int(customer["jackpot_wins"]) else
@@ -632,14 +687,12 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
         service_text, service_class = "BUSY • OPEN", "quick-busy"
     else:
         service_text, service_class = "DELIVERY OPEN", "quick-open"
-    pending_pack = any(row["status"] == "pending" for row in claims.summary(customer["display_name"]))
     points = int(customer["loyalty_points"])
-    can_request = points >= 4 and not pending_pack and claims.configured()
-    pack_label = "Pack Requested — Awaiting Handover" if pending_pack else "Request Pack — 4 Points"
-    pack_hint = "Your request is with staff." if pending_pack else "Ask staff to enable pack requests." if not claims.configured() else f"You need {max(0, 4-points)} more point(s)." if points < 4 else "Extra points stay on your card."
-    request_pack = f'''<form class="home-pack-form" method="post" action="/claim"><input type="hidden" name="claim_request_key" value="{html.escape(claim_token, quote=True)}"><button type="submit" {'disabled' if not can_request else ''}>{pack_label}</button></form><small>{pack_hint}</small>'''
-    progress = min(points, 4)
-    reward_title = "Your reward is ready!" if points >= 4 else f"{4 - points} point(s) to your reward"
+    city_board = city_run.customer_board(customer["customer_key"])
+    city_reveals = int(city_board.get("available_reveals") or 0)
+    city_unique = int(city_board.get("unique_collected") or 0)
+    progress = min(city_unique, 38)
+    reward_title = f"{city_reveals} City Run reveal{'s' if city_reveals != 1 else ''} ready" if city_reveals else "Earn points to reveal businesses"
     latest_orders = orders.summary(customer["customer_key"], 1)
     active_order = next((row for row in latest_orders if row["status"] in ("pending", "accepted", "on_way", "arrived", "ready_for_pickup", "processing")), None)
     top_order = ""
@@ -678,16 +731,11 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
             for index, (code, label) in enumerate(request_choices)
         ) + '</fieldset>'
     help_centre = f'''<details class="action-centre"><summary><strong>💬 Need help from SNR staff?</strong></summary><p class="muted">Send one clear request. It goes straight to the staff Live Actions inbox.</p><form class="live-action-form" method="post" action="/customer-action"><input type="hidden" name="service_request_key" value="{html.escape(service_token, quote=True)}"><input type="hidden" name="order_id" value="{active_id}">{request_picker}<input class="request-message" name="details" maxlength="250" placeholder="Optional: tell staff what you need"><button type="submit">Send to SNR Staff</button></form>{action_history}</details>'''
-    catalog = services.catalog()
-    pending_custom = next((row for row in services.pending_rewards() if row["customer_key"] == customer["customer_key"]), None)
-    reward_cards = "".join(
-        f'''<article class="reward-choice"><strong>{html.escape(row["name"])}</strong><small>{int(row["points_cost"])} points</small><form method="post" action="/reward-choice"><input type="hidden" name="service_request_key" value="{html.escape(service_token, quote=True)}"><input type="hidden" name="reward_code" value="{html.escape(row["code"], quote=True)}"><button type="submit" {'disabled' if pending_custom or points < int(row['points_cost']) else ''}>Request</button></form></article>'''
-        for row in catalog)
     vouchers = services.vouchers(customer["customer_key"])
     voucher_rows = "".join(
         f'''<div class="voucher {'voucher-used' if row['status'] != 'active' else ''}"><strong>{html.escape(row['title'])}</strong><br><code>{html.escape(row['voucher_code'])}</code> · {html.escape(row['status'].title())}</div>'''
         for row in vouchers[:8]) or '<p class="muted">No vouchers yet.</p>'
-    reward_wallet = f'''<section class="app-page quick-more-page"><h2 class="app-page-title">✨ Choose a Reward</h2><div class="drawer-body"><p>Spend your points on the reward you want. Staff approve it once, then it appears in your wallet.</p>{f'<div class="notice">Your {html.escape(pending_custom["reward_name"])} request is awaiting staff.</div>' if pending_custom else ''}<div class="reward-shop">{reward_cards}</div><h3>My voucher wallet</h3>{voucher_rows}</div></section>'''
+    voucher_wallet = f'''<section class="app-page quick-more-page"><h2 class="app-page-title">✨ My Existing Vouchers</h2><div class="drawer-body"><p>Previously issued vouchers stay valid. New loyalty points now power SNR City Run.</p>{voucher_rows}</div></section>'''
     latest_action = action_rows[0] if action_rows else None
     latest_rewards = services.reward_requests(customer["customer_key"], 1)
     latest_reward = latest_rewards[0] if latest_rewards else None
@@ -704,27 +752,26 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
           <div class="card-hardware"><span class="card-chip" aria-hidden="true"></span><span class="card-contactless" aria-hidden="true">)))</span></div>
           <div class="card-balance"><strong>{points}</strong><span>LOYALTY POINTS</span></div>
           <div class="card-number" aria-label="Member card ending {card_suffix}">••••&nbsp; ••••&nbsp; ••••&nbsp; {card_suffix}</div>
-          <div class="store-card-bottom"><span class="card-holder"><small>CARDHOLDER</small><span>{html.escape(customer["display_name"])}</span></span><button class="card-reward" type="button" data-tab-target="rewards"><span><strong>{reward_title}</strong><small>View rewards</small></span><span class="reward-arrow" aria-hidden="true">↗</span></button><span class="card-network" aria-label="SNR Elite membership card"><small>MEMBER</small>SNR <i>ELITE</i></span></div>
-          <div class="member-progress" role="progressbar" aria-label="Loyalty reward progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="{progress}"><span style="width:{progress * 25}%"></span></div>
+          <div class="store-card-bottom"><span class="card-holder"><small>CARDHOLDER</small><span>{html.escape(customer["display_name"])}</span></span><button class="card-reward" type="button" data-tab-target="city-run"><span><strong>{reward_title}</strong><small>Open City Run</small></span><span class="reward-arrow" aria-hidden="true">↗</span></button><span class="card-network" aria-label="SNR Elite membership card"><small>MEMBER</small>SNR <i>ELITE</i></span></div>
+          <div class="member-progress" role="progressbar" aria-label="City Run collection progress" aria-valuemin="0" aria-valuemax="38" aria-valuenow="{progress}"><span style="width:{round(progress / 38 * 100)}%"></span></div>
         </section>
         <div class="member-actions"><button type="button" data-tab-target="order" data-order-mode="pickup"><span>🛍️ Click &amp; Collect</span><small>Order ahead and collect</small></button><button type="button" data-tab-target="order" data-order-mode="delivery" {'disabled aria-disabled="true"' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else ''}><span>🛵 Delivery</span><small>{'Currently unavailable' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else 'SNR Buns to your door'}</small></button></div>
-        <button class="neon-reward-banner" type="button" data-tab-target="rewards"><span aria-hidden="true">♔</span><strong>{points // 4 if points >= 4 else points}<small>{'PACK(S) AVAILABLE' if points >= 4 else 'OF 4 POINTS'}</small></strong><span>{'REWARD READY' if points >= 4 else 'EARN YOUR NEXT REWARD'}<small>{'Choose your reward or request a pack' if points >= 4 else str(4 - points) + ' more points to your next pack'}</small></span><b>›</b></button>
-        <details class="card-tools"><summary>Request a pack · Cards &amp; benefits</summary>{request_pack}<button type="button" class="membership-link" data-tab-target="visits">View cards &amp; benefits ↗</button></details>
+        <button class="neon-reward-banner" type="button" data-tab-target="city-run"><span aria-hidden="true">🏁</span><strong>{city_unique}<small>OF 38 FOUND</small></strong><span>SNR CITY RUN<small>{str(city_reveals) + ' reveal(s) ready' if city_reveals else 'Every point unlocks a business reveal'}</small></span><b>›</b></button>
         <div class="quick-actions"><button type="button" class="quick-action" data-tab-target="raffle"><span>♧</span><strong>Raffle ›</strong></button><button type="button" class="quick-action" data-tab-target="order"><span>▤</span><strong>My orders ›</strong></button><button type="button" class="quick-action" data-tab-target="visits"><span>▥</span><strong>Visits ›</strong></button></div>{leaderboard}
         <div class="order-sync-anchor" hidden>{quick_order}</div>{help_centre}
       </div>
       <div class="app-view" data-app-view="order" role="tabpanel">{delivery_section(customer, orders, shifts, services, order_token)}</div>
       <div class="app-view" data-app-view="raffle" role="tabpanel">{raffle_section(customer, raffles, raffle_token)}</div>
-      <div class="app-view" data-app-view="rewards" role="tabpanel">{claim_section(customer, claims, claim_token)}{reward_wallet}</div>
+      <div class="app-view" data-app-view="city-run" role="tabpanel">{city_run_section(customer, city_run, city_run_token)}</div>
       <div class="app-view" data-app-view="visits" role="tabpanel">
         <div class="quick-metrics"><div><small>MEMBERSHIP</small><strong>{membership["emoji"]} {html.escape(membership["name"])}</strong></div><div><small>Golden tickets</small><strong>🎟️ {int(customer["golden_tickets"])}</strong></div><div><small>VISITS</small><strong>🍔 {int(customer["lifetime_sales"])}</strong></div></div>
         <div class="quick-jackpot"><strong>🎟️ £5,000 Golden Ticket Jackpot</strong><div>{jackpot}</div></div>
-      <div class="grid">{vip}</div>{membership_gallery(membership["name"])}{birthday_box}<section class="app-page quick-more-page" id="history"><h2 class="app-page-title">📋 My Recent Visits</h2><div class="drawer-body">{recent}</div></section><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></div>
+      <div class="grid">{vip}</div>{membership_gallery(membership["name"])}{voucher_wallet}{birthday_box}<section class="app-page quick-more-page" id="history"><h2 class="app-page-title">📋 My Recent Visits</h2><div class="drawer-body">{recent}</div></section><form method="post" action="/logout"><input type="hidden" name="logout" value="1"><button class="secondary" type="submit">Log Out</button></form></div>
       </div>
       <nav class="app-tabs" aria-label="Customer account pages" role="tablist">
         <button class="app-tab" type="button" role="tab" aria-selected="true" data-tab-target="home"><span class="tab-icon">🏠</span>Home</button>
         <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="order"><span class="tab-icon">🍔</span>Order</button>
-        <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="rewards"><span class="tab-icon">🎁</span>Rewards</button>
+        <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="city-run"><span class="tab-icon">🏁</span>City Run</button>
         <button class="app-tab" type="button" role="tab" aria-selected="false" data-tab-target="visits"><span class="tab-icon">☰</span>More</button>
       </nav>
       <script src="/portal.js" defer></script>
@@ -747,8 +794,13 @@ class Limiter:
 
 
 def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
-    limiter, claims, orders, accounts, shifts, raffles, services = (Limiter(), ClaimStore(db), DeliveryStore(db),
-                                                          Accounts(db), StaffShifts(db), RaffleStore(db), CustomerServices(db))
+    limiter, claims, orders, accounts, shifts, raffles, services, city_run = (
+        Limiter(), ClaimStore(db), DeliveryStore(db), Accounts(db), StaffShifts(db),
+        RaffleStore(db), CustomerServices(db), CityRunStore(db)
+    )
+    # Physical card packs are retired. This is idempotent and refunds only
+    # legacy requests whose points had already been reserved.
+    claims.retire_pending()
     form_secret = secrets.token_bytes(32)
 
     def signature(owner: str, token: str) -> str:
@@ -837,8 +889,9 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_html(401, login_page(db.customer_names(), "Please log in to open a loyalty account."))
                 return
             self.send_html(200, customer_page(
-                customer, claims, orders, shifts, accounts, raffles, services, make_form_token(owner),
-                make_form_token(owner), make_form_token(owner), make_form_token(owner), make_form_token(owner)
+                customer, claims, orders, shifts, accounts, raffles, services, city_run,
+                make_form_token(owner), make_form_token(owner), make_form_token(owner),
+                make_form_token(owner), make_form_token(owner), make_form_token(owner)
             ))
 
         def do_GET(self) -> None:  # noqa: N802
@@ -857,6 +910,27 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Content-Type", "image/png")
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(data)
+            elif path == "/city-run-board.jpg":
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(CITY_RUN_BOARD_IMAGE)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(CITY_RUN_BOARD_IMAGE)
+            elif path.startswith("/city-art/") and path.endswith(".svg"):
+                business_key = path.removeprefix("/city-art/").removesuffix(".svg")
+                data = city_business_svg(business_key)
+                if data is None:
+                    self.send_html(404, page("Not found", '<section class="card"><h1>Artwork not found.</h1></section>'))
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(data)
             elif path == "/delivery.js":
@@ -1028,15 +1102,30 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                         owner, data.get("birthday_month", ""), data.get("birthday_day", ""))
                     self.send_html(200, page("Birthday saved", f'''<section class="card"><div class="label">Birthday Reward</div><h1>🎂 {html.escape(result["date"])} saved</h1><p>Your annual <strong>{html.escape(result["reward"] or "birthday reward")}</strong> will appear automatically when it is available.</p><div class="notice">For account security, a newly saved birthday must be on the account for seven days before it can produce a reward.</div><a class="back" href="/account#home">Back to my account</a></section>'''))
                 elif path == "/claim":
+                    raise ValueError(
+                        "Trading-card packs have retired. Your points are protected and now power SNR City Run."
+                    )
+                elif path == "/city-run-reveal":
                     owner = self.owner()
                     if not owner:
                         raise ValueError("Your login has expired. Please log in again.")
-                    key = data.get("claim_request_key", "")
+                    key = data.get("city_run_request_key", "")
                     if not valid_form_token(owner, key):
-                        raise ValueError("This form has expired. Refresh your account and try again.")
-                    result = claims.request_authenticated(owner, key)
-                    message = {"pending": "Your claim has been sent to SNR staff. Visit SNR Buns to collect your pack. Only 4 points will be deducted when staff mark it handed over. Any extra points are kept.", "fulfilled": "Staff marked this pack as handed over and 4 points have been used. Any extra points are kept.", "cancelled": "This claim was cancelled and your points were not changed."}[result["status"]]
-                    self.send_html(200, page("Reward request", f'<section class="card"><h1>Request #{result["id"]}</h1><p>{message}</p><a class="back" href="/account">Back to my account</a></section>'))
+                        raise ValueError("This City Run reveal has expired. Refresh your account and try again.")
+                    result = city_run.reveal_one(owner, key)
+                    duplicate = bool(result["duplicate"])
+                    message = ("Duplicate found — it has been added to your duplicate total."
+                               if duplicate else "New business collected and added to your board!")
+                    self.send_html(200, page("City Run reveal", f'''<section class="card city-reveal-result"><div class="label">🏁 SNR CITY RUN</div><h1>{html.escape(result["business_name"])}</h1><p><strong>{html.escape(result["collection_name"])}</strong> · {html.escape(str(result["rarity"]).replace("_", " ").title())}</p><div class="notice">{html.escape(message)}</div><p>{int(result["reveals_left"])} reveal(s) remaining.</p><a class="back" href="/account#city-run">Back to my City Run board</a></section>'''))
+                elif path == "/city-run-claim":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    key = data.get("city_run_request_key", "")
+                    if not valid_form_token(owner, key):
+                        raise ValueError("This City Run claim has expired. Refresh your account and try again.")
+                    result = city_run.request_reward(owner, data.get("reward_key", ""))
+                    self.send_html(200, page("City Run reward requested", f'''<section class="card"><div class="label">🏁 CITY RUN CLAIM #{int(result["id"])}</div><h1>{html.escape(result["reward_name"])}</h1><p>Your verified collection claim has been sent to SNR staff.</p><div class="notice">Your collected businesses remain safely on your board. Staff will confirm the RP reward in Discord.</div><a class="back" href="/account#city-run">Back to my City Run board</a></section>'''))
                 elif path == "/raffle-request":
                     owner = self.owner()
                     if not owner:

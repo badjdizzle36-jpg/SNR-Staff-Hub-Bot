@@ -5,10 +5,11 @@ from snr_core import utc_now
 
 
 CHANNEL_TYPES = {
+    "announcements": "Owner Announcements",
     "new_accounts": "New Loyalty Accounts",
     "active_orders": "Active Deliveries",
     "completed_orders": "Completed Deliveries",
-    "pack_requests": "Pack Requests",
+    "city_run_claims": "City Run Reward Claims",
     "raffle_requests": "Raffle Number Requests",
     "customer_help": "Customer Help",
     "reward_requests": "Reward Requests",
@@ -66,3 +67,13 @@ class AlertChannels:
         found = {row["alert_type"]: dict(row) for row in rows}
         return [{"alert_type": key, "label": label, "channel_id": found.get(key, {}).get("channel_id")}
                 for key, label in CHANNEL_TYPES.items()]
+
+    def record_owner_announcement(self, guild_id, channel_id, message_id, staff_id, staff_name, title):
+        """Keep a durable audit record; the Discord announcement itself has no deletion timer."""
+        with self.db.connect() as conn:
+            conn.execute("""INSERT INTO audit_log(action,details,staff_id,staff_name,created_at)
+                VALUES(?,?,?,?,?)""", (
+                "discord_owner_announcement_posted",
+                f"guild={guild_id};channel={channel_id};message={message_id};title={title[:80]}",
+                str(staff_id), str(staff_name), utc_now(),
+            ))

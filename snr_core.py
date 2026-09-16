@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from city_run import award_tokens_for_sale, ensure_city_run_schema, reverse_tokens_for_sales
+
 
 JACKPOT_POOL_SIZE = 1000
 
@@ -282,6 +284,9 @@ class SNRDatabase:
                    WHERE reward_type = 'card_pack' AND status = 'unclaimed'""",
                 (utc_now(),),
             )
+            # City Run is seeded in draft mode. It cannot issue packs until an
+            # owner has configured every rarity and reward, then activates it.
+            ensure_city_run_schema(conn, utc_now())
 
     def customer_names(self) -> list[str]:
         with self.connect() as conn:
@@ -430,6 +435,9 @@ class SNRDatabase:
             (sale["id"],),
         ).fetchone()
         jackpot = conn.execute("SELECT * FROM jackpot WHERE id=1").fetchone()
+        city_award = conn.execute(
+            "SELECT amount FROM city_run_token_ledger WHERE source_key=?", (f"sale:{sale['id']}",)
+        ).fetchone()
         return {
             "transaction_id": sale["transaction_id"],
             "customer": {**dict(customer), "membership": self.membership(customer)},
@@ -443,6 +451,7 @@ class SNRDatabase:
             "tickets_issued_in_cycle": int(jackpot["tickets_issued"]),
             "loyalty_awarded": int(sale["loyalty_points"]),
             "tickets_awarded": int(sale["golden_tickets"]),
+            "city_run_reveals_awarded": int(city_award["amount"]) if city_award else 0,
         }
 
     def record_sale(
@@ -545,6 +554,9 @@ class SNRDatabase:
             if int(updated["loyalty_points"]) != new_points_total:
                 raise RuntimeError("The sale was stopped because its loyalty points did not save.")
             current_jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
+            city_run_reveals_awarded = award_tokens_for_sale(
+                conn, sale_id, key, shown, sale_points, now
+            )
 
         return {
             "transaction_id": transaction_id,
@@ -561,6 +573,7 @@ class SNRDatabase:
             "loyalty_before": previous_points_total,
             "loyalty_after": new_points_total,
             "tickets_awarded": sale_tickets,
+            "city_run_reveals_awarded": city_run_reveals_awarded,
         }
 
     def record_sale_quantity(
@@ -659,6 +672,9 @@ class SNRDatabase:
             food = sum(int(row["food"]) for row in rows)
             drinks = sum(int(row["drinks"]) for row in rows)
             now = utc_now()
+            city_run_reveals_removed = reverse_tokens_for_sales(
+                conn, wanted_ids, now, str(staff_id)
+            )
             conn.execute(f"""UPDATE sales SET voided=1,void_reason='Owner undid mistaken counter sale',
                 voided_at=?,voided_by=? WHERE id IN ({marks})""", [now, str(staff_id), *wanted_ids])
             conn.execute("""UPDATE customers SET
@@ -693,13 +709,15 @@ class SNRDatabase:
                             "customer": rows[0]["customer_name"], "quantity": quantity,
                             "points_removed": points, "tickets_removed": tickets,
                             "jackpot_positions_rewound": rewound,
-                            "invalid_pack_claims_cancelled": cancelled_claims}), now))
+                            "invalid_pack_claims_cancelled": cancelled_claims,
+                            "city_run_reveals_removed": city_run_reveals_removed}), now))
         customer = self.get_customer(rows[0]["customer_name"])
         return {"customer": customer, "deal_name": rows[0]["deal_name"], "quantity": quantity,
                 "revenue": revenue, "points_removed": points, "tickets_removed": tickets,
                 "transaction_ids": [row["transaction_id"] for row in rows],
                 "jackpot_positions_rewound": rewound,
-                "invalid_pack_claims_cancelled": cancelled_claims}
+                "invalid_pack_claims_cancelled": cancelled_claims,
+                "city_run_reveals_removed": city_run_reveals_removed}
 
     def get_customer(self, name: str) -> dict[str, Any] | None:
         key = normalize_name(name)
@@ -984,10 +1002,12 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
         )
     if kind == "loyalty":
         return (
-            "⭐🍔 SNR BUNS LOYALTY REWARDS 🍔⭐\n\n"
-            "Purchase our Mega Deal or Share Box to collect loyalty points.\n\n"
-            "Every 4 loyalty points can be redeemed for 1 free pack containing 2 trading cards.\n\n"
-            "Log in to your loyalty webpage to check your points and request your pack, then collect it from SNR Buns!"
+            "🏁🍔 SNR CITY RUN IS COMING 🍔🏁\n\n"
+            "Purchase SNR meal deals to collect loyalty points. Every point gives you one secure "
+            "digital business reveal on the SNR City Run board.\n\n"
+            "Complete business routes for RP food, cash and VIP rewards—and collect all 38 businesses "
+            "for a chance to claim the grand-prize vehicle.\n\n"
+            "Log in to your SNR account to follow your collection."
         )
     if kind == "delivery":
         return (
