@@ -156,6 +156,7 @@ class SNRDatabase:
                     revenue INTEGER NOT NULL DEFAULT 0,
                     food_sold INTEGER NOT NULL DEFAULT 0,
                     drinks_sold INTEGER NOT NULL DEFAULT 0,
+                    leaderboard_excluded INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -234,6 +235,8 @@ class SNRDatabase:
             customer_columns = {row["name"] for row in conn.execute("PRAGMA table_info(customers)")}
             if "vip_override" not in customer_columns:
                 conn.execute("ALTER TABLE customers ADD COLUMN vip_override TEXT")
+            if "leaderboard_excluded" not in customer_columns:
+                conn.execute("ALTER TABLE customers ADD COLUMN leaderboard_excluded INTEGER NOT NULL DEFAULT 0")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS unique_sale_source_ref ON sales(source_ref) WHERE source_ref IS NOT NULL"
             )
@@ -283,6 +286,43 @@ class SNRDatabase:
     def customer_names(self) -> list[str]:
         with self.connect() as conn:
             return [r["display_name"] for r in conn.execute("SELECT display_name FROM customers")]
+
+    def leaderboard_customer_names(self, excluded: bool = False) -> list[str]:
+        """Return customers available for leaderboard removal or restoration."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT display_name FROM customers WHERE leaderboard_excluded=? ORDER BY display_name COLLATE NOCASE",
+                (1 if excluded else 0,),
+            ).fetchall()
+        return [row["display_name"] for row in rows]
+
+    def set_leaderboard_excluded(
+        self, name: str, excluded: bool, staff_id: str, staff_name: str,
+    ) -> dict[str, Any]:
+        """Reversibly remove a customer from the monthly customer chase."""
+        key = normalize_name(name)
+        now = utc_now()
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            customer = conn.execute(
+                "SELECT * FROM customers WHERE customer_key=?", (key,)
+            ).fetchone()
+            if not customer:
+                raise ValueError("Customer not found.")
+            conn.execute(
+                "UPDATE customers SET leaderboard_excluded=?,updated_at=? WHERE customer_key=?",
+                (1 if excluded else 0, now, key),
+            )
+            conn.execute(
+                "INSERT INTO audit_log(action,staff_id,staff_name,details,created_at) VALUES(?,?,?,?,?)",
+                ("leaderboard_customer_excluded" if excluded else "leaderboard_customer_restored",
+                 str(staff_id), staff_name,
+                 json.dumps({"customer": customer["display_name"]}), now),
+            )
+        result = self.get_customer(name)
+        if result is None:
+            raise ValueError("Customer not found.")
+        return result
 
     def recent_customer_names(self, limit: int = 10) -> list[str]:
         """Return recently served customers once each, newest first."""
@@ -751,7 +791,8 @@ class SNRDatabase:
                 """SELECT s.customer_key, c.display_name, COUNT(*) AS purchases,
                           COALESCE(SUM(s.price),0) AS spend
                    FROM sales s JOIN customers c ON c.customer_key=s.customer_key
-                   WHERE s.voided=0 AND s.created_at>=? AND s.created_at<?
+                   WHERE s.voided=0 AND c.leaderboard_excluded=0
+                         AND s.created_at>=? AND s.created_at<?
                    GROUP BY s.customer_key, c.display_name
                    ORDER BY spend DESC, purchases DESC, c.display_name COLLATE NOCASE""",
                 (start_utc, end_utc),
@@ -766,17 +807,33 @@ class SNRDatabase:
         own = None
         if customer_name:
             wanted = normalize_name(customer_name)
-            own = next((dict(row) for row in ranked if row["customer_key"] == wanted), None)
+            with self.connect() as conn:
+                customer_row = conn.execute(
+                    "SELECT display_name,leaderboard_excluded FROM customers WHERE customer_key=?",
+                    (wanted,),
+                ).fetchone()
+            if customer_row and bool(customer_row["leaderboard_excluded"]):
+                own = {"customer_key": wanted, "display_name": customer_row["display_name"],
+                       "rank": 0, "spend": 0, "purchases": 0, "gap_to_next": 0,
+                       "excluded": True}
+            else:
+                own = next((dict(row) for row in ranked if row["customer_key"] == wanted), None)
             if own is None:
                 own = {"customer_key": wanted, "display_name": customer_name, "rank": len(ranked) + 1,
                        "spend": 0, "purchases": 0}
-            if own["rank"] == 1:
+            if own.get("excluded"):
+                pass
+            elif own["rank"] == 1:
                 own["gap_to_next"] = 0
             elif ranked:
                 target = ranked[int(own["rank"]) - 2] if int(own["rank"]) <= len(ranked) else ranked[-1]
                 own["gap_to_next"] = max(0, int(target["spend"]) - int(own["spend"]) + 1)
             else:
                 own["gap_to_next"] = 0
+        with self.connect() as conn:
+            excluded_customers = int(conn.execute(
+                "SELECT COUNT(*) AS count FROM customers WHERE leaderboard_excluded=1"
+            ).fetchone()["count"])
         return {
             "period": current.strftime("%B %Y"),
             "days_left": max(0, (next_month.date() - current.date()).days),
@@ -784,6 +841,7 @@ class SNRDatabase:
             "own": own,
             "total_customers": len(ranked),
             "leader": ranked[0] if ranked else None,
+            "excluded_customers": excluded_customers,
         }
 
     def report(self, days: int | None = None, today: bool = False) -> dict[str, Any]:

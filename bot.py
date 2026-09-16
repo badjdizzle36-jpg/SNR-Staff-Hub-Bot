@@ -313,8 +313,39 @@ def customer_leaderboard_embed() -> discord.Embed:
         value="The final #1 customer qualifies for the monthly prize. Owner/staff confirm the winner and prize handover.",
         inline=False,
     )
-    embed.set_footer(text="Confirmed non-voided sales only • Automatically resets each calendar month")
+    excluded = int(board.get("excluded_customers", 0))
+    embed.set_footer(text=("Confirmed non-voided sales only • Automatically resets each calendar month"
+                           + (f" • {excluded} owner-excluded" if excluded else "")))
     return embed
+
+
+class LeaderboardManagementView(discord.ui.View):
+    """Owner-only controls that keep test accounts out of the monthly chase."""
+
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="Remove Person", emoji="➖", style=discord.ButtonStyle.danger)
+    async def exclude_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_owner(interaction):
+            await show_customer_picker(interaction, "leaderboard_exclude")
+
+    @discord.ui.button(label="Put Person Back", emoji="➕", style=discord.ButtonStyle.success)
+    async def restore_customer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await require_owner(interaction):
+            return
+        if not db.leaderboard_customer_names(excluded=True):
+            await send_ephemeral(
+                interaction, "ℹ️ Nobody is currently removed from the leaderboard.",
+                view=LeaderboardManagementView())
+            return
+        await show_customer_picker(interaction, "leaderboard_restore")
+
+    @discord.ui.button(label="Refresh Table", emoji="🔄", style=discord.ButtonStyle.secondary)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if await require_owner(interaction):
+            await send_ephemeral(
+                interaction, embed=customer_leaderboard_embed(), view=LeaderboardManagementView())
 
 
 def sale_embed(result: dict) -> discord.Embed:
@@ -497,6 +528,23 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
             "You will receive a private, one-use reset link to give only to that customer."
         )
         await send_ephemeral(interaction, message, view=PasswordResetConfirmView(customer['display_name']))
+    elif action in ("leaderboard_exclude", "leaderboard_restore"):
+        if not await require_owner(interaction):
+            return
+        exclude = action == "leaderboard_exclude"
+        try:
+            updated = db.set_leaderboard_excluded(
+                customer["display_name"], exclude, str(interaction.user.id), str(interaction.user))
+        except ValueError as exc:
+            await send_ephemeral(interaction, f"❌ {exc}")
+            return
+        verb = "removed from" if exclude else "restored to"
+        await send_ephemeral(
+            interaction,
+            f"✅ **{discord.utils.escape_markdown(updated['display_name'])}** has been {verb} the monthly leaderboard.\n"
+            "Their account, points, membership and sales history have not been changed.",
+            view=LeaderboardManagementView(),
+        )
     elif action == "check":
         await send_ephemeral(interaction, embed=customer_embed(customer))
     elif action == "vip":
@@ -527,7 +575,9 @@ class NameModal(discord.ui.Modal):
 
     def __init__(self, action: str):
         titles = {"sale": "Record Sale", "account_create": "Create Website Account",
-                  "account_reset": "Reset Website Password", "raffle_manual": "Add Paid Raffle Entry"}
+                  "account_reset": "Reset Website Password", "raffle_manual": "Add Paid Raffle Entry",
+                  "leaderboard_exclude": "Remove From Leaderboard",
+                  "leaderboard_restore": "Restore To Leaderboard"}
         super().__init__(title=titles.get(action, "Find Customer"))
         self.action = action
 
@@ -579,7 +629,12 @@ class CustomerPickerView(discord.ui.View):
     def __init__(self, action, page=0):
         super().__init__(timeout=180)
         self.action = action
-        self.names = sorted(db.customer_names(), key=normalize_name)
+        if action == "leaderboard_exclude":
+            self.names = db.leaderboard_customer_names(excluded=False)
+        elif action == "leaderboard_restore":
+            self.names = db.leaderboard_customer_names(excluded=True)
+        else:
+            self.names = sorted(db.customer_names(), key=normalize_name)
         self.debts = orders.outstanding_debt_map()
         self.memberships = db.vip_membership_map()
         self.page = max(0, min(page, max(0, (len(self.names) - 1) // 25)))
@@ -632,8 +687,10 @@ async def show_customer_picker(interaction, action):
     try:
         view = CustomerPickerView(action)
         count = len(view.names)
+        purpose = ({"leaderboard_exclude": "remove from the monthly leaderboard",
+                    "leaderboard_restore": "put back on the monthly leaderboard"}.get(action, "select"))
         message = (
-            f"Choose a customer from the list ({count} saved), or use **Type / Suggest Name**. "
+            f"Choose a customer to {purpose} ({count} available), or use **Type / Suggest Name**. "
             + ("Use **Recent customers** at the top for the quickest sale. " if action == "sale" else "") +
             "Use **Previous Names** and **Next Names** to move through every saved customer. "
             "Typed names still correct capitals and suggest close spellings."
@@ -1270,6 +1327,12 @@ class OwnerAdminView(discord.ui.View):
         if not await require_owner(interaction):
             return
         await send_ephemeral(interaction, channel_setup_text(interaction.guild_id), view=ChannelSetupView())
+
+    @discord.ui.button(label="Manage Leaderboard", emoji="🏆", style=discord.ButtonStyle.primary, row=3)
+    async def manage_leaderboard(self, interaction, button):
+        if await require_owner(interaction):
+            await send_ephemeral(
+                interaction, embed=customer_leaderboard_embed(), view=LeaderboardManagementView())
 
     @discord.ui.button(label="Set Bot Logo", emoji="🖼️", style=discord.ButtonStyle.secondary)
     async def set_bot_logo(self, interaction, button):
@@ -2079,7 +2142,9 @@ class MoreToolsView(discord.ui.View):
     @discord.ui.button(label="Customer Leaderboard", emoji="🏆", style=discord.ButtonStyle.primary, row=1)
     async def customer_leaderboard(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if await require_staff(interaction):
-            await send_ephemeral(interaction, embed=customer_leaderboard_embed())
+            await send_ephemeral(
+                interaction, embed=customer_leaderboard_embed(),
+                view=LeaderboardManagementView() if is_owner(interaction) else None)
 
 
 class StaffPanel(discord.ui.View):

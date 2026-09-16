@@ -4,6 +4,7 @@ This is the standalone staff-only Discord bot and customer loyalty website. It k
 
 ## Latest features
 
+- **Owner-managed monthly leaderboard:** open **More Tools → Customer Leaderboard** or **Owner Admin → Manage Leaderboard** to remove testing accounts from the monthly chase and restore them later. This never deletes their account, points, membership or sales history.
 - **Smaller premium loyalty card:** the Home card now keeps its credit-card proportions while using much less screen space—310px wide on normal phones and 286px on compact phones—with the points, chip, cardholder and reward progress still readable.
 - **SNR Champions monthly leaderboard:** the website shows a fun top-five customer chase, the logged-in customer's position, exact spend needed to overtake the next place, and days remaining. Staff can open the top ten from **More Tools → Customer Leaderboard**, while the owner dashboard shows the current leader. Rankings use confirmed, non-voided spend and reset automatically each London calendar month. The final #1 customer qualifies for the monthly giveaway, with staff confirming the prize handover.
 

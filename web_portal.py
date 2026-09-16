@@ -571,7 +571,9 @@ def leaderboard_section(board: dict) -> str:
         for row in board["rows"][:5]
     ) or '<li class="leader-empty">Make the first purchase this month and take the crown!</li>'
     own = board.get("own")
-    if own and int(own["rank"]) == 1:
+    if own and own.get("excluded"):
+        chase = "Your account is not taking part in this month’s customer chase. Your loyalty points and membership still work normally."
+    elif own and int(own["rank"]) == 1:
         chase = "👑 You are leading! Keep your crown until the month ends."
     elif own and int(own["gap_to_next"]) > 0:
         chase = (f'''You are <strong>#{int(own["rank"])}</strong> with <strong>£{int(own["spend"]):,}</strong>. '''

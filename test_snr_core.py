@@ -62,6 +62,23 @@ class TestSNRCore(unittest.TestCase):
         self.assertEqual(board["own"]["gap_to_next"], 851)
         self.assertNotIn("Voided Customer", [row["display_name"] for row in board["rows"]])
 
+    def test_owner_can_remove_and_restore_customer_from_monthly_leaderboard(self):
+        self.db.record_sale("Real Customer", "mega_deal", "1", "Staff")
+        self.db.record_sale("Test Account", "share_box", "1", "Staff")
+        self.assertEqual(self.db.monthly_leaderboard(limit=10)["leader"]["display_name"], "Test Account")
+
+        removed = self.db.set_leaderboard_excluded("Test Account", True, "99", "Owner")
+        self.assertEqual(removed["leaderboard_excluded"], 1)
+        board = self.db.monthly_leaderboard("Test Account", limit=10)
+        self.assertEqual([row["display_name"] for row in board["rows"]], ["Real Customer"])
+        self.assertTrue(board["own"]["excluded"])
+        self.assertEqual(board["excluded_customers"], 1)
+        self.assertEqual(self.db.leaderboard_customer_names(excluded=True), ["Test Account"])
+
+        restored = self.db.set_leaderboard_excluded("Test Account", False, "99", "Owner")
+        self.assertEqual(restored["leaderboard_excluded"], 0)
+        self.assertEqual(self.db.monthly_leaderboard(limit=10)["leader"]["display_name"], "Test Account")
+
     def test_simultaneous_counter_sales_cannot_lose_loyalty_points(self):
         def record(index):
             return self.db.record_sale(
