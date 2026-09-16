@@ -191,6 +191,14 @@ def ensure_city_run_schema(conn, now: str) -> None:
             request_key TEXT,
             revealed_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS city_run_corner_awards (
+            campaign_id INTEGER NOT NULL REFERENCES city_run_campaigns(id),
+            customer_key TEXT NOT NULL,
+            corner_key TEXT NOT NULL,
+            bonus_reveals INTEGER NOT NULL DEFAULT 0,
+            awarded_at TEXT NOT NULL,
+            PRIMARY KEY(campaign_id, customer_key, corner_key)
+        );
         CREATE INDEX IF NOT EXISTS city_run_pack_owner
             ON city_run_packs(campaign_id,customer_key,status);
         CREATE INDEX IF NOT EXISTS city_run_claim_status
@@ -341,6 +349,18 @@ def award_tokens_for_sale(conn, sale_id: int, customer_key: str, customer_name: 
     return amount
 
 
+CORNER_RULES = (
+    {"key": "start", "name": "Start Your Run", "threshold": 1, "bonus": 0,
+     "description": "Your first qualifying meal starts your City Run board."},
+    {"key": "route_pack", "name": "Open a Route Pack", "threshold": 8, "bonus": 2,
+     "description": "Collect 8 different businesses to unlock two bonus reveals."},
+    {"key": "pit_stop", "name": "Pit Stop Bonus", "threshold": 18, "bonus": 3,
+     "description": "Collect 18 different businesses to unlock three bonus reveals."},
+    {"key": "garage", "name": "Grand Prize Garage", "threshold": 38, "bonus": 0,
+     "description": "Collect all 38 businesses to unlock the grand-prize vehicle claim."},
+)
+
+
 def reverse_tokens_for_sales(conn, sale_ids: list[int], now: str, staff_id: str) -> int:
     """Reverse reveal credits when an owner safely reverses the source sale."""
     if not sale_ids:
@@ -439,6 +459,42 @@ class CityRunStore:
             ).fetchone()[0])
         return result
 
+    def _sync_corner_awards(self, campaign: dict[str, Any], customer_key: str,
+                            customer_name: str, unique_collected: int) -> None:
+        """Award one-time corner bonuses when a customer reaches the milestone."""
+        from snr_core import utc_now
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for rule in CORNER_RULES:
+                if unique_collected < int(rule["threshold"]):
+                    continue
+                source = conn.execute(
+                    "SELECT 1 FROM city_run_corner_awards WHERE campaign_id=? AND customer_key=? AND corner_key=?",
+                    (campaign["id"], customer_key, rule["key"]),
+                ).fetchone()
+                if source:
+                    continue
+                now = utc_now()
+                bonus = int(rule["bonus"])
+                conn.execute(
+                    "INSERT INTO city_run_corner_awards(campaign_id,customer_key,corner_key,bonus_reveals,awarded_at) VALUES(?,?,?,?,?)",
+                    (campaign["id"], customer_key, rule["key"], bonus, now),
+                )
+                if bonus:
+                    ledger_key = f"corner:{campaign['id']}:{customer_key}:{rule['key']}"
+                    conn.execute(
+                        "INSERT OR IGNORE INTO city_run_token_ledger(campaign_id,customer_key,customer_name,source_key,amount,created_at) VALUES(?,?,?,?,?,?)",
+                        (campaign["id"], customer_key, customer_name, ledger_key, bonus, now),
+                    )
+                    if conn.execute("SELECT changes()").fetchone()[0]:
+                        conn.execute(
+                            """INSERT INTO city_run_tokens(campaign_id,customer_key,customer_name,available,lifetime_earned,lifetime_used,updated_at)
+                               VALUES(?,?,?,?,?,0,?) ON CONFLICT(campaign_id,customer_key) DO UPDATE SET
+                               available=available+excluded.available,lifetime_earned=lifetime_earned+excluded.lifetime_earned,
+                               customer_name=excluded.customer_name,updated_at=excluded.updated_at""",
+                            (campaign["id"], customer_key, customer_name, bonus, bonus, now),
+                        )
+
     def customer_board(self, customer_key: str) -> dict[str, Any]:
         campaign = self.current()
         if not campaign:
@@ -451,6 +507,13 @@ class CityRunStore:
                    WHERE c.campaign_id=? AND c.customer_key=?""",
                 (campaign["id"], customer_key),
             ).fetchall()}
+            customer_name = conn.execute(
+                "SELECT display_name FROM customers WHERE customer_key=?", (customer_key,)
+            ).fetchone()
+            unique_collected = len(cards)
+            if customer_name:
+                # Corner milestones are idempotent and are awarded once per season.
+                pass
             token_row = conn.execute(
                 """SELECT available,lifetime_earned,lifetime_used FROM city_run_tokens
                    WHERE campaign_id=? AND customer_key=?""",
@@ -464,6 +527,13 @@ class CityRunStore:
                 """SELECT * FROM city_run_rewards WHERE campaign_id=? AND active=1""",
                 (campaign["id"],),
             ).fetchall()}
+        if campaign.get("status") == "active" and customer_name:
+            self._sync_corner_awards(campaign, customer_key, customer_name["display_name"], len(cards))
+            with self.db.connect() as conn:
+                token_row = conn.execute(
+                    "SELECT available,lifetime_earned,lifetime_used FROM city_run_tokens WHERE campaign_id=? AND customer_key=?",
+                    (campaign["id"], customer_key),
+                ).fetchone()
         groups = []
         for key, details in COLLECTIONS.items():
             items = []
@@ -476,6 +546,13 @@ class CityRunStore:
                            "items": items, "collected": sum(1 for item in items if item["owned"]),
                            "total": len(items), "complete": all(item["owned"] for item in items),
                            "reward": rewards.get(key), "claim": claims.get(key)})
+        awarded_corners = set()
+        with self.db.connect() as conn:
+            awarded_corners = {row["corner_key"] for row in conn.execute(
+                "SELECT corner_key FROM city_run_corner_awards WHERE campaign_id=? AND customer_key=?",
+                (campaign["id"], customer_key),
+            ).fetchall()}
+        corners = [{**rule, "unlocked": rule["key"] in awarded_corners or len(cards) >= int(rule["threshold"])} for rule in CORNER_RULES]
         return {"campaign": campaign, "collections": groups,
                 "available_reveals": int(token_row["available"]) if token_row else 0,
                 "lifetime_reveals": int(token_row["lifetime_earned"]) if token_row else 0,
@@ -483,6 +560,7 @@ class CityRunStore:
                 "unique_collected": len(cards),
                 "duplicates": sum(max(0, int(row["copies_owned"]) - 1) for row in cards.values()),
                 "total_businesses": len(BUSINESSES), "grand_reward": rewards.get("grand"),
+                "corners": corners,
                 "grand_claim": claims.get("grand"), "grand_complete": len(cards) == len(BUSINESSES)}
 
     def reveal_one(self, customer_key: str, request_key: str | None = None) -> dict[str, Any]:
@@ -520,11 +598,6 @@ class CityRunStore:
             ).fetchone()
             if not token or int(token["available"]) < 1:
                 raise ValueError("You need a City Run point before revealing another business.")
-            customer = conn.execute(
-                "SELECT loyalty_points FROM customers WHERE customer_key=?", (key,)
-            ).fetchone()
-            if not customer or int(customer["loyalty_points"]) < 1:
-                raise ValueError("Your loyalty-point balance needs to refresh before another reveal.")
             rows = conn.execute(
                 """SELECT i.business_key,i.rarity,i.total_available,i.issued_count
                    FROM city_run_inventory i JOIN city_run_businesses b USING(business_key)
@@ -545,13 +618,6 @@ class CityRunStore:
                    updated_at=? WHERE campaign_id=? AND customer_key=? AND available>=1""",
                 (now, campaign["id"], key),
             )
-            changed = conn.execute(
-                """UPDATE customers SET loyalty_points=loyalty_points-1,updated_at=?
-                   WHERE customer_key=? AND loyalty_points>=1""",
-                (now, key),
-            )
-            if changed.rowcount != 1:
-                raise RuntimeError("The reveal was stopped because the loyalty balance could not be verified.")
             conn.execute(
                 """UPDATE city_run_inventory SET issued_count=issued_count+1
                    WHERE campaign_id=? AND business_key=?""",
@@ -806,8 +872,8 @@ class CityRunStore:
                     "Set the private City Run Reward Claims channel before starting the season."
                 )
             now = utc_now()
-            # Carry every current loyalty balance into City Run without
-            # removing or resetting any customer points.
+            # Move every current loyalty balance into City Run stickers, then
+            # clear the old account points so customers have one progress system.
             customers = conn.execute(
                 "SELECT customer_key,display_name,loyalty_points FROM customers WHERE loyalty_points>0"
             ).fetchall()
@@ -833,6 +899,10 @@ class CityRunStore:
                         (campaign["id"], customer["customer_key"], customer["display_name"],
                          amount, amount, now),
                     )
+                conn.execute(
+                    "UPDATE customers SET loyalty_points=0,updated_at=? WHERE customer_key=?",
+                    (now, customer["customer_key"]),
+                )
             conn.execute(
                 "UPDATE city_run_campaigns SET status='active',activated_at=?,starts_at=? WHERE id=?",
                 (now, now, campaign["id"]),

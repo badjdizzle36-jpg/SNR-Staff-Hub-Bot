@@ -142,6 +142,12 @@ class SNRDatabase:
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    def _city_run_active(self) -> bool:
+        with self.connect() as conn:
+            return bool(conn.execute(
+                "SELECT 1 FROM city_run_campaigns WHERE status='active' ORDER BY id DESC LIMIT 1"
+            ).fetchone())
+
     def _initialize(self) -> None:
         with self.connect() as conn:
             conn.executescript(
@@ -480,7 +486,13 @@ class SNRDatabase:
             shown = customer["display_name"]
 
             vip = vip_level_for_sales(int(customer["lifetime_sales"]) + 1, customer["vip_override"])
-            sale_points = deal.loyalty_points + int(vip["bonus_points"])
+            city_run_active = bool(conn.execute(
+                "SELECT 1 FROM city_run_campaigns WHERE status='active' ORDER BY id DESC LIMIT 1"
+            ).fetchone())
+            earned_stickers = deal.loyalty_points + int(vip["bonus_points"])
+            # Once City Run is live, qualifying meals award City Run stickers
+            # only; legacy account points no longer increase.
+            sale_points = 0 if city_run_active else earned_stickers
             sale_tickets = deal.golden_tickets + int(vip["bonus_tickets"])
             previous_points_total = int(customer["loyalty_points"])
             new_points_total = previous_points_total + sale_points
@@ -555,7 +567,7 @@ class SNRDatabase:
                 raise RuntimeError("The sale was stopped because its loyalty points did not save.")
             current_jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
             city_run_reveals_awarded = award_tokens_for_sale(
-                conn, sale_id, key, shown, sale_points, now
+                conn, sale_id, key, shown, earned_stickers if city_run_active else 0, now
             )
 
         return {
@@ -570,6 +582,7 @@ class SNRDatabase:
             "jackpot_cycle": int(current_jackpot["cycle"]),
             "tickets_issued_in_cycle": int(current_jackpot["tickets_issued"]),
             "loyalty_awarded": sale_points,
+            "city_run_stickers_awarded": city_run_reveals_awarded,
             "loyalty_before": previous_points_total,
             "loyalty_after": new_points_total,
             "tickets_awarded": sale_tickets,
@@ -593,7 +606,7 @@ class SNRDatabase:
         winners = [result for result in results if result["jackpot_won"]]
         total_points = sum(int(result["loyalty_awarded"]) for result in results)
         base_points = DEALS[deal_key].loyalty_points * amount
-        if total_points < base_points:
+        if not self._city_run_active() and total_points < base_points:
             raise RuntimeError("The full quantity loyalty reward was not recorded.")
         return {
             **results[-1],
