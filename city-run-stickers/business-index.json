@@ -1,0 +1,344 @@
+[
+  {
+    "business_id": "food-1",
+    "business": "SNR Buns Restaurant",
+    "collection": "Food & Cafes",
+    "file": "food-1_snr-buns-restaurant.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "ultra_rare"
+  },
+  {
+    "business_id": "food-2",
+    "business": "Kebab King Restaurant",
+    "collection": "Food & Cafes",
+    "file": "food-2_kebab-king-restaurant.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "food-3",
+    "business": "Casey's Diner",
+    "collection": "Food & Cafes",
+    "file": "food-3_casey-s-diner.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "food-4",
+    "business": "Pizza This",
+    "collection": "Food & Cafes",
+    "file": "food-4_pizza-this.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "food-5",
+    "business": "UwU Cafe",
+    "collection": "Food & Cafes",
+    "file": "food-5_uwu-cafe.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "nightlife-1",
+    "business": "Bahamamamas",
+    "collection": "Nightlife",
+    "file": "nightlife-1_bahamamamas.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "rare"
+  },
+  {
+    "business_id": "nightlife-2",
+    "business": "Three Hawkers Pub",
+    "collection": "Nightlife",
+    "file": "nightlife-2_three-hawkers-pub.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "nightlife-3",
+    "business": "Tropical Heights Nightclub",
+    "collection": "Nightlife",
+    "file": "nightlife-3_tropical-heights-nightclub.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "nightlife-4",
+    "business": "Club 77 Nightclub",
+    "collection": "Nightlife",
+    "file": "nightlife-4_club-77-nightclub.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "nightlife-5",
+    "business": "Tequi-la-la Bar",
+    "collection": "Nightlife",
+    "file": "nightlife-5_tequi-la-la-bar.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "mechanics-1",
+    "business": "Benny's Customs Mechanics",
+    "collection": "Mechanics & Recovery",
+    "file": "mechanics-1_benny-s-customs-mechanics.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "rare"
+  },
+  {
+    "business_id": "mechanics-2",
+    "business": "Titan Recovery & Parts",
+    "collection": "Mechanics & Recovery",
+    "file": "mechanics-2_titan-recovery-parts.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "mechanics-3",
+    "business": "Cruzin Mechanics",
+    "collection": "Mechanics & Recovery",
+    "file": "mechanics-3_cruzin-mechanics.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "mechanics-4",
+    "business": "Tuning Bar Mechanics",
+    "collection": "Mechanics & Recovery",
+    "file": "mechanics-4_tuning-bar-mechanics.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "mechanics-5",
+    "business": "Route 68 Mechanics",
+    "collection": "Mechanics & Recovery",
+    "file": "mechanics-5_route-68-mechanics.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "mechanics-6",
+    "business": "Bobs Big Tow",
+    "collection": "Mechanics & Recovery",
+    "file": "mechanics-6_bobs-big-tow.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "motors-1",
+    "business": "Perlah Motorcycle Dealer",
+    "collection": "Motors & Transport",
+    "file": "motors-1_perlah-motorcycle-dealer.png",
+    "width": 940,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "motors-2",
+    "business": "Route 68 Car Dealer",
+    "collection": "Motors & Transport",
+    "file": "motors-2_route-68-car-dealer.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "rare"
+  },
+  {
+    "business_id": "motors-3",
+    "business": "Unmatched Taxis",
+    "collection": "Motors & Transport",
+    "file": "motors-3_unmatched-taxis.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "motors-4",
+    "business": "GoPostal",
+    "collection": "Motors & Transport",
+    "file": "motors-4_gopostal.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "shops-1",
+    "business": "Pawn Shop",
+    "collection": "Shops",
+    "file": "shops-1_pawn-shop.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "shops-2",
+    "business": "Route 68 Pawn",
+    "collection": "Shops",
+    "file": "shops-2_route-68-pawn.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "shops-3",
+    "business": "UM Comic Store",
+    "collection": "Shops",
+    "file": "shops-3_um-comic-store.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "shops-4",
+    "business": "Pharmacy",
+    "collection": "Shops",
+    "file": "shops-4_pharmacy.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "shops-5",
+    "business": "Jeweled Dragon",
+    "collection": "Shops",
+    "file": "shops-5_jeweled-dragon.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "rare"
+  },
+  {
+    "business_id": "luxury-1",
+    "business": "Vankov Jewellery",
+    "collection": "Luxury & Leisure",
+    "file": "luxury-1_vankov-jewellery.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "luxury-2",
+    "business": "Diamond Casino",
+    "collection": "Luxury & Leisure",
+    "file": "luxury-2_diamond-casino.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "rare"
+  },
+  {
+    "business_id": "luxury-3",
+    "business": "Pearls Resort",
+    "collection": "Luxury & Leisure",
+    "file": "luxury-3_pearls-resort.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "finance-1",
+    "business": "Dynasty8 Real Estate",
+    "collection": "Finance & Property",
+    "file": "finance-1_dynasty8-real-estate.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "finance-2",
+    "business": "MBU Finance Group",
+    "collection": "Finance & Property",
+    "file": "finance-2_mbu-finance-group.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "rare"
+  },
+  {
+    "business_id": "finance-3",
+    "business": "Unmatched Vehicle Finance",
+    "collection": "Finance & Property",
+    "file": "finance-3_unmatched-vehicle-finance.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "finance-4",
+    "business": "Vercotti Group",
+    "collection": "Finance & Property",
+    "file": "finance-4_vercotti-group.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "services-1",
+    "business": "Unmatched Police Department",
+    "collection": "Public Services",
+    "file": "services-1_unmatched-police-department.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "services-2",
+    "business": "Unmatched Health Service",
+    "collection": "Public Services",
+    "file": "services-2_unmatched-health-service.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "services-3",
+    "business": "Unmatched Fire Brigade",
+    "collection": "Public Services",
+    "file": "services-3_unmatched-fire-brigade.png",
+    "width": 941,
+    "height": 1671,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "services-4",
+    "business": "Unmatched Search & Rescue",
+    "collection": "Public Services",
+    "file": "services-4_unmatched-search-rescue.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "services-5",
+    "business": "Unmatched Court Services",
+    "collection": "Public Services",
+    "file": "services-5_unmatched-court-services.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "common"
+  },
+  {
+    "business_id": "services-6",
+    "business": "Unmatched City Hall",
+    "collection": "Public Services",
+    "file": "services-6_unmatched-city-hall.png",
+    "width": 941,
+    "height": 1672,
+    "recommended_rarity": "ultra_rare"
+  }
+]

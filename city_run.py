@@ -64,7 +64,7 @@ APPROVED_REWARDS = {
 }
 
 RECOMMENDED_RARE_PIECES = {
-    "food-1": ("rare", 20),                 # SNR Buns Restaurant
+    "food-1": ("ultra_rare", 20),           # SNR Buns Restaurant; stock unchanged
     "nightlife-1": ("rare", 15),           # Bahamamamas
     "mechanics-1": ("rare", 10),           # Benny's Customs
     "motors-2": ("rare", 8),               # Route 68 Car Dealer
@@ -253,6 +253,35 @@ def ensure_city_run_schema(conn, now: str) -> None:
                VALUES(?,?,?,?,?,?,?)""",
             (campaign_id, reward_key, *values),
         )
+    migrate_snr_rarity(conn, now)
+
+
+def migrate_snr_rarity(conn, now):
+    """One-time approved change; never reset ownership, issued stock or rewards."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS city_run_migrations
+                    (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)""")
+    marker = "snr_ultra_uwu_common_v1"
+    if conn.execute("SELECT 1 FROM city_run_migrations WHERE name=?", (marker,)).fetchone():
+        return
+    rows = conn.execute("""SELECT i.* FROM city_run_inventory i
+        JOIN city_run_campaigns c ON c.id=i.campaign_id
+        WHERE c.status IN ('draft','active','paused')
+        AND i.business_key IN ('food-1','food-5') AND i.rarity != 'unassigned'""").fetchall()
+    changes = []
+    for row in rows:
+        rarity = 'ultra_rare' if row['business_key'] == 'food-1' else 'common'
+        # Common pieces have no stock cap. Retain SNR's existing cap, including
+        # an exhausted cap; do not mint new stock by lowering issued_count.
+        cap = row['total_available'] if row['business_key'] == 'food-1' else None
+        if row['rarity'] == rarity and row['total_available'] == cap:
+            continue
+        conn.execute("""UPDATE city_run_inventory SET rarity=?,total_available=?
+            WHERE campaign_id=? AND business_key=?""",
+            (rarity, cap, row['campaign_id'], row['business_key']))
+        changes.append({'before': dict(row), 'rarity': rarity, 'total_available': cap})
+    conn.execute("INSERT INTO city_run_migrations VALUES(?,?)", (marker, now))
+    conn.execute("INSERT INTO audit_log(action,details,created_at) VALUES(?,?,?)",
+                 (marker, json.dumps(changes), now))
 
 
 def _weighted_choice(rows, owned_keys: set[str] | None = None) -> Any:

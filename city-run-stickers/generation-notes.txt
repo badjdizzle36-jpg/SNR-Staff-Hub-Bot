@@ -1,0 +1,83 @@
+Generated and edited using the built-in image generation tool. Individual photo-style illustrations, not literal server screenshots or exact reproductions of the original board tiles. Native dimensions are recorded in business-index.csv. These are not 4K assets and have not been artificially enlarged. SNR Buns is labelled ULTRA RARE and UwU Cafe COMMON; other images retain their existing artwork. Recommended rarity metadata is not a live database export. This artwork-only archive does not change drop settings; use the accompanying GitHub update for code and migration.
+
+Style brief: centred portrait sticker, metallic gold and collection-colour frame, cinematic dusk architecture or vehicles, black nameplate.
+
+Prompts:
+[
+  {
+    "business": "SNR Buns Restaurant",
+    "prompt": "Preserve SNR Buns Restaurant sticker scene and name; add ULTRA RARE badge in lower nameplate."
+  },
+  {
+    "business": "UwU Cafe",
+    "prompt": "Preserve UwU Cafe sticker scene and name; add COMMON badge in lower nameplate."
+  },
+  {
+    "business": "Bobs Big Tow",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nBusiness name exactly 'Bobs Big Tow'. Blue collection border. Scene: large red heavy tow truck with chrome detailing outside a recovery depot at dusk, centred truck and well-lit Bobs Big Tow sign. Entire vehicle and frame visible."
+  },
+  {
+    "business": "Route 68 Pawn",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Route 68 Pawn\". Border colour: #45d97b. Scene: rustic desert roadside pawn storefront with Route 68 sign, guitars and collectibles."
+  },
+  {
+    "business": "UM Comic Store",
+    "prompt": "Create a single portrait 9:16 collectible business card. High quality architectural illustration of a welcoming comic book store exterior at sunset, empty pavement, warm window lights, shelves of plain colourful books, no people, no characters or cover illustrations. Readable storefront sign 'UM Comic Store'. Thin green and gold decorative frame. Black bottom nameplate with exact gold text 'UM Comic Store' and small 'SNR CITY RUN'. Entire card centred and visible. Realistic architectural materials and attractive evening reflections. One card only."
+  },
+  {
+    "business": "Pharmacy",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Pharmacy\". Border colour: #45d97b. Scene: modern pharmacy storefront, clearly glowing GREEN pharmacy cross and medicine shelves."
+  },
+  {
+    "business": "Jeweled Dragon",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Jeweled Dragon\". Border colour: #45d97b. Scene: ornate golden jeweled dragon sculpture in a red-and-gold shop display."
+  },
+  {
+    "business": "Vankov Jewellery",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Vankov Jewellery\". Border colour: #f4c969. Scene: luxury jewellery boutique with gold-lit necklaces diamonds and watches in window."
+  },
+  {
+    "business": "Diamond Casino",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Diamond Casino\". Border colour: #f4c969. Scene: glamorous diamond casino tower with fountains and palm trees at night."
+  },
+  {
+    "business": "Pearls Resort",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Pearls Resort\". Border colour: #f4c969. Scene: elegant waterfront resort with illuminated swimming pool palm trees and ocean."
+  },
+  {
+    "business": "Dynasty8 Real Estate",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Dynasty8 Real Estate\". Border colour: #20d6d0. Scene: green-branded real estate office with property listings in window."
+  },
+  {
+    "business": "MBU Finance Group",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"MBU Finance Group\". Border colour: #20d6d0. Scene: luxury finance headquarters office, MBU lettering on modern facade."
+  },
+  {
+    "business": "Unmatched Vehicle Finance",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched Vehicle Finance\". Border colour: #20d6d0. Scene: modern vehicle finance office with silver luxury coupe in foreground."
+  },
+  {
+    "business": "Unmatched Police Department",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched Police Department\". Border colour: silver-white. Scene: police patrol SUV outside modern police department, blue emergency lights."
+  },
+  {
+    "business": "Unmatched Health Service",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched Health Service\". Border colour: silver-white. Scene: modern hospital with glowing blue H sign and ambulance bay."
+  },
+  {
+    "business": "Unmatched Fire Brigade",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched Fire Brigade\". Border colour: silver-white. Scene: red fire engine outside fire station."
+  },
+  {
+    "business": "Unmatched Search & Rescue",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched Search & Rescue\". Border colour: silver-white. Scene: red rescue helicopter on helipad with mountain skyline."
+  },
+  {
+    "business": "Unmatched Court Services",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched Court Services\". Border colour: silver-white. Scene: grand neoclassical courthouse with stone columns and steps."
+  },
+  {
+    "business": "Unmatched City Hall",
+    "prompt": "Use case: stylized-concept. Create ONE standalone premium SNR City Run business sticker. Reference is STYLE TEMPLATE only: portrait 9:16, thin metallic gold frame with specified collection-colour inner neon line, cinematic finely detailed GTA/FiveM photo-style scene in upper 85%, black marble bottom nameplate with small SNR CITY RUN and large readable exact business name. Replace ALL Vercotti buildings and wording. Entire frame visible, centred main subject, generous safe margins, dusk lighting, crisp reflections and detail. No rarity tags, rewards, collage, icons, neighbouring tiles. This is artwork, not a literal server screenshot. Maximum available resolution.\nExact business name: \"Unmatched City Hall\". Border colour: silver-white. Scene: grand ornate city hall with central clock tower."
+  }
+]

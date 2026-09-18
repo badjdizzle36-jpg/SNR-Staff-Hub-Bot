@@ -1,0 +1,39 @@
+business_id,business,collection,file,width,height,recommended_rarity
+food-1,SNR Buns Restaurant,Food & Cafes,food-1_snr-buns-restaurant.png,941,1672,ultra_rare
+food-2,Kebab King Restaurant,Food & Cafes,food-2_kebab-king-restaurant.png,941,1672,common
+food-3,Casey's Diner,Food & Cafes,food-3_casey-s-diner.png,941,1672,common
+food-4,Pizza This,Food & Cafes,food-4_pizza-this.png,941,1672,common
+food-5,UwU Cafe,Food & Cafes,food-5_uwu-cafe.png,941,1672,common
+nightlife-1,Bahamamamas,Nightlife,nightlife-1_bahamamamas.png,941,1672,rare
+nightlife-2,Three Hawkers Pub,Nightlife,nightlife-2_three-hawkers-pub.png,941,1672,common
+nightlife-3,Tropical Heights Nightclub,Nightlife,nightlife-3_tropical-heights-nightclub.png,941,1672,common
+nightlife-4,Club 77 Nightclub,Nightlife,nightlife-4_club-77-nightclub.png,941,1672,common
+nightlife-5,Tequi-la-la Bar,Nightlife,nightlife-5_tequi-la-la-bar.png,941,1672,common
+mechanics-1,Benny's Customs Mechanics,Mechanics & Recovery,mechanics-1_benny-s-customs-mechanics.png,941,1672,rare
+mechanics-2,Titan Recovery & Parts,Mechanics & Recovery,mechanics-2_titan-recovery-parts.png,941,1672,common
+mechanics-3,Cruzin Mechanics,Mechanics & Recovery,mechanics-3_cruzin-mechanics.png,941,1672,common
+mechanics-4,Tuning Bar Mechanics,Mechanics & Recovery,mechanics-4_tuning-bar-mechanics.png,941,1672,common
+mechanics-5,Route 68 Mechanics,Mechanics & Recovery,mechanics-5_route-68-mechanics.png,941,1672,common
+mechanics-6,Bobs Big Tow,Mechanics & Recovery,mechanics-6_bobs-big-tow.png,941,1672,common
+motors-1,Perlah Motorcycle Dealer,Motors & Transport,motors-1_perlah-motorcycle-dealer.png,940,1672,common
+motors-2,Route 68 Car Dealer,Motors & Transport,motors-2_route-68-car-dealer.png,941,1672,rare
+motors-3,Unmatched Taxis,Motors & Transport,motors-3_unmatched-taxis.png,941,1672,common
+motors-4,GoPostal,Motors & Transport,motors-4_gopostal.png,941,1672,common
+shops-1,Pawn Shop,Shops,shops-1_pawn-shop.png,941,1672,common
+shops-2,Route 68 Pawn,Shops,shops-2_route-68-pawn.png,941,1672,common
+shops-3,UM Comic Store,Shops,shops-3_um-comic-store.png,941,1672,common
+shops-4,Pharmacy,Shops,shops-4_pharmacy.png,941,1672,common
+shops-5,Jeweled Dragon,Shops,shops-5_jeweled-dragon.png,941,1672,rare
+luxury-1,Vankov Jewellery,Luxury & Leisure,luxury-1_vankov-jewellery.png,941,1672,common
+luxury-2,Diamond Casino,Luxury & Leisure,luxury-2_diamond-casino.png,941,1672,rare
+luxury-3,Pearls Resort,Luxury & Leisure,luxury-3_pearls-resort.png,941,1672,common
+finance-1,Dynasty8 Real Estate,Finance & Property,finance-1_dynasty8-real-estate.png,941,1672,common
+finance-2,MBU Finance Group,Finance & Property,finance-2_mbu-finance-group.png,941,1672,rare
+finance-3,Unmatched Vehicle Finance,Finance & Property,finance-3_unmatched-vehicle-finance.png,941,1672,common
+finance-4,Vercotti Group,Finance & Property,finance-4_vercotti-group.png,941,1672,common
+services-1,Unmatched Police Department,Public Services,services-1_unmatched-police-department.png,941,1672,common
+services-2,Unmatched Health Service,Public Services,services-2_unmatched-health-service.png,941,1672,common
+services-3,Unmatched Fire Brigade,Public Services,services-3_unmatched-fire-brigade.png,941,1671,common
+services-4,Unmatched Search & Rescue,Public Services,services-4_unmatched-search-rescue.png,941,1672,common
+services-5,Unmatched Court Services,Public Services,services-5_unmatched-court-services.png,941,1672,common
+services-6,Unmatched City Hall,Public Services,services-6_unmatched-city-hall.png,941,1672,ultra_rare

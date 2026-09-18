@@ -619,7 +619,7 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
             state = "owned" if item["owned"] else "locked"
             status = (f'{int(item["copies"])} collected' if item["owned"] else "Not collected")
             board_items.append((item, route))
-            cards.append(f'''<article class="city-business {state}" style="--set-colour:{html.escape(route['colour'], quote=True)}"><div class="city-business-art"><img src="/city-art/{html.escape(item['key'], quote=True)}.svg" alt=""></div><div class="city-business-copy"><strong>{html.escape(item['name'])}</strong><small>{html.escape(status)}</small></div></article>''')
+            cards.append(f'''<article class="city-business {state}" style="--set-colour:{html.escape(route['colour'], quote=True)}"><div class="city-business-art"><img src="/city-art/{html.escape(item['key'], quote=True)}.svg?v=individual-art-2" loading="lazy" alt=""></div><div class="city-business-copy"><strong>{html.escape(item['name'])}</strong><small>{html.escape(status)}</small></div></article>''')
         reward = route.get("reward") or {}
         claim = route.get("claim") or {}
         if claim:
@@ -1152,7 +1152,7 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                     message = ("Duplicate found — it has been added to your duplicate total."
                                if duplicate else "New business collected and added to your board!")
                     art_key = html.escape(result["business_key"], quote=True)
-                    self.send_html(200, page("City Run reveal", f'''<section class="card city-reveal-result"><div class="label">🏁 SNR CITY RUN · STICKER REVEALED</div><h1>{html.escape(result["business_name"])}</h1><div class="city-business"><img class="city-reveal-art" src="/city-art/{art_key}.svg?v=poster-pro-1" alt="{html.escape(result["business_name"], quote=True)} sticker artwork"><span class="city-reveal-badge">{html.escape(str(result["rarity"]).replace("_", " ").title())}</span></div><p><strong>{html.escape(result["collection_name"])}</strong></p><div class="notice">{html.escape(message)} Your sticker is now placed on your City Run board.</div><p>{int(result["reveals_left"])} sticker reveal(s) remaining.</p><a class="back" href="/account#city-run">View my updated board</a></section>'''))
+                    self.send_html(200, page("City Run reveal", f'''<section class="card city-reveal-result"><div class="label">🏁 SNR CITY RUN · STICKER REVEALED</div><h1>{html.escape(result["business_name"])}</h1><div class="city-business"><img class="city-reveal-art" src="/city-art/{art_key}.svg?v=individual-art-2" alt="{html.escape(result["business_name"], quote=True)} sticker artwork"><span class="city-reveal-badge">{html.escape(str(result["rarity"]).replace("_", " ").title())}</span></div><p><strong>{html.escape(result["collection_name"])}</strong></p><div class="notice">{html.escape(message)} Your sticker is now placed on your City Run board.</div><p>{int(result["reveals_left"])} sticker reveal(s) remaining.</p><a class="back" href="/account#city-run">View my updated board</a></section>'''))
                 elif path == "/city-run-claim":
                     owner = self.owner()
                     if not owner:

@@ -1,10 +1,12 @@
 """Explicit business-to-poster geometry. Never infer artwork from DB order."""
 import base64
 import html
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 POSTER = ROOT / 'city-run-board.jpg'
+ART_DIR = ROOT / 'city-run-stickers'
 # Coordinates in the original 1254px square. Duplicate illustration slots share
 # one business identity; neither creates another collectible or changes odds.
 SLOTS = {}
@@ -32,16 +34,30 @@ def poster_markup(owned):
     for key in sorted(set(owned)):
         for x,y,w,h in SLOTS.get(key, []):
             overlays.append(f'<svg class="poster-collected" x="{x}" y="{y}" width="{w}" height="{h}" viewBox="{x} {y} {w} {h}"><image href="/city-run-board.jpg" width="1254" height="1254" filter="url(#collected-grey)"/><rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#000" opacity=".32"/><text x="{x+w/2}" y="{y+h/2}" text-anchor="middle" fill="white" font-size="28" font-family="Arial">✓</text><title>{html.escape(key)} collected</title></svg>')
+    rarity_labels = []
+    for key, label in [('food-1', 'ULTRA RARE'), ('food-5', 'COMMON')]:
+        for x,y,w,h in SLOTS[key]:
+            rarity_labels.append(f'<rect x="{x}" y="{y+h-22}" width="{w}" height="22" fill="#16130d"/><text x="{x+w/2}" y="{y+h-7}" text-anchor="middle" fill="#ffe082" font-size="10" font-family="Arial">{label}</text>')
     logo = '<image href="/city-run-brand.png" x="330" y="194" width="500" height="240" preserveAspectRatio="xMidYMid meet"/>' if (ROOT/'city-run-brand.png').exists() else ''
     return ('<div class="city-board-art-wrap" data-board-build="poster-pro-1">'
             '<svg role="img" aria-label="SNR City Run board. Collected businesses are greyed out." viewBox="0 0 1254 1254" style="display:block;width:100%;height:auto">'
             '<defs><filter id="collected-grey"><feColorMatrix type="saturate" values="0"/></filter></defs>'
             '<image href="/city-run-board.jpg" width="1254" height="1254"/>'
-            + logo + ''.join(overlays) + '</svg><small>✓ Grey tiles are collected. Progress and claims below.</small></div>')
+            + logo + ''.join(overlays) + ''.join(rarity_labels) + '</svg><small>✓ Grey tiles are collected. Progress and claims below.</small></div>')
 
 def sticker_svg(key, name):
     if key not in SLOTS:
         return None
+    manifest_path = ART_DIR / 'business-index.json'
+    if manifest_path.exists():
+        entry = next((item for item in json.loads(manifest_path.read_text())
+                      if item['business_id'] == key), None)
+        if entry:
+            asset = ART_DIR / Path(entry['file']).name
+            if asset.is_file():
+                data = base64.b64encode(asset.read_bytes()).decode('ascii')
+                return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {int(entry["width"])} {int(entry["height"])}" role="img" aria-label="{html.escape(name, quote=True)}">'
+                        f'<image href="data:image/png;base64,{data}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"/></svg>').encode()
     x,y,w,h = SLOTS[key][0]
     # Only the illustration: live name and rarity come from the database.
     art_height = h*.70
