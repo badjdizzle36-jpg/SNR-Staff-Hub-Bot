@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from contextlib import nullcontext
 from collections import OrderedDict
 from typing import Any
 
@@ -529,11 +530,12 @@ class CityRunStore:
         return result
 
     def _sync_corner_awards(self, campaign: dict[str, Any], customer_key: str,
-                            customer_name: str, unique_collected: int) -> None:
+                            customer_name: str, unique_collected: int, connection=None) -> None:
         """Award one-time corner bonuses when a customer reaches the milestone."""
         from snr_core import utc_now
-        with self.db.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        with (nullcontext(connection) if connection is not None else self.db.connect()) as conn:
+            if connection is None:
+                conn.execute("BEGIN IMMEDIATE")
             for rule in CORNER_RULES:
                 if unique_collected < int(rule["threshold"]):
                     continue

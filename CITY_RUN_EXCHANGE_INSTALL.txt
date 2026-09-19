@@ -1,0 +1,69 @@
+SNR CITY RUN — STICKER EXCHANGE UPDATE
+
+INSTALL
+1. Download and extract SNR_City_Run_Sticker_Exchange_Update.zip.
+2. Open your local SNR-Staff-Hub-Bot repository in File Explorer.
+3. Copy all supplied .py files and city-run-board-v4.png into the folder
+   containing your existing bot.py. Choose Replace for matching filenames.
+4. Leave your existing artwork folders, other assets, database, and environment
+   settings in place. This update contains no customer database or credentials.
+5. In GitHub Desktop, commit with summary: Add City Run Sticker Exchange.
+6. Push origin. Wait for Railway's deployment to succeed.
+7. Log in, open City Run, then tap STICKER EXCHANGE.
+
+No manual database migration is needed. The exchange table is created on startup.
+Keep your normal database backup before deploying an update.
+
+PLAYER EXPERIENCE
+- Open City Run > Sticker Exchange.
+- Make a swap offer: choose a spare business, then a different business of the
+  same rarity. The two actual sticker illustrations appear before publication.
+- Publication is the maker's agreement to exchange exactly those two stickers.
+- Other logged-in players see the offer and its expiry time.
+- A player with an available duplicate of the requested business can review
+  the exact exchange, then press Confirm this swap.
+- Both transfers happen together. Both boards and collections update.
+- My offers & swap history shows accepted, cancelled, open and expired offers.
+- Refresh offers to load changes made by other players.
+
+RULES THAT PROTECT YOUR ECONOMY
+- One duplicate for one duplicate, same rarity only.
+- Each player always retains their first copy of every business.
+- No RP money, points, purchases or newly minted stickers are involved.
+- Listed duplicates are reserved. Other open offers cannot spend them.
+- Maximum five open offers per player; offers expire after 24 hours.
+- The maker can cancel their own offer, including while a season is paused.
+- Only an active season permits creating or accepting a swap.
+- No cross-season swaps. Changed rarity rules are checked again on acceptance.
+- A business with no other business of the same rarity cannot be listed.
+  For example, if SNR Buns is the only ultra-rare business, it remains excluded
+  from swaps under this rule. Its rarity is not changed by this update.
+- Retry clicks do not transfer twice. Competing accepts have only one winner.
+
+REWARDS AND DISCORD
+- Completed swaps, completed sets and newly unlocked corners use the existing
+  durable City Run event queue and private City Run Reward Claims channel.
+- The same bot event delivery loop retries queued notices after failures.
+- Ensure that private channel is configured and the bot can view it/send embeds.
+- Route and grand-prize eligibility are recalculated from the actual collection.
+- Corner bonuses are issued once, in the swap transaction.
+- Players still request unlocked rewards; staff retain reward handover control.
+- Open offers are displayed in the app, not broadcast into Discord.
+- Completed swaps have a permanent database record and audit entry.
+
+ALSO INCLUDED
+The latest board overlay files, visible collection entry, and previously prepared
+Golden Ticket retirement code are included to keep this update consistent with
+our current source. Existing individual sticker artwork stays in place.
+
+VALIDATION
+118 automated tests passed, including 10 new exchange tests covering atomic
+transfers, replay protection, first-copy retention, duplicate reservations,
+expiry, cancellation authorization, same-rarity enforcement, paused seasons,
+concurrent acceptors, reward events, rollback, authentication, CSRF protection,
+HTML escaping and session-bound ownership. Python syntax checks passed.
+
+The live Railway/Discord deployment has not been accessed or verified. Automated
+phone screenshots could not be run: no local browser was installed and its
+external download failed. After deployment, check the exchange on your phone
+with two test accounts, then confirm the private Discord notice arrives.

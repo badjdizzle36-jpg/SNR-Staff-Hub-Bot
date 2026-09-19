@@ -23,6 +23,7 @@ from reward_claims import ClaimStore
 from raffles import RaffleStore
 from city_run import BUSINESSES, CityRunStore
 from city_artwork import poster_markup, sticker_svg
+from city_trades import TradeStore, exchange_html
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
 
 LONDON = ZoneInfo("Europe/London")
@@ -640,7 +641,7 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
     corners = ''.join(f'''<div class="city-corner {'unlocked' if corner['unlocked'] else ''}"><b>{'✓' if corner['unlocked'] else '○'} {html.escape(corner['name'])}</b><small>{html.escape(corner['description'])}</small></div>''' for corner in board.get('corners', []))
     collected = int(board['unique_collected'])
     collection_percent = round(collected / 38 * 100)
-    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-run-hero"><small>{status}</small><strong>Collect the businesses.<br>Win the ride.</strong><span>Qualifying meals award City Run stickers. Duplicates can appear, so completing all 38 takes commitment.</span></div><section class="city-collection-focus" aria-label="Your collection"><header><span><small>YOUR COLLECTION</small><strong>{collected} businesses found</strong></span><b>{collection_percent}%</b></header><div class="city-collection-track" role="progressbar" aria-label="Businesses collected" aria-valuemin="0" aria-valuemax="38" aria-valuenow="{collected}"><span style="width:{collection_percent}%"></span></div></section><div class="city-run-score"><div><b>{collected}</b><small>OF 38 COLLECTED</small></div><div><b>{available}</b><small>STICKERS READY</small></div><div><b>{int(board['duplicates'])}</b><small>DUPLICATES</small></div></div>{action}{board_art}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
+    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-run-hero"><small>{status}</small><strong>Collect the businesses.<br>Win the ride.</strong><span>Qualifying meals award City Run stickers. Duplicates can appear, so completing all 38 takes commitment.</span></div><section class="city-collection-focus" aria-label="Your collection"><header><span><small>YOUR COLLECTION</small><strong>{collected} businesses found</strong></span><b>{collection_percent}%</b></header><div class="city-collection-track" role="progressbar" aria-label="Businesses collected" aria-valuemin="0" aria-valuemax="38" aria-valuenow="{collected}"><span style="width:{collection_percent}%"></span></div></section><div class="city-run-score"><div><b>{collected}</b><small>OF 38 COLLECTED</small></div><div><b>{available}</b><small>STICKERS READY</small></div><div><b>{int(board['duplicates'])}</b><small>DUPLICATES</small></div></div>{action}<a class="neon-reward-banner" href="/city-run-trades" style="text-decoration:none"><span>⇄</span><strong>STICKER EXCHANGE<small>Turn spare stickers into missing businesses</small></strong><b>›</b></a>{board_art}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -806,6 +807,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
     # Physical card packs are retired. This is idempotent and refunds only
     # Legacy requests whose sticker credits had already been reserved.
     claims.retire_pending()
+    trades = TradeStore(city_run)
     form_secret = secrets.token_bytes(32)
 
     def signature(owner: str, token: str) -> str:
@@ -902,7 +904,13 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             path = parsed.path
-            if path in ("/snr-logo.png", "/snr-logo.jpg"):
+            if path == "/city-run-trades":
+                owner = self.owner()
+                if not owner:
+                    self.send_html(401, login_page(db.customer_names(), "Log in to trade your duplicate stickers."))
+                    return
+                self.send_html(200, page("Sticker Exchange", exchange_html(trades, owner, make_form_token(owner))))
+            elif path in ("/snr-logo.png", "/snr-logo.jpg"):
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
                 self.send_header("Content-Length", str(len(LOGO_IMAGE)))
@@ -1130,6 +1138,23 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                     raise ValueError(
                         "Trading-card packs have retired. Your sticker balance is protected and now powers SNR City Run."
                     )
+                elif path == "/city-run-trade":
+                    owner = self.owner()
+                    if not owner:
+                        raise ValueError("Your login has expired. Please log in again.")
+                    if not valid_form_token(owner, data.get("city_run_request_key", "")):
+                        raise ValueError("This trade form has expired. Refresh the exchange and try again.")
+                    action = data.get("action", "")
+                    if action == "create":
+                        trades.create(owner, data.get("offered", ""), data.get("wanted", ""), data.get("request_key", ""))
+                        message = "Your offer is live. One duplicate is reserved for up to 24 hours."
+                    else:
+                        try:
+                            trade_id = int(data.get("trade_id", ""))
+                        except (ValueError, TypeError):
+                            raise ValueError("Choose a valid swap offer.")
+                        message = trades.resolve(owner, trade_id, action)
+                    self.send_html(200, page("Sticker Exchange", '<section class="card"><h1>Sticker Exchange</h1><p>' + html.escape(message) + '</p><a class="back" href="/city-run-trades">Back to the exchange</a><br><a class="back" href="/account#city-run">View my updated board</a></section>'))
                 elif path == "/city-run-reveal":
                     owner = self.owner()
                     if not owner:
