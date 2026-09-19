@@ -40,12 +40,11 @@ OWNER_ROLE_NAME = os.getenv("OWNER_ROLE_NAME", "SNR Owner")
 WEBSITE_URL = os.getenv("WEBSITE_URL", "https://worker-production-2c48.up.railway.app").rstrip("/")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "snr_staff_hub.db")
 LEGACY_DATA_FILE = os.getenv("LEGACY_DATA_FILE", "loyalty_data.json")
-JACKPOT_POOL_SIZE = int(os.getenv("JACKPOT_POOL_SIZE", "1000"))
 PORT = int(os.getenv("PORT", "8080"))
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
-db = SNRDatabase(DATABASE_PATH, JACKPOT_POOL_SIZE)
+db = SNRDatabase(DATABASE_PATH)
 db_lock = asyncio.Lock()
 claims = ClaimStore(db)
 claims.retire_pending()
@@ -248,8 +247,6 @@ def customer_embed(customer: dict) -> discord.Embed:
         colour=discord.Colour.orange(),
     )
     embed.add_field(name="City Run Stickers", value=f"**{customer['loyalty_points']}**", inline=True)
-    embed.add_field(name="Golden Tickets", value=f"**{customer['golden_tickets']}**", inline=True)
-    embed.add_field(name="Jackpot Wins", value=f"**{customer['jackpot_wins']}**", inline=True)
     embed.add_field(name="Sales", value=f"**{customer['lifetime_sales']}**", inline=True)
     embed.add_field(name="Revenue", value=f"**{money(customer['revenue'])}**", inline=True)
     embed.add_field(name="Production Cost", value=f"**{money(customer['production_cost'])}**", inline=True)
@@ -275,7 +272,7 @@ def customer_embed(customer: dict) -> discord.Embed:
     embed.add_field(
         name=f"{membership['emoji']} Customer Membership",
         value=(f"**{membership['name']}**\n{progress}\n"
-               f"Per purchase bonus: +{membership['bonus_points']} City Run sticker(s) • +{membership['bonus_tickets']} Golden Ticket(s)\n"
+               f"Per purchase bonus: +{membership['bonus_points']} City Run sticker(s)\n"
                f"Delivery: **{'FREE' if int(membership['delivery_fee']) == 0 else money(membership['delivery_fee'])}**"),
         inline=False,
     )
@@ -357,7 +354,6 @@ class LeaderboardManagementView(discord.ui.View):
 def sale_embed(result: dict) -> discord.Embed:
     deal = result["deal"]
     customer = result["customer"]
-    won = result["jackpot_won"]
     quantity = int(result.get("quantity", 1))
     total_price = deal.price * quantity
     total_cost = deal.production_cost * quantity
@@ -370,8 +366,8 @@ def sale_embed(result: dict) -> discord.Embed:
     if deal.drinks:
         item_parts.append(f"{deal.drinks * quantity} drinks")
     embed = discord.Embed(
-        title="🏆 GOLDEN TICKET FOUND!" if won else "✅ SNR SALE RECORDED",
-        colour=discord.Colour.gold() if won else discord.Colour.green(),
+        title="✅ SNR SALE RECORDED",
+        colour=discord.Colour.green(),
     )
     embed.add_field(name="Customer", value=f"**{customer['display_name']}**", inline=True)
     embed.add_field(name="Deal", value=f"**{deal.name} ×{quantity}**", inline=True)
@@ -385,7 +381,6 @@ def sale_embed(result: dict) -> discord.Embed:
     )
     awarded_points = int(result.get("loyalty_awarded", deal.loyalty_points))
     city_run_stickers = int(result.get("city_run_stickers_awarded", result.get("city_run_reveals_awarded", 0)))
-    awarded_tickets = int(result.get("tickets_awarded", deal.golden_tickets))
     base_points = int(result.get("base_loyalty_awarded", deal.loyalty_points))
     membership_points = int(result.get("membership_loyalty_awarded", awarded_points - base_points))
     loyalty_value = (
@@ -400,27 +395,8 @@ def sale_embed(result: dict) -> discord.Embed:
         else f"No sticker on this deal • **{customer['loyalty_points']} total**")
     )
     embed.add_field(name="City Run Stickers", value=loyalty_value, inline=True)
-    embed.add_field(name="Golden Tickets", value=f"+{awarded_tickets}", inline=True)
     membership = customer["membership"]
     embed.add_field(name="Membership", value=f"{membership['emoji']} **{membership['name']}**", inline=True)
-    if won:
-        embed.add_field(
-            name="🏆 JACKPOT PRIZE",
-            value=(
-                "**£5,000 CASH**\n"
-                "Extremely rare SNR Golden Mystery Ticket\n"
-                f"Reward: `{', '.join(result.get('jackpot_reward_codes') or [result['jackpot_reward_code']])}`"
-            ),
-            inline=False,
-        )
-    else:
-        embed.add_field(
-            name="🎟️ Automatic Golden Ticket Entry",
-            value=(f"**{awarded_tickets} ticket(s) issued and entered automatically.**\n"
-                   "Nothing else needs entering. If a ticket matches the hidden winner, this receipt "
-                   "immediately changes to the £5,000 winning alert."),
-            inline=False,
-        )
     transaction_ids = result.get("transaction_ids") or [result["transaction_id"]]
     transaction_text = transaction_ids[0] if len(transaction_ids) == 1 else f"{transaction_ids[0]} to {transaction_ids[-1]}"
     embed.set_footer(text=f"Transaction {transaction_text}")
@@ -435,7 +411,6 @@ def finance_embed(stats: dict, title: str) -> discord.Embed:
     embed.add_field(name="Production Cost", value=f"**{money(stats['production_cost'])}**", inline=True)
     embed.add_field(name="Gross Profit", value=f"**{money(stats['gross_profit'])}**", inline=True)
     embed.add_field(name="Profit Margin", value=f"**{stats['profit_margin']:.1f}%**", inline=True)
-    embed.add_field(name="Golden Tickets", value=f"**{stats['tickets']}**", inline=True)
     embed.add_field(name="Food/Desserts", value=f"**{stats['food']}**", inline=True)
     embed.add_field(name="Drinks", value=f"**{stats['drinks']}**", inline=True)
     embed.add_field(name="City Run Stickers", value=f"**{stats['loyalty']}**", inline=True)
@@ -465,7 +440,7 @@ def closing_report_embed(stats: dict, delivery: dict) -> discord.Embed:
     embed.add_field(name="Gross Profit", value=f"**{money(stats['gross_profit'])}**", inline=True)
     embed.add_field(name="Production Cost", value=f"**{money(stats['production_cost'])}**", inline=True)
     embed.add_field(name="Profit Margin", value=f"**{stats['profit_margin']:.1f}%**", inline=True)
-    embed.add_field(name="Stickers / Tickets", value=f"**{stats['loyalty']} stickers • {stats['tickets']} tickets**", inline=True)
+    embed.add_field(name="City Run Stickers", value=f"**{stats['loyalty']}**", inline=True)
     embed.add_field(name="Website Orders", value=(f"**{delivery['orders']} paid**\n"
                     f"{delivery['deliveries']} delivery • {delivery['pickups']} pickup • {delivery.get('instore', 0)} in store"), inline=True)
     embed.add_field(name="Order Adjustments", value=(f"Delivery fees: **{money(delivery['delivery_fees'])}**\n"
@@ -729,7 +704,7 @@ class DealSelect(discord.ui.Select):
             discord.SelectOption(
                 label=d.name,
                 value=d.key,
-                description=f"{d.item_summary} • £{d.price:,} • {d.golden_tickets} Golden ticket(s)",
+                description=f"{d.item_summary} • £{d.price:,}",
                 emoji="🍔",
             )
             for d in DEALS.values()
@@ -921,8 +896,6 @@ class BirdySelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="We’re Open", value="open", emoji="🍔"),
             discord.SelectOption(label="Promote a Deal", value="deal", emoji="🔥"),
-            discord.SelectOption(label="Golden Mystery Ticket", value="jackpot", emoji="🎟️"),
-            discord.SelectOption(label="Mystery Ticket Winner", value="winner", emoji="🏆"),
             discord.SelectOption(label="City Run Stickers", value="loyalty", emoji="🏁"),
             discord.SelectOption(label="Delivery Service", value="delivery", emoji="🚗"),
             discord.SelectOption(label="Event Catering", value="catering", emoji="🎉"),
@@ -940,7 +913,7 @@ class BirdySelect(discord.ui.Select):
             )
             return
         try:
-            post = birdy_post(kind, winner=db.latest_jackpot_winner())
+            post = birdy_post(kind)
         except ValueError as exc:
             await interaction.response.edit_message(content=f"ℹ️ {exc}", view=None, embed=None)
             return
@@ -963,7 +936,7 @@ class VIPLevelSelect(discord.ui.Select):
         for name, details in VIP_LEVELS.items():
             options.append(discord.SelectOption(
                 label=name, value=name, emoji=details["emoji"],
-                description=(f"+{details['bonus_points']} sticker(s) • +{details['bonus_tickets']} tickets • "
+                description=(f"+{details['bonus_points']} City Run sticker(s) • "
                              f"£{details['delivery_fee']} delivery")[:100],
             ))
         super().__init__(placeholder="Set membership level", options=options)
@@ -1325,12 +1298,6 @@ class OwnerAdminView(discord.ui.View):
         if not latest:
             await send_ephemeral(interaction, "ℹ️ There is no counter sale available to undo.", delete_after=5)
             return
-        if latest["has_jackpot_winner"]:
-            await send_ephemeral(
-                interaction,
-                "⚠️ The latest counter sale contains a £5,000 jackpot winner, so quick undo is locked. "
-                "This protects the jackpot record.", delete_after=10)
-            return
         transaction = (latest["transaction_ids"][0] if latest["quantity"] == 1 else
                        f"{latest['transaction_ids'][0]} to {latest['transaction_ids'][-1]}")
         await send_ephemeral(
@@ -1339,7 +1306,7 @@ class OwnerAdminView(discord.ui.View):
             f"Customer: **{discord.utils.escape_markdown(latest['customer_name'])}**\n"
             f"Sale: **{discord.utils.escape_markdown(latest['deal_name'])} ×{latest['quantity']}**\n"
             f"Value: **{money(latest['revenue'])}**\nTransaction: `{transaction}`\n\n"
-            "This reverses finance, visits, City Run stickers and the customer’s Golden Ticket total.",
+            "This reverses finance, visits and City Run stickers.",
             view=UndoSaleConfirmView(latest),
         )
 
@@ -1897,7 +1864,7 @@ def raffle_embed(raffle: dict | None, *, title="🎟️ SNR RAFFLE CENTRE") -> d
     if raffle["status"] == "drawn":
         embed.add_field(name="🏆 WINNER", value=(f"**{discord.utils.escape_markdown(raffle['winner_name'])}**\n"
                         f"Winning number: **{int(raffle['winning_number'])}**"), inline=False)
-    embed.set_footer(text="Raffle entries are separate from meal sales, City Run stickers and Golden Tickets")
+    embed.set_footer(text="Raffle entries are separate from meal sales and City Run stickers")
     return embed
 
 
@@ -2226,27 +2193,6 @@ class MoreToolsView(discord.ui.View):
         stats = db.report(today=True)
         await send_ephemeral(
             interaction, embed=finance_embed(stats, "💷 SNR BUNS — TODAY’S FINANCE CHECK"))
-
-    @discord.ui.button(label="Golden Jackpot", emoji="🎟️", style=discord.ButtonStyle.secondary)
-    async def jackpot(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await require_staff(interaction):
-            return
-        status = db.jackpot_status()
-        embed = discord.Embed(title="🎟️ SNR GOLDEN MYSTERY TICKET", colour=discord.Colour.gold())
-        embed.description = (
-            "Jackpot prize: **£5,000 CASH**\n"
-            "Drop rate: **1 hidden winner per 1,000 Golden Tickets (0.1%)**\n\n"
-            "**How Golden Tickets work**\n"
-            "• Every SNR meal deal automatically issues its listed ticket(s).\n"
-            "• Tickets enter the current draw automatically—nobody types or claims a number.\n"
-            "• The bot checks every ticket against the secret winning position immediately.\n"
-            "• A winner triggers a large £5,000 alert for staff and on the customer’s website account.\n\n"
-            f"Current cycle: **{status['cycle']}**\n"
-            f"Tickets issued this cycle: **{status['tickets_issued']}/{status['pool_size']}**\n"
-            f"Total winners: **{status['total_winners']}**\n\n"
-            "The winning position stays hidden from staff and is guaranteed by ticket 1,000."
-        )
-        await send_ephemeral(interaction, embed=embed)
 
     @discord.ui.button(label="Birdy Post", emoji="📱", style=discord.ButtonStyle.secondary)
     async def birdy(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -2696,7 +2642,7 @@ def delivery_order_embed(row):
         embed.add_field(name='Membership', value=f"{membership['emoji']} **{membership['name']}**", inline=True)
     items = orders.items(row)
     lines = []
-    loyalty = tickets = 0
+    loyalty = 0
     projected_sales = int(customer['lifetime_sales']) if customer else 0
     for item in items:
         deal = DEALS.get(item['key'])
@@ -2707,7 +2653,6 @@ def delivery_order_embed(row):
                 projected_vip = vip_level_for_sales(
                     projected_sales, customer.get('vip_override') if customer else None)
                 loyalty += deal.loyalty_points + int(projected_vip['bonus_points'])
-                tickets += deal.golden_tickets + int(projected_vip['bonus_tickets'])
     embed.add_field(name='Order Items', value="\n".join(lines)[:1024] or row['deal_name'], inline=False)
     subtotal = int(row.get('subtotal') or row['price'])
     fee = int(row.get('delivery_fee') or 0)
@@ -2726,23 +2671,8 @@ def delivery_order_embed(row):
     breakdown.append(f"Final total: **{money(row['price'])}**")
     embed.add_field(name='Price Breakdown', value="\n".join(breakdown), inline=False)
     embed.add_field(name='Rewards After Payment',
-                    value=(f"{loyalty} City Run sticker(s) • {tickets} Golden ticket(s)\n"
-                           "Tickets are issued and entered into the £5,000 draw automatically when payment is confirmed."),
+                    value=f"{loyalty} City Run sticker(s) added when payment is confirmed.",
                     inline=True)
-    if row['status'] == 'paid':
-        outcome = orders.ticket_result(row['id'])
-        if outcome['jackpot_won']:
-            embed.add_field(
-                name='🏆 £5,000 GOLDEN TICKET WINNER!',
-                value='One of this customer’s automatically issued tickets matched the hidden winner. Contact the customer and verify the jackpot reward now.',
-                inline=False,
-            )
-        else:
-            embed.add_field(
-                name='🎟️ Automatic Entry Confirmed',
-                value=f"{outcome['tickets']} Golden Ticket(s) issued, checked and entered automatically. No winning match on this order.",
-                inline=False,
-            )
     if fulfillment == 'instore':
         embed.add_field(name='💳 In Store', value='**Customer is ordering at the SNR Buns counter**', inline=False)
     elif fulfillment == 'pickup':
@@ -2961,17 +2891,13 @@ class DeliveryOrderView(discord.ui.View):
         elif target == 'ready_for_pickup':
             response = '🛍️ Marked Ready for Collection. The customer’s webpage is alerting them to come to SNR Buns.'
         elif target == 'paid':
-            won = any(result.get('jackpot_won') for result in sales)
             completed_word = ('Served in store' if row.get('fulfillment_type') == 'instore' else 'Collected' if (row.get('fulfillment_type') or 'delivery') == 'pickup'
                               else 'Delivered')
-            response = ((f'🏆 GOLDEN TICKET WINNER! This customer won the £5,000 jackpot. '
-                         'Their webpage is alerting them now and the reward is recorded for staff verification.')
-                        if won else
-                        (f'✅ {completed_word} and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
-                         'Sales, finance and City Run stickers are updated, and every Golden Ticket was issued and entered automatically.'))
+            response = (f'✅ {completed_word} and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
+                        'Sales, finance and City Run stickers are updated.')
         elif target == 'wasted_journey':
             response = ('⚠️ Wasted Journey recorded. £500 is now owed on the customer’s webpage and name, '
-                        'and new deliveries are blocked. No sale, City Run stickers or Golden Tickets were added.')
+                        'and new deliveries are blocked. No sale or City Run stickers were added.')
         else:
             response = 'Order cancelled. No sale or rewards were added. The customer’s webpage has been updated.'
         await interaction.followup.send(response, ephemeral=True)

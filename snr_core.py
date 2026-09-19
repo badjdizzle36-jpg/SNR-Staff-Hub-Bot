@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import random
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -13,8 +12,6 @@ from zoneinfo import ZoneInfo
 
 from city_run import award_tokens_for_sale, ensure_city_run_schema, reverse_tokens_for_sales
 
-
-JACKPOT_POOL_SIZE = 1000
 
 # Production costs supplied by SNR Buns management. Bulk prices are converted
 # to a single-item cost before averages are calculated.
@@ -75,21 +72,21 @@ class Deal:
 
 
 DEALS: dict[str, Deal] = {
-    "quick_fix": Deal("quick_fix", "SNR Quick Fix", 150, 1, 1, 0, 1),
-    "happy_meal": Deal("happy_meal", "SNR Happy Meal", 300, 2, 2, 0, 1),
-    "sweet_treat": Deal("sweet_treat", "SNR Sweet Treat Deal", 400, 5, 0, 0, 1, "5 desserts"),
-    "mega_deal": Deal("mega_deal", "SNR Mega Deal", 500, 4, 4, 1, 1),
-    "blue_light": Deal("blue_light", "SNR Blue Light Deal", 600, 8, 8, 0, 1),
-    "share_box": Deal("share_box", "SNR Share Box", 1200, 10, 10, 2, 4),
+    "quick_fix": Deal("quick_fix", "SNR Quick Fix", 150, 1, 1, 0, 0),
+    "happy_meal": Deal("happy_meal", "SNR Happy Meal", 300, 2, 2, 0, 0),
+    "sweet_treat": Deal("sweet_treat", "SNR Sweet Treat Deal", 400, 5, 0, 0, 0, "5 desserts"),
+    "mega_deal": Deal("mega_deal", "SNR Mega Deal", 500, 4, 4, 1, 0),
+    "blue_light": Deal("blue_light", "SNR Blue Light Deal", 600, 8, 8, 0, 0),
+    "share_box": Deal("share_box", "SNR Share Box", 1200, 10, 10, 2, 0),
 }
 
 VIP_LEVELS = {
     "Regular": {"minimum_sales": 0, "bonus_points": 0, "bonus_tickets": 0, "delivery_fee": 100, "emoji": "🍔"},
-    "Bronze": {"minimum_sales": 10, "bonus_points": 0, "bonus_tickets": 1, "delivery_fee": 90, "emoji": "🥉"},
-    "Silver": {"minimum_sales": 25, "bonus_points": 0, "bonus_tickets": 1, "delivery_fee": 75, "emoji": "🥈"},
-    "Gold": {"minimum_sales": 50, "bonus_points": 1, "bonus_tickets": 1, "delivery_fee": 50, "emoji": "🥇"},
-    "Platinum": {"minimum_sales": 100, "bonus_points": 1, "bonus_tickets": 2, "delivery_fee": 25, "emoji": "💎"},
-    "SNR VIP": {"minimum_sales": 200, "bonus_points": 2, "bonus_tickets": 3, "delivery_fee": 0, "emoji": "👑"},
+    "Bronze": {"minimum_sales": 10, "bonus_points": 0, "bonus_tickets": 0, "delivery_fee": 90, "emoji": "🥉"},
+    "Silver": {"minimum_sales": 25, "bonus_points": 0, "bonus_tickets": 0, "delivery_fee": 75, "emoji": "🥈"},
+    "Gold": {"minimum_sales": 50, "bonus_points": 1, "bonus_tickets": 0, "delivery_fee": 50, "emoji": "🥇"},
+    "Platinum": {"minimum_sales": 100, "bonus_points": 1, "bonus_tickets": 0, "delivery_fee": 25, "emoji": "💎"},
+    "SNR VIP": {"minimum_sales": 200, "bonus_points": 2, "bonus_tickets": 0, "delivery_fee": 0, "emoji": "👑"},
 }
 
 
@@ -129,8 +126,10 @@ def display_name(name: str) -> str:
 
 
 class SNRDatabase:
-    def __init__(self, path: str, jackpot_pool_size: int = JACKPOT_POOL_SIZE):
+    def __init__(self, path: str, jackpot_pool_size: int = 1000):
         self.path = path
+        # Retained only so older deployment configuration can still construct
+        # the database while the retired Golden Ticket columns are migrated.
         self.jackpot_pool_size = max(10, jackpot_pool_size)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
@@ -262,32 +261,22 @@ class SNRDatabase:
                    ) WHERE production_cost = 0""",
                 (AVERAGE_FOOD_COST, AVERAGE_DRINK_COST),
             )
-            row = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
-            if row is None:
-                conn.execute(
-                    "INSERT INTO jackpot VALUES (1, 1, ?, ?, 0, NULL, NULL)",
-                    (self.jackpot_pool_size, random.SystemRandom().randint(1, self.jackpot_pool_size)),
-                )
-            elif int(row["pool_size"]) != self.jackpot_pool_size:
-                # Apply a changed jackpot rarity safely, even to an existing database.
-                issued = int(row["tickets_issued"])
-                cycle = int(row["cycle"])
-                if issued >= self.jackpot_pool_size:
-                    cycle += 1
-                    issued = 0
-                winning_position = random.SystemRandom().randint(issued + 1, self.jackpot_pool_size)
-                conn.execute(
-                    """UPDATE jackpot SET cycle = ?, pool_size = ?, winning_position = ?,
-                       tickets_issued = ? WHERE id = 1""",
-                    (cycle, self.jackpot_pool_size, winning_position, issued),
-                )
-
             # Trading-card giveaways have been retired. Historical rows remain
             # for audit purposes, but no unclaimed card reward can be redeemed.
             conn.execute(
                 """UPDATE rewards SET status = 'cancelled', cancelled_at = ?,
                    cancelled_by = 'system: trading-card rewards retired'
                    WHERE reward_type = 'card_pack' AND status = 'unclaimed'""",
+                (utc_now(),),
+            )
+            # Golden Tickets are retired. Keep the legacy columns/tables so an
+            # existing Railway SQLite database is upgraded in place, but clear
+            # balances and retire any prize that was never handed over.
+            conn.execute("UPDATE customers SET golden_tickets=0")
+            conn.execute(
+                """UPDATE rewards SET status='cancelled', cancelled_at=?,
+                   cancelled_by='system: Golden Tickets retired'
+                   WHERE reward_type='golden_jackpot' AND status='unclaimed'""",
                 (utc_now(),),
             )
             # City Run is seeded in draft mode. It cannot issue packs until an
@@ -435,12 +424,6 @@ class SNRDatabase:
         customer = conn.execute(
             "SELECT * FROM customers WHERE customer_key=?", (sale["customer_key"],)
         ).fetchone()
-        reward = conn.execute(
-            """SELECT reward_code FROM rewards WHERE earned_sale_id=?
-               AND reward_type='golden_jackpot' ORDER BY id LIMIT 1""",
-            (sale["id"],),
-        ).fetchone()
-        jackpot = conn.execute("SELECT * FROM jackpot WHERE id=1").fetchone()
         city_award = conn.execute(
             "SELECT amount FROM city_run_token_ledger WHERE source_key=?", (f"sale:{sale['id']}",)
         ).fetchone()
@@ -449,14 +432,14 @@ class SNRDatabase:
             "customer": {**dict(customer), "membership": self.membership(customer)},
             "deal": DEALS[sale["deal_key"]],
             "card_reward_codes": [],
-            "jackpot_won": bool(sale["jackpot_won"]),
-            "jackpot_reward_code": reward["reward_code"] if reward else None,
+            "jackpot_won": False,
+            "jackpot_reward_code": None,
             "winning_ticket": None,
             "ticket_positions": [],
-            "jackpot_cycle": int(jackpot["cycle"]),
-            "tickets_issued_in_cycle": int(jackpot["tickets_issued"]),
+            "jackpot_cycle": 0,
+            "tickets_issued_in_cycle": 0,
             "loyalty_awarded": int(sale["loyalty_points"]),
-            "tickets_awarded": int(sale["golden_tickets"]),
+            "tickets_awarded": 0,
             "city_run_reveals_awarded": int(city_award["amount"]) if city_award else 0,
         }
 
@@ -493,7 +476,7 @@ class SNRDatabase:
             # Once City Run is live, qualifying meals award City Run stickers
             # only; legacy account points no longer increase.
             sale_points = 0 if city_run_active else earned_stickers
-            sale_tickets = deal.golden_tickets + int(vip["bonus_tickets"])
+            sale_tickets = 0
             previous_points_total = int(customer["loyalty_points"])
             new_points_total = previous_points_total + sale_points
 
@@ -513,34 +496,6 @@ class SNRDatabase:
             transaction_id = self._transaction_id(sale_id)
             conn.execute("UPDATE sales SET transaction_id = ? WHERE id = ?", (transaction_id, sale_id))
 
-            jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
-            winning_ticket = None
-            ticket_positions: list[str] = []
-            for _ in range(sale_tickets):
-                position = int(jackpot["tickets_issued"]) + 1
-                ticket_positions.append(f"{jackpot['cycle']}-{position:04d}")
-                if position == int(jackpot["winning_position"]):
-                    winning_ticket = ticket_positions[-1]
-                    break
-                conn.execute("UPDATE jackpot SET tickets_issued = ? WHERE id = 1", (position,))
-                jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
-
-            jackpot_code = None
-            if winning_ticket:
-                jackpot_code = self._create_reward(
-                    conn, key, shown, "golden_jackpot",
-                    "SNR Golden Mystery Ticket: £5,000 cash jackpot", sale_id,
-                )
-                old_cycle = int(jackpot["cycle"])
-                next_cycle = old_cycle + 1
-                next_winner = random.SystemRandom().randint(1, self.jackpot_pool_size)
-                conn.execute(
-                    """UPDATE jackpot SET cycle = ?, pool_size = ?, winning_position = ?,
-                       tickets_issued = 0, last_winner = ?, last_won_at = ? WHERE id = 1""",
-                    (next_cycle, self.jackpot_pool_size, next_winner, shown, now),
-                )
-                conn.execute("UPDATE sales SET jackpot_won = 1 WHERE id = ?", (sale_id,))
-
             conn.execute(
                 """UPDATE customers SET loyalty_points = loyalty_points + ?, lifetime_sales = lifetime_sales + 1,
                    card_packs_earned = card_packs_earned + ?, golden_tickets = golden_tickets + ?,
@@ -548,7 +503,7 @@ class SNRDatabase:
                    food_sold = food_sold + ?, drinks_sold = drinks_sold + ?, updated_at = ?
                    WHERE customer_key = ?""",
                 (
-                    sale_points, 0, sale_tickets, 1 if winning_ticket else 0,
+                    sale_points, 0, 0, 0,
                     charged_price, deal.food, deal.drinks, now, key,
                 ),
             )
@@ -565,7 +520,6 @@ class SNRDatabase:
             updated = conn.execute("SELECT * FROM customers WHERE customer_key = ?", (key,)).fetchone()
             if int(updated["loyalty_points"]) != new_points_total:
                 raise RuntimeError("The sale was stopped because its City Run stickers did not save.")
-            current_jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
             city_run_reveals_awarded = award_tokens_for_sale(
                 conn, sale_id, key, shown, earned_stickers if city_run_active else 0, now
             )
@@ -575,17 +529,17 @@ class SNRDatabase:
             "customer": {**dict(updated), "membership": self.membership(updated)},
             "deal": deal,
             "card_reward_codes": [],
-            "jackpot_won": bool(winning_ticket),
-            "jackpot_reward_code": jackpot_code,
-            "winning_ticket": winning_ticket,
-            "ticket_positions": ticket_positions,
-            "jackpot_cycle": int(current_jackpot["cycle"]),
-            "tickets_issued_in_cycle": int(current_jackpot["tickets_issued"]),
+            "jackpot_won": False,
+            "jackpot_reward_code": None,
+            "winning_ticket": None,
+            "ticket_positions": [],
+            "jackpot_cycle": 0,
+            "tickets_issued_in_cycle": 0,
             "loyalty_awarded": sale_points,
             "city_run_stickers_awarded": city_run_reveals_awarded,
             "loyalty_before": previous_points_total,
             "loyalty_after": new_points_total,
-            "tickets_awarded": sale_tickets,
+            "tickets_awarded": 0,
             "city_run_reveals_awarded": city_run_reveals_awarded,
         }
 
@@ -603,7 +557,6 @@ class SNRDatabase:
             customer_name, deal_key, staff_id, staff_name,
             source_ref=f"staff:{batch_ref}:{index + 1}")
             for index in range(amount)]
-        winners = [result for result in results if result["jackpot_won"]]
         total_points = sum(int(result["loyalty_awarded"]) for result in results)
         base_points = DEALS[deal_key].loyalty_points * amount
         if not self._city_run_active() and total_points < base_points:
@@ -621,10 +574,10 @@ class SNRDatabase:
             # the last row alone would under-report 2×/3× Share Box purchases.
             "city_run_stickers_awarded": sum(int(result.get("city_run_stickers_awarded", 0)) for result in results),
             "city_run_reveals_awarded": sum(int(result.get("city_run_reveals_awarded", 0)) for result in results),
-            "tickets_awarded": sum(int(result["tickets_awarded"]) for result in results),
-            "jackpot_won": bool(winners),
-            "jackpot_reward_codes": [result["jackpot_reward_code"] for result in winners],
-            "winning_tickets": [result["winning_ticket"] for result in winners],
+            "tickets_awarded": 0,
+            "jackpot_won": False,
+            "jackpot_reward_codes": [],
+            "winning_tickets": [],
             "batch_ref": batch_ref,
         }
 
@@ -653,8 +606,8 @@ class SNRDatabase:
             "quantity": len(rows),
             "revenue": sum(int(row["price"]) for row in rows),
             "loyalty_points": sum(int(row["loyalty_points"]) for row in rows),
-            "golden_tickets": sum(int(row["golden_tickets"]) for row in rows),
-            "has_jackpot_winner": any(bool(row["jackpot_won"]) for row in rows),
+            "golden_tickets": 0,
+            "has_jackpot_winner": False,
         }
 
     def undo_counter_sale_batch(self, batch_ref: str, sale_ids: list[int],
@@ -677,8 +630,6 @@ class SNRDatabase:
                 actual_batch = actual_ref.split(":")[1] if actual_ref.startswith("staff:") else ""
                 if actual_batch != expected_ref or actual_ref.startswith("delivery:"):
                     raise ValueError("That sale selection is no longer valid.")
-            if any(bool(row["jackpot_won"]) for row in rows):
-                raise ValueError("A jackpot-winning transaction cannot be undone from the quick button. Check it manually with management.")
             customer_key = rows[0]["customer_key"]
             if any(row["customer_key"] != customer_key for row in rows):
                 raise ValueError("The sale group is not valid.")
@@ -713,13 +664,7 @@ class SNRDatabase:
                     resolved_by=? WHERE customer_key=? AND status='pending'""",
                     (now, str(staff_id), customer_key))
                 cancelled_claims = int(cursor.rowcount)
-            latest_active = conn.execute("SELECT MAX(id) AS id FROM sales WHERE voided=0").fetchone()["id"]
             rewound = False
-            if latest_active is None or int(latest_active) < min(wanted_ids):
-                jackpot = conn.execute("SELECT * FROM jackpot WHERE id=1").fetchone()
-                if int(jackpot["tickets_issued"]) >= tickets:
-                    conn.execute("UPDATE jackpot SET tickets_issued=tickets_issued-? WHERE id=1", (tickets,))
-                    rewound = True
             conn.execute("""INSERT INTO audit_log(action,staff_id,staff_name,details,created_at)
                 VALUES(?,?,?,?,?)""", ("counter_sale_undone", str(staff_id), staff_name,
                 json.dumps({"transactions": [row["transaction_id"] for row in rows],
@@ -789,19 +734,6 @@ class SNRDatabase:
                 ("reward_claimed", str(staff_id), staff_name, json.dumps({"code": reward_code}), now),
             )
             return dict(conn.execute("SELECT * FROM rewards WHERE reward_code = ?", (reward_code,)).fetchone())
-
-    def jackpot_status(self) -> dict[str, Any]:
-        with self.connect() as conn:
-            row = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
-            winners = conn.execute(
-                "SELECT COUNT(*) AS count FROM rewards WHERE reward_type = 'golden_jackpot'"
-            ).fetchone()["count"]
-            result = dict(row)
-            result["total_winners"] = int(winners)
-            return result
-
-    def latest_jackpot_winner(self) -> str | None:
-        return self.jackpot_status().get("last_winner")
 
     def monthly_leaderboard(
         self, customer_name: str | None = None, limit: int = 10,
@@ -898,9 +830,7 @@ class SNRDatabase:
                     COALESCE(SUM(production_cost),0) AS production_cost,
                     COALESCE(SUM(price - production_cost),0) AS gross_profit,
                     COALESCE(SUM(food),0) AS food, COALESCE(SUM(drinks),0) AS drinks,
-                    COALESCE(SUM(loyalty_points),0) AS loyalty,
-                    COALESCE(SUM(golden_tickets),0) AS tickets,
-                    COALESCE(SUM(jackpot_won),0) AS jackpots FROM sales {where}""",
+                    COALESCE(SUM(loyalty_points),0) AS loyalty FROM sales {where}""",
                 params,
             ).fetchone()
             deals = conn.execute(
@@ -982,40 +912,20 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
         if d.loyalty_points:
             sticker_word = "sticker" if d.loyalty_points == 1 else "stickers"
             reward_lines.append(f"🏁 {d.loyalty_points} City Run {sticker_word}")
-        ticket_word = "ticket" if d.golden_tickets == 1 else "tickets"
-        reward_lines.append(f"🎟️ {d.golden_tickets} Golden {ticket_word}")
         return (
             "🍔 SNR BUNS IS OPEN! 🍔\n\n"
             f"🔥 {d.name.upper()} 🔥\n"
             f"{d.item_summary.upper()}\n"
             f"ONLY £{d.price:,}\n\n"
             f"{'\n'.join(reward_lines)}\n\n"
-            "The extremely rare £5,000 cash jackpot is still waiting to be found!\n"
             "Head down to SNR Buns or call us to order."
         )
     if kind == "open":
         return (
             "🍔🔥 SNR BUNS IS OPEN! 🔥🍔\n\n"
             "Fresh food, cold drinks and proper deals are ready now.\n\n"
-            "Every qualifying deal gives you a chance to uncover the SNR Golden Ticket Jackpot! 🎟️🏆\n\n"
+            "Qualifying meals earn City Run stickers for your collection. 🏁\n\n"
             "Hungry? Head down or call SNR Buns to order!"
-        )
-    if kind == "jackpot":
-        return (
-            "🎟️🏆 THE SNR GOLDEN MYSTERY TICKET IS OUT THERE! 🏆🎟️\n\n"
-            "Purchase a qualifying SNR Buns deal for a chance to uncover our rarest ticket!\n\n"
-            "💰 WIN £5,000 CASH 💰\n\n"
-            "Only one Golden Mystery Ticket is hidden among 1,000 tickets.\n"
-            "Could the rare jackpot be inside your next order?"
-        )
-    if kind == "winner":
-        if not winner:
-            raise ValueError("There is no recorded Golden Ticket winner yet.")
-        return (
-            "🏆🎟️ THE GOLDEN MYSTERY TICKET HAS BEEN FOUND! 🎟️🏆\n\n"
-            f"Congratulations to {winner}, winner of the £5,000 CASH JACKPOT! 💰\n\n"
-            "A brand-new extremely rare Golden Mystery Ticket is now hidden.\n"
-            "Will you be our next winner? 🍔🔥"
         )
     if kind == "loyalty":
         return (
@@ -1031,7 +941,7 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
             "🚗🍔 SNR BUNS DELIVERIES ARE AVAILABLE! 🍔🚗\n\n"
             "Hungry but can’t get to the restaurant? Log in through the SNR Buns customer webpage, choose your deal and enter your postal.\n\n"
             "Fresh food • Cold drinks • Fast service\n\n"
-            "Pay on delivery — your City Run stickers and Golden Tickets update after staff confirm payment."
+            "Pay on delivery — your City Run stickers update after staff confirm payment."
         )
     if kind == "catering":
         return (
