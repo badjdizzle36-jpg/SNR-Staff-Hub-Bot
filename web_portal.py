@@ -29,7 +29,7 @@ LONDON = ZoneInfo("Europe/London")
 MAX_REQUESTS_PER_MINUTE = 15
 ACTIVE_ORDER_STATUSES = ("accepted", "on_way", "arrived", "ready_for_pickup", "processing")
 LOGO_IMAGE = Path(__file__).with_name("snr-logo.png").read_bytes()
-CITY_RUN_BOARD_IMAGE = Path(__file__).with_name("city-run-board-v3.png").read_bytes()
+CITY_RUN_BOARD_IMAGE = Path(__file__).with_name("city-run-board-v4.png").read_bytes()
 # This is the exact perimeter order in the supplied poster (top, right, left,
 # bottom). It is deliberately separate from the database collection order so
 # a reveal can never show a neighbouring business photo.
@@ -924,7 +924,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
-            elif path in ("/city-run-board.jpg", "/city-run-board-v2.png", "/city-run-board-v3.png"):
+            elif path in ("/city-run-board.jpg", "/city-run-board-v2.png", "/city-run-board-v3.png", "/city-run-board-v4.png"):
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
                 self.send_header("Content-Length", str(len(CITY_RUN_BOARD_IMAGE)))
