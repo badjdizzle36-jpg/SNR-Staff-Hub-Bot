@@ -368,7 +368,7 @@ class DeliveryStore:
             suggestion = self.db.suggest_name(customer_name)
             customer = self.db.get_customer(suggestion) if suggestion else None
         if not customer:
-            raise ValueError("Customer not found. Create their loyalty account first.")
+            raise ValueError("Customer not found. Create their SNR account first.")
         try:
             month, day = int(month), int(day)
             date(2000, month, day)

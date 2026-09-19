@@ -380,7 +380,7 @@ def issue_pack_for_sale(conn, sale_id: int, customer_key: str, customer_name: st
 
 def award_tokens_for_sale(conn, sale_id: int, customer_key: str, customer_name: str,
                           points: int, now: str) -> int:
-    """Turn earned loyalty points into idempotent digital City Run reveals."""
+    """Turn earned sticker credits into idempotent digital City Run reveals."""
     amount = max(0, int(points))
     if amount == 0:
         return 0
@@ -670,7 +670,7 @@ class CityRunStore:
                 (campaign["id"], key),
             ).fetchone()
             if not token or int(token["available"]) < 1:
-                raise ValueError("You need a City Run point before revealing another business.")
+                raise ValueError("You need a City Run sticker before revealing another business.")
             rows = conn.execute(
                 """SELECT i.business_key,i.rarity,i.total_available,i.issued_count
                    FROM city_run_inventory i JOIN city_run_businesses b USING(business_key)
@@ -953,7 +953,7 @@ class CityRunStore:
                     "Set the private City Run Reward Claims channel before starting the season."
                 )
             now = utc_now()
-            # Move every current loyalty balance into City Run stickers, then
+            # Move every current legacy balance into City Run stickers, then
             # clear the old account points so customers have one progress system.
             customers = conn.execute(
                 "SELECT customer_key,display_name,loyalty_points FROM customers WHERE loyalty_points>0"

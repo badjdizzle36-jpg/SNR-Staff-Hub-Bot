@@ -96,10 +96,10 @@ class ClaimStore:
         return [dict(row) for row in rows]
 
     def retire_pending(self) -> dict:
-        """Retire the physical trading-card scheme without losing customer points.
+        """Retire the physical trading-card scheme without losing customer sticker credit.
 
         Newer pending requests have not deducted anything. Very old requests may
-        have reserved four points at request time; those are refunded exactly
+        have reserved four credits at request time; those are refunded exactly
         once before every pending request is cancelled.
         """
         refunded = 0
@@ -166,7 +166,7 @@ class ClaimStore:
                     raise ValueError('Online claims are not set up yet. Please ask staff.')
                 eligible = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?', (key,)).fetchone()
                 if not eligible or int(eligible['loyalty_points']) < 4:
-                    raise ValueError('You need four available loyalty points for a pack.')
+                    raise ValueError('You need four available City Run stickers for this reward.')
                 customer = conn.execute('SELECT display_name FROM customers WHERE customer_key=?', (key,)).fetchone()
                 cursor = conn.execute('''INSERT INTO web_pack_claims
                     (customer_key,customer_name,request_key,created_at,channel_id,guild_id) VALUES(?,?,?,?,?,?)''',
@@ -201,7 +201,7 @@ class ClaimStore:
                 raise ValueError('Online claims are not set up yet. Please ask staff.')
             eligible = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?', (key,)).fetchone()
             if not eligible or int(eligible['loyalty_points']) < 4:
-                raise ValueError('You need four available loyalty points for a pack.')
+                raise ValueError('You need four available City Run stickers for this reward.')
             customer = conn.execute(
                 'SELECT display_name FROM customers WHERE customer_key=?', (key,)
             ).fetchone()
@@ -252,7 +252,7 @@ class ClaimStore:
                 customer = conn.execute('SELECT loyalty_points FROM customers WHERE customer_key=?',
                                         (row['customer_key'],)).fetchone()
                 if not customer or customer['loyalty_points'] < cost:
-                    raise ValueError(f'This customer needs {reward_cost} available points before the pack can be handed over.')
+                    raise ValueError(f'This customer needs {reward_cost} available City Run stickers before the reward can be handed over.')
                 points_before = int(customer['loyalty_points'])
             if status == 'cancelled':
                 if row['points_reserved']:
@@ -265,13 +265,13 @@ class ClaimStore:
                     WHERE customer_key=? AND loyalty_points>=?''',
                     (cost, utc_now(), row['customer_key'], cost))
                 if changed.rowcount != 1:
-                    raise ValueError(f'This customer needs {reward_cost} available points before the pack can be handed over.')
+                    raise ValueError(f'This customer needs {reward_cost} available City Run stickers before the reward can be handed over.')
                 points_after = int(conn.execute(
                     'SELECT loyalty_points FROM customers WHERE customer_key=?',
                     (row['customer_key'],)).fetchone()['loyalty_points'])
                 expected = int(points_before) - cost
                 if points_after != expected:
-                    raise RuntimeError('The reward was stopped because the remaining loyalty balance could not be verified.')
+                    raise RuntimeError('The reward was stopped because the remaining sticker balance could not be verified.')
             conn.execute('UPDATE web_pack_claims SET status=?,resolved_at=?,resolved_by=? WHERE id=?',
                          (status, utc_now(), str(staff_id), claim_id))
             self.audit(conn, 'web_pack_'+status,

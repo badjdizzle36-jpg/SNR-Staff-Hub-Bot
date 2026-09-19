@@ -250,7 +250,7 @@ def order_progress(status: str, fulfillment: str) -> tuple[list[str], int]:
 
 def page(title: str, content: str) -> str:
     body_class = ' class="customer-shell"' if 'id="customer-app"' in content else ""
-    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body{body_class}><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1254" height="1254"></div><div class="tag">LOYALTY • DELIVERY • VIP</div></div>{content}<footer>SNR Buns • Your account is protected by your password</footer></main></body></html>'''
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body{body_class}><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1254" height="1254"></div><div class="tag">CITY RUN • DELIVERY • VIP</div></div>{content}<footer>SNR Buns • Your account is protected by your password</footer></main></body></html>'''
 
 
 def name_options(names: list[str], selected: str = "") -> str:
@@ -278,10 +278,10 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
     notice = f'<div class="notice">{html.escape(message)}</div>' if message else ""
     options = name_options(names, selected)
     questions = question_options()
-    return page("SNR Buns Loyalty Card", f'''
+    return page("SNR Buns Members Card", f'''
     <section class="card">
-      <div class="label">SNR Loyalty Card</div>
-      <h1>Manage your loyalty card</h1>
+      <div class="label">SNR Members Card</div>
+      <h1>Manage your SNR card</h1>
       <p class="muted">Log in, make a new card or reset your password.</p>
       {notice}
       <div class="account-choice">
@@ -297,7 +297,7 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
           </div>
         </details>
         <details>
-          <summary>Create a new loyalty card</summary>
+          <summary>Create a new SNR card</summary>
           <div class="choice-body">
             <p class="muted">Enter your exact in-game name. Your card works immediately.</p>
             <form method="post" action="/request-access">
@@ -331,9 +331,9 @@ def login_page(names: list[str], message: str = "", selected: str = "") -> str:
         <p><strong>Regular</strong> from your first purchase<br>
         <strong>🥉 Bronze</strong> at 10 purchases — +1 Golden Ticket every purchase<br>
         <strong>🥈 Silver</strong> at 25 purchases — +1 Golden Ticket every purchase<br>
-        <strong>🥇 Gold</strong> at 50 purchases — +1 loyalty point and +1 Golden Ticket<br>
-        <strong>💎 Platinum</strong> at 100 purchases — +1 loyalty point and +2 Golden Tickets<br>
-        <strong>👑 SNR VIP</strong> at 200 purchases — +2 loyalty points and +3 Golden Tickets</p>
+        <strong>🥇 Gold</strong> at 50 purchases — +1 City Run sticker and +1 Golden Ticket<br>
+        <strong>💎 Platinum</strong> at 100 purchases — +1 City Run sticker and +2 Golden Tickets<br>
+        <strong>👑 SNR VIP</strong> at 200 purchases — +2 City Run stickers and +3 Golden Tickets</p>
         <p class="muted">Membership upgrades automatically. Log in to see your current level and progress.</p>
         </div>
       </details>
@@ -426,7 +426,7 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
         "arrived": "Your driver has arrived and is waiting outside",
         "ready_for_pickup": "Your order is ready for collection at SNR Buns",
         "processing": "Payment is being confirmed",
-        "paid": "Delivered, paid and added to loyalty",
+        "paid": "Delivered, paid and City Run stickers added",
         "cancelled": "Cancelled",
         "wasted_journey": "Wasted journey — £500 delivery fee owed",
     }
@@ -435,7 +435,7 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
     for row in rows:
         pickup_row = (row.get("fulfillment_type") or "delivery") == "pickup"
         instore_row = row.get("fulfillment_type") == "instore"
-        row_labels = dict(labels, paid="Served in store, paid and added to loyalty", pending="Awaiting counter payment") if instore_row else labels
+        row_labels = dict(labels, paid="Served in store, paid and City Run stickers added", pending="Awaiting counter payment") if instore_row else labels
         description = (f'{"💳 In Store" if instore_row else "🛍️ Pickup" if pickup_row else "🚗 Delivery"} #{row["id"]}: '
                        f'<strong class="status-{"pending" if row["status"] in ACTIVE_ORDER_STATUSES else row["status"]}">'
                        f'{row_labels.get(row["status"], row["status"])}</strong><br>'
@@ -499,7 +499,7 @@ def delivery_section(customer: dict, orders: DeliveryStore, shifts: StaffShifts,
         order_form = f'''<div class="debt-warning"><strong>⚠️ £{int(fee["amount"]):,} OWED</strong><br>Wasted Journey fee from delivery order #{int(fee["order_id"])}.<br><br>New deliveries are unavailable until SNR staff mark this fee as paid or waived.</div>'''
     else:
         choices = "".join(
-            f'''<div class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} loyalty point(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,} each</span><label class="quantity">Amount <input class="deal-qty" type="number" name="qty_{deal.key}" value="0" min="0" max="10" step="1" data-price="{deal.price}" aria-label="Amount of {html.escape(deal.name, quote=True)}"></label></div>'''
+            f'''<div class="deal-box"><strong>{html.escape(deal.name)}</strong><span>{html.escape(deal.item_summary)}</span><span>{deal.loyalty_points} City Run sticker(s) • {deal.golden_tickets} Golden ticket(s)</span><span class="price">£{deal.price:,} each</span><label class="quantity">Amount <input class="deal-qty" type="number" name="qty_{deal.key}" value="0" min="0" max="10" step="1" data-price="{deal.price}" aria-label="Amount of {html.escape(deal.name, quote=True)}"></label></div>'''
             for deal in DEALS.values())
         if orders.configured():
             delivery_fee = int(customer["membership"]["delivery_fee"])
@@ -583,7 +583,7 @@ def membership_gallery(current: str) -> str:
         active = name == current
         art = f'''<svg viewBox="0 0 320 196" role="img" aria-label="{html.escape(name)} premium membership card"><defs><linearGradient id="tier-{index}" x2="1" y2="1"><stop stop-color="{light}"/><stop offset=".48" stop-color="{dark}"/><stop offset="1" stop-color="#050507"/></linearGradient><linearGradient id="metal-{index}" x2="1" y2="1"><stop stop-color="#fff5bd"/><stop offset=".45" stop-color="#b98a2e"/><stop offset="1" stop-color="#f3da84"/></linearGradient></defs><rect x="1" y="1" width="318" height="194" rx="19" fill="url(#tier-{index})" stroke="#dbc38a"/><path d="M-20 165C70 95 190 58 345 62" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="46"/><path d="M105 0L320 165M180 0L320 100" stroke="#ffffff" stroke-opacity=".07" stroke-width="18"/><text x="22" y="30" fill="{ink}" font-family="Arial,sans-serif" font-size="14" font-weight="bold" letter-spacing="2">SNR BUNS</text><text x="298" y="29" fill="{ink}" text-anchor="end" font-family="Arial,sans-serif" font-size="9" font-weight="bold">{html.escape(name).upper()}</text><rect x="23" y="52" width="40" height="31" rx="6" fill="url(#metal-{index})" stroke="#8c6c27"/><path d="M36 52v31m14-31v31M23 67h40" stroke="#8c6c27"/><path d="M75 61q12 7 0 14m7-18q19 11 0 22" fill="none" stroke="{ink}" stroke-width="2" stroke-linecap="round"/><text x="22" y="114" fill="{ink}" font-family="monospace" font-size="14" letter-spacing="2.5">••••  ••••  ••••  SNR</text><text x="22" y="142" fill="{ink}" font-family="Arial,sans-serif" font-size="7" letter-spacing="1.5">MEMBERSHIP LEVEL</text><text x="22" y="160" fill="{ink}" font-family="Arial,sans-serif" font-size="17" font-weight="bold">{html.escape(name).upper()}</text><text x="298" y="172" fill="{ink}" text-anchor="end" font-family="Arial,sans-serif" font-size="14" font-style="italic" font-weight="bold">SNR ELITE</text><text x="22" y="180" fill="{ink}" font-family="Arial,sans-serif" font-size="7" letter-spacing="1.5">MEMBER CARD</text></svg>'''
         fee = "Free delivery" if not level["delivery_fee"] else f'£{level["delivery_fee"]} delivery'
-        tiles.append(f'''<article class="tier-tile {'tier-current' if active else ''}">{art}<h3>{html.escape(name)} {'— Your level' if active else ''}</h3><p>{level["minimum_sales"]}+ purchases</p><ul><li>{level["bonus_points"]} extra loyalty point(s) per meal deal</li><li>{level["bonus_tickets"]} extra Golden Ticket(s) per meal deal</li><li>{fee}</li></ul></article>''')
+        tiles.append(f'''<article class="tier-tile {'tier-current' if active else ''}">{art}<h3>{html.escape(name)} {'— Your level' if active else ''}</h3><p>{level["minimum_sales"]}+ purchases</p><ul><li>{level["bonus_points"]} extra City Run sticker(s) per meal deal</li><li>{level["bonus_tickets"]} extra Golden Ticket(s) per meal deal</li><li>{fee}</li></ul></article>''')
     return '<section class="membership-gallery"><h2>All membership cards</h2><p>Swipe to compare all six levels. Bonuses are added to each meal deal’s normal rewards. Click &amp; Collect is free at every level.</p><div class="tier-cards">' + ''.join(tiles) + '</div></section>'
 
 
@@ -595,7 +595,7 @@ def leaderboard_section(board: dict) -> str:
     ) or '<li class="leader-empty">Make the first purchase this month and take the crown!</li>'
     own = board.get("own")
     if own and own.get("excluded"):
-        chase = "Your account is not taking part in this month’s customer chase. Your loyalty points and membership still work normally."
+        chase = "Your account is not taking part in this month’s customer chase. Your City Run stickers and membership still work normally."
     elif own and int(own["rank"]) == 1:
         chase = "👑 You are leading! Keep your crown until the month ends."
     elif own and int(own["gap_to_next"]) > 0:
@@ -610,7 +610,7 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
     board = city_run.customer_board(customer["customer_key"])
     campaign = board.get("campaign") or {}
     if not campaign or campaign.get("status") == "draft":
-        return '''<section class="app-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-draft"><h2>City Run is being prepared</h2><p>Your existing loyalty balance is protected. It will become digital business reveals when the season opens.</p></div></div></section>'''
+        return '''<section class="app-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-draft"><h2>City Run is being prepared</h2><p>Your existing sticker balance is protected. It will become digital business reveals when the season opens.</p></div></div></section>'''
     routes = []
     board_items = []
     for route in board["collections"]:
@@ -652,7 +652,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
                   city_run: CityRunStore,
                   claim_token: str, order_token: str, security_token: str, raffle_token: str,
                   service_token: str, city_run_token: str) -> str:
-    recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} ⭐</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
+    recent = "".join(f'<div class="sale"><div><strong>{html.escape(str(s["deal_name"]))}</strong><br><small>{_sale_date(s["created_at"])}</small></div><span>+{int(s["loyalty_points"])} sticker(s)</span></div>' for s in customer.get("recent_sales", [])) or '<div class="notice">No recent visits to show.</div>'
     jackpot = ('''<strong>🏆 YOU HAVE A WINNING GOLDEN TICKET!</strong><br>Your account has won the £5,000 jackpot. Speak to SNR staff to verify and collect the prize.'''
                if int(customer["jackpot_wins"]) else
                f'''<details class="compact-info"><summary>My {int(customer["golden_tickets"])} automatic Golden Ticket(s)</summary><p>Every meal deal issues its listed ticket(s). They are entered automatically, then each ticket is checked instantly against one secret winner hidden among 1,000 tickets. You do not need to enter anything.</p></details>''')
@@ -667,7 +667,7 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
                  if membership["next_level"] else '<p class="muted">You have reached your current highest membership level.</p>')
     delivery_benefit = ("FREE delivery" if int(membership["delivery_fee"]) == 0
                         else f'£{int(membership["delivery_fee"]):,} delivery')
-    vip = f'''<div class="stat vip-card"><div class="label">SNR Customer Membership</div><div class="num">{membership["emoji"]} {html.escape(membership["name"])}</div><p class="vip-benefits">Every purchase earns the normal rewards <strong>plus {membership["bonus_points"]} loyalty point(s) and {membership["bonus_tickets"]} Golden Ticket(s)</strong>.<br>Delivery benefit: <strong>{delivery_benefit}</strong>.</p>{next_text}<small>Regular 0+ • Bronze 10+ • Silver 25+ • Gold 50+ • Platinum 100+ • SNR VIP 200+</small></div>'''
+    vip = f'''<div class="stat vip-card"><div class="label">SNR Customer Membership</div><div class="num">{membership["emoji"]} {html.escape(membership["name"])}</div><p class="vip-benefits">Every purchase earns the normal rewards <strong>plus {membership["bonus_points"]} City Run sticker(s) and {membership["bonus_tickets"]} Golden Ticket(s)</strong>.<br>Delivery benefit: <strong>{delivery_benefit}</strong>.</p>{next_text}<small>Regular 0+ • Bronze 10+ • Silver 25+ • Gold 50+ • Platinum 100+ • SNR VIP 200+</small></div>'''
     recovery = debt + recovery
     birthday = orders.birthday_status(customer["customer_key"])
     if birthday["saved"]:
@@ -748,13 +748,13 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
     voucher_rows = "".join(
         f'''<div class="voucher {'voucher-used' if row['status'] != 'active' else ''}"><strong>{html.escape(row['title'])}</strong><br><code>{html.escape(row['voucher_code'])}</code> · {html.escape(row['status'].title())}</div>'''
         for row in vouchers[:8]) or '<p class="muted">No vouchers yet.</p>'
-    voucher_wallet = f'''<section class="app-page quick-more-page"><h2 class="app-page-title">✨ My Existing Vouchers</h2><div class="drawer-body"><p>Previously issued vouchers stay valid. New loyalty points now power SNR City Run.</p>{voucher_rows}</div></section>'''
+    voucher_wallet = f'''<section class="app-page quick-more-page"><h2 class="app-page-title">✨ My Existing Vouchers</h2><div class="drawer-body"><p>Previously issued vouchers stay valid. New City Run stickers now power your board.</p>{voucher_rows}</div></section>'''
     latest_action = action_rows[0] if action_rows else None
     latest_rewards = services.reward_requests(customer["customer_key"], 1)
     latest_reward = latest_rewards[0] if latest_rewards else None
     sync_data = (f' data-action-id="{int(latest_action["id"])}" data-action-status="{latest_action["status"]}"' if latest_action else '')
     sync_data += (f' data-reward-id="{int(latest_reward["id"])}" data-reward-status="{latest_reward["status"]}"' if latest_reward else '')
-    return page(f'{customer["display_name"]} • SNR Loyalty', f'''<section class="card quick-hub" id="customer-app"{sync_data}>{top_order}{review_popup}<div id="service-toast" role="status"></div>
+    return page(f'{customer["display_name"]} • SNR City Run', f'''<section class="card quick-hub" id="customer-app"{sync_data}>{top_order}{review_popup}<div id="service-toast" role="status"></div>
       <header class="quick-app-head"><div class="quick-brand"><img src="/snr-logo.png" alt="SNR Buns"><span><strong>SNR Buns</strong><small aria-label="CUSTOMER APP">SNR MEMBERS CLUB</small></span></div><span class="quick-service {service_class}">● {service_text}</span></header>
       <div class="neon-hero" role="img" aria-label="SNR Buns, burgers and neon city lights"><span class="hero-service {service_class}">{html.escape(service_text)}</span></div>
       <div class="quick-welcome"><div><div class="name">{html.escape(customer["display_name"])}’s <em>SNR Card</em></div></div><button type="button" class="membership-link" data-tab-target="visits">{membership["emoji"]} {html.escape(membership["name"])} ›</button></div>
@@ -763,13 +763,13 @@ def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shi
         <section class="store-card unified-card {'vip-black' if membership['name'] == 'SNR VIP' else ''}" aria-label="Your membership credit card">
           <div class="store-card-top"><span>SNR BUNS</span><b>{html.escape(membership["name"]).upper()}</b></div>
           <div class="card-hardware"><span class="card-chip" aria-hidden="true"></span><span class="card-contactless" aria-hidden="true">)))</span></div>
-          <div class="card-balance"><strong>{points}</strong><span>{'CITY RUN STICKERS' if city_run_live else 'LOYALTY POINTS'}</span></div>
+          <div class="card-balance"><strong>{points}</strong><span>CITY RUN STICKERS</span></div>
           <div class="card-number" aria-label="Member card ending {card_suffix}">••••&nbsp; ••••&nbsp; ••••&nbsp; {card_suffix}</div>
           <div class="store-card-bottom"><span class="card-holder"><small>CARDHOLDER</small><span>{html.escape(customer["display_name"])}</span></span><button class="card-reward" type="button" data-tab-target="city-run"><span><strong>{reward_title}</strong><small>Open City Run</small></span><span class="reward-arrow" aria-hidden="true">↗</span></button><span class="card-network" aria-label="SNR Elite membership card"><small>MEMBER</small>SNR <i>ELITE</i></span></div>
           <div class="member-progress" role="progressbar" aria-label="City Run collection progress" aria-valuemin="0" aria-valuemax="38" aria-valuenow="{progress}"><span style="width:{round(progress / 38 * 100)}%"></span></div>
         </section>
         <div class="member-actions"><button type="button" data-tab-target="order" data-order-mode="pickup"><span>🛍️ Click &amp; Collect</span><small>Order ahead and collect</small></button><button type="button" data-tab-target="order" data-order-mode="delivery" {'disabled aria-disabled="true"' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else ''}><span>🛵 Delivery</span><small>{'Currently unavailable' if not drivers or service["mode"] in ("closed", "pickup_only", "delivery_paused") else 'SNR Buns to your door'}</small></button></div>
-        <button class="neon-reward-banner" type="button" data-tab-target="city-run"><span aria-hidden="true">🏁</span><strong>{city_unique}<small>OF 38 FOUND</small></strong><span>SNR CITY RUN<small>{str(city_reveals) + ' reveal(s) ready' if city_reveals else 'Every point unlocks a business reveal'}</small></span><b>›</b></button>
+        <button class="neon-reward-banner" type="button" data-tab-target="city-run"><span aria-hidden="true">🏁</span><strong>{city_unique}<small>OF 38 FOUND</small></strong><span>SNR CITY RUN<small>{str(city_reveals) + ' reveal(s) ready' if city_reveals else 'Every sticker unlocks a business reveal'}</small></span><b>›</b></button>
         <div class="quick-actions"><button type="button" class="quick-action" data-tab-target="raffle"><span>♧</span><strong>Raffle ›</strong></button><button type="button" class="quick-action" data-tab-target="order"><span>▤</span><strong>My orders ›</strong></button><button type="button" class="quick-action" data-tab-target="visits"><span>▥</span><strong>Visits ›</strong></button></div>{leaderboard}
         <div class="order-sync-anchor" hidden>{quick_order}</div>{help_centre}
       </div>
@@ -812,7 +812,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
         RaffleStore(db), CustomerServices(db), CityRunStore(db)
     )
     # Physical card packs are retired. This is idempotent and refunds only
-    # legacy requests whose points had already been reserved.
+    # Legacy requests whose sticker credits had already been reserved.
     claims.retire_pending()
     form_secret = secrets.token_bytes(32)
 
@@ -899,7 +899,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
             owner = self.owner()
             customer = db.get_customer(owner) if owner else None
             if not customer:
-                self.send_html(401, login_page(db.customer_names(), "Please log in to open a loyalty account."))
+                self.send_html(401, login_page(db.customer_names(), "Please log in to open your SNR account."))
                 return
             self.send_html(200, customer_page(
                 customer, claims, orders, shifts, accounts, raffles, services, city_run,
@@ -1099,7 +1099,7 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                         data.get("name", ""), data.get("password", ""),
                         data.get("security_question", ""), data.get("security_answer", ""),
                     )
-                    self.send_html(200, page("Account created", f'''<section class="card"><div class="label">Account created</div><h1>You’re ready to go!</h1><p>The loyalty account for <strong>{html.escape(result["customer_name"])}</strong> is active now.</p><div class="notice">You can log in immediately using the password you just chose. SNR staff have been notified, but no approval is required.</div><a class="back" href="/">Log in to my account</a></section>'''))
+                    self.send_html(200, page("Account created", f'''<section class="card"><div class="label">Account created</div><h1>You’re ready to go!</h1><p>The SNR account for <strong>{html.escape(result["customer_name"])}</strong> is active now.</p><div class="notice">You can log in immediately using the password you just chose. SNR staff have been notified, but no approval is required.</div><a class="back" href="/">Log in to my account</a></section>'''))
                 elif path == "/reset-password":
                     if data.get("password", "") != data.get("confirm", ""):
                         raise ValueError("The two passwords do not match.")
@@ -1138,7 +1138,7 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                     self.send_html(200, page("Birthday saved", f'''<section class="card"><div class="label">Birthday Reward</div><h1>🎂 {html.escape(result["date"])} saved</h1><p>Your annual <strong>{html.escape(result["reward"] or "birthday reward")}</strong> will appear automatically when it is available.</p><div class="notice">For account security, a newly saved birthday must be on the account for seven days before it can produce a reward.</div><a class="back" href="/account#home">Back to my account</a></section>'''))
                 elif path == "/claim":
                     raise ValueError(
-                        "Trading-card packs have retired. Your points are protected and now power SNR City Run."
+                        "Trading-card packs have retired. Your sticker balance is protected and now powers SNR City Run."
                     )
                 elif path == "/city-run-reveal":
                     owner = self.owner()
@@ -1246,7 +1246,7 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                     if not valid_form_token(owner, key):
                         raise ValueError("This reward request has expired. Refresh your account and try again.")
                     result = services.request_reward(owner, data.get("reward_code", ""), key)
-                    self.send_html(200, page("Reward requested", f'''<section class="card"><div class="label">Reward Request #{int(result["id"])}</div><h1>{html.escape(result["reward_name"])}</h1><div class="notice">Staff have been notified. Your points are only deducted when they approve the reward.</div><a class="back" href="/account#rewards">Back to rewards</a></section>'''))
+                    self.send_html(200, page("Reward requested", f'''<section class="card"><div class="label">Reward Request #{int(result["id"])}</div><h1>{html.escape(result["reward_name"])}</h1><div class="notice">Staff have been notified. Your stickers are only deducted when they approve the reward.</div><a class="back" href="/account#rewards">Back to rewards</a></section>'''))
                 else:
                     self.send_html(404, login_page(db.customer_names(), "Page not found."))
             except (ValueError, UnicodeError, KeyError) as exc:

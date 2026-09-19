@@ -564,7 +564,7 @@ class SNRDatabase:
             )
             updated = conn.execute("SELECT * FROM customers WHERE customer_key = ?", (key,)).fetchone()
             if int(updated["loyalty_points"]) != new_points_total:
-                raise RuntimeError("The sale was stopped because its loyalty points did not save.")
+                raise RuntimeError("The sale was stopped because its City Run stickers did not save.")
             current_jackpot = conn.execute("SELECT * FROM jackpot WHERE id = 1").fetchone()
             city_run_reveals_awarded = award_tokens_for_sale(
                 conn, sale_id, key, shown, earned_stickers if city_run_active else 0, now
@@ -607,7 +607,7 @@ class SNRDatabase:
         total_points = sum(int(result["loyalty_awarded"]) for result in results)
         base_points = DEALS[deal_key].loyalty_points * amount
         if not self._city_run_active() and total_points < base_points:
-            raise RuntimeError("The full quantity loyalty reward was not recorded.")
+            raise RuntimeError("The full quantity City Run sticker reward was not recorded.")
         return {
             **results[-1],
             "quantity": amount,
@@ -980,8 +980,8 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
         d = DEALS[deal_key]
         reward_lines = []
         if d.loyalty_points:
-            point_word = "point" if d.loyalty_points == 1 else "points"
-            reward_lines.append(f"⭐ {d.loyalty_points} loyalty {point_word}")
+            sticker_word = "sticker" if d.loyalty_points == 1 else "stickers"
+            reward_lines.append(f"🏁 {d.loyalty_points} City Run {sticker_word}")
         ticket_word = "ticket" if d.golden_tickets == 1 else "tickets"
         reward_lines.append(f"🎟️ {d.golden_tickets} Golden {ticket_word}")
         return (
@@ -1020,7 +1020,7 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
     if kind == "loyalty":
         return (
             "🏁🍔 SNR CITY RUN IS COMING 🍔🏁\n\n"
-            "Purchase SNR meal deals to collect loyalty points. Every point gives you one secure "
+            "Purchase SNR meal deals to collect City Run stickers. Every sticker gives you one secure "
             "digital business reveal on the SNR City Run board.\n\n"
             "Complete business routes for RP food, cash and VIP rewards—and collect all 38 businesses "
             "for a chance to claim the grand-prize vehicle.\n\n"
@@ -1029,9 +1029,9 @@ def birdy_post(kind: str, deal_key: str | None = None, winner: str | None = None
     if kind == "delivery":
         return (
             "🚗🍔 SNR BUNS DELIVERIES ARE AVAILABLE! 🍔🚗\n\n"
-            "Hungry but can’t get to the restaurant? Log in through the SNR Buns loyalty webpage, choose your deal and enter your postal.\n\n"
+            "Hungry but can’t get to the restaurant? Log in through the SNR Buns customer webpage, choose your deal and enter your postal.\n\n"
             "Fresh food • Cold drinks • Fast service\n\n"
-            "Pay on delivery — your loyalty points and Golden Tickets update after staff confirm payment."
+            "Pay on delivery — your City Run stickers and Golden Tickets update after staff confirm payment."
         )
     if kind == "catering":
         return (

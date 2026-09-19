@@ -247,7 +247,7 @@ def customer_embed(customer: dict) -> discord.Embed:
         title=f"🍔 {customer['display_name']}",
         colour=discord.Colour.orange(),
     )
-    embed.add_field(name="Loyalty Points", value=f"**{customer['loyalty_points']}**", inline=True)
+    embed.add_field(name="City Run Stickers", value=f"**{customer['loyalty_points']}**", inline=True)
     embed.add_field(name="Golden Tickets", value=f"**{customer['golden_tickets']}**", inline=True)
     embed.add_field(name="Jackpot Wins", value=f"**{customer['jackpot_wins']}**", inline=True)
     embed.add_field(name="Sales", value=f"**{customer['lifetime_sales']}**", inline=True)
@@ -275,7 +275,7 @@ def customer_embed(customer: dict) -> discord.Embed:
     embed.add_field(
         name=f"{membership['emoji']} Customer Membership",
         value=(f"**{membership['name']}**\n{progress}\n"
-               f"Per purchase bonus: +{membership['bonus_points']} loyalty • +{membership['bonus_tickets']} Golden Ticket(s)\n"
+               f"Per purchase bonus: +{membership['bonus_points']} City Run sticker(s) • +{membership['bonus_tickets']} Golden Ticket(s)\n"
                f"Delivery: **{'FREE' if int(membership['delivery_fee']) == 0 else money(membership['delivery_fee'])}**"),
         inline=False,
     )
@@ -393,13 +393,13 @@ def sale_embed(result: dict) -> discord.Embed:
          f"Share Box earns 2 per item • **{city_run_stickers}** added for this sale")
         if city_run_stickers
         else (
-        (f"**{deal.loyalty_points} per deal × {quantity} = +{base_points} base points**\n"
+        (f"**{deal.loyalty_points} per deal × {quantity} = +{base_points} base sticker(s)**\n"
          + (f"Membership bonus: +{membership_points}\n" if membership_points else "")
-         + f"Added now: **+{awarded_points}** → **{customer['loyalty_points']} total**")
+         + f"Added now: **+{awarded_points}** → **{customer['loyalty_points']} sticker(s) total**")
         if awarded_points
-        else f"No point on this deal • **{customer['loyalty_points']} total**")
+        else f"No sticker on this deal • **{customer['loyalty_points']} total**")
     )
-    embed.add_field(name="Loyalty / City Run", value=loyalty_value, inline=True)
+    embed.add_field(name="City Run Stickers", value=loyalty_value, inline=True)
     embed.add_field(name="Golden Tickets", value=f"+{awarded_tickets}", inline=True)
     membership = customer["membership"]
     embed.add_field(name="Membership", value=f"{membership['emoji']} **{membership['name']}**", inline=True)
@@ -438,7 +438,7 @@ def finance_embed(stats: dict, title: str) -> discord.Embed:
     embed.add_field(name="Golden Tickets", value=f"**{stats['tickets']}**", inline=True)
     embed.add_field(name="Food/Desserts", value=f"**{stats['food']}**", inline=True)
     embed.add_field(name="Drinks", value=f"**{stats['drinks']}**", inline=True)
-    embed.add_field(name="Loyalty Points", value=f"**{stats['loyalty']}**", inline=True)
+    embed.add_field(name="City Run Stickers", value=f"**{stats['loyalty']}**", inline=True)
     breakdown = "\n".join(
         (
             f"• **{d['deal_name']} ×{d['quantity']}** — "
@@ -465,7 +465,7 @@ def closing_report_embed(stats: dict, delivery: dict) -> discord.Embed:
     embed.add_field(name="Gross Profit", value=f"**{money(stats['gross_profit'])}**", inline=True)
     embed.add_field(name="Production Cost", value=f"**{money(stats['production_cost'])}**", inline=True)
     embed.add_field(name="Profit Margin", value=f"**{stats['profit_margin']:.1f}%**", inline=True)
-    embed.add_field(name="Loyalty / Tickets", value=f"**{stats['loyalty']} points • {stats['tickets']} tickets**", inline=True)
+    embed.add_field(name="Stickers / Tickets", value=f"**{stats['loyalty']} stickers • {stats['tickets']} tickets**", inline=True)
     embed.add_field(name="Website Orders", value=(f"**{delivery['orders']} paid**\n"
                     f"{delivery['deliveries']} delivery • {delivery['pickups']} pickup • {delivery.get('instore', 0)} in store"), inline=True)
     embed.add_field(name="Order Adjustments", value=(f"Delivery fees: **{money(delivery['delivery_fees'])}**\n"
@@ -554,7 +554,7 @@ async def continue_action(interaction: discord.Interaction, action: str, name: s
         await send_ephemeral(
             interaction,
             f"✅ **{discord.utils.escape_markdown(updated['display_name'])}** has been {verb} the monthly leaderboard.\n"
-            "Their account, points, membership and sales history have not been changed.",
+            "Their account, City Run stickers, membership and sales history have not been changed.",
             view=LeaderboardManagementView(),
         )
     elif action == "check":
@@ -923,7 +923,7 @@ class BirdySelect(discord.ui.Select):
             discord.SelectOption(label="Promote a Deal", value="deal", emoji="🔥"),
             discord.SelectOption(label="Golden Mystery Ticket", value="jackpot", emoji="🎟️"),
             discord.SelectOption(label="Mystery Ticket Winner", value="winner", emoji="🏆"),
-            discord.SelectOption(label="Loyalty Scheme", value="loyalty", emoji="⭐"),
+            discord.SelectOption(label="City Run Stickers", value="loyalty", emoji="🏁"),
             discord.SelectOption(label="Delivery Service", value="delivery", emoji="🚗"),
             discord.SelectOption(label="Event Catering", value="catering", emoji="🎉"),
             discord.SelectOption(label="Hiring", value="hiring", emoji="📋"),
@@ -963,7 +963,7 @@ class VIPLevelSelect(discord.ui.Select):
         for name, details in VIP_LEVELS.items():
             options.append(discord.SelectOption(
                 label=name, value=name, emoji=details["emoji"],
-                description=(f"+{details['bonus_points']} loyalty • +{details['bonus_tickets']} tickets • "
+                description=(f"+{details['bonus_points']} sticker(s) • +{details['bonus_tickets']} tickets • "
                              f"£{details['delivery_fee']} delivery")[:100],
             ))
         super().__init__(placeholder="Set membership level", options=options)
@@ -1139,7 +1139,7 @@ class UndoSaleConfirmView(discord.ui.View):
             content=(f"✅ **COUNTER SALE UNDONE**\n"
                      f"Customer: **{discord.utils.escape_markdown(result['customer']['display_name'])}**\n"
                      f"Reversed: **{self.sale_batch['deal_name']} ×{self.sale_batch['quantity']}**\n"
-                     f"Finance, visits, loyalty and customer ticket totals have been corrected."),
+                     f"Finance, visits, City Run stickers and customer ticket totals have been corrected."),
             embed=None, view=None)
         asyncio.create_task(delete_response_later(interaction, 10))
 
@@ -1339,7 +1339,7 @@ class OwnerAdminView(discord.ui.View):
             f"Customer: **{discord.utils.escape_markdown(latest['customer_name'])}**\n"
             f"Sale: **{discord.utils.escape_markdown(latest['deal_name'])} ×{latest['quantity']}**\n"
             f"Value: **{money(latest['revenue'])}**\nTransaction: `{transaction}`\n\n"
-            "This reverses finance, visits, loyalty points and the customer’s Golden Ticket total.",
+            "This reverses finance, visits, City Run stickers and the customer’s Golden Ticket total.",
             view=UndoSaleConfirmView(latest),
         )
 
@@ -1512,12 +1512,12 @@ def custom_reward_embed(row):
     embed = discord.Embed(title=f"✨ REWARD REQUEST #{row['id']}", colour=colour)
     embed.add_field(name="Customer", value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name="Reward", value=f"**{discord.utils.escape_markdown(row['reward_name'])}**", inline=True)
-    embed.add_field(name="Points", value=f"**{int(row['points_cost'])}**", inline=True)
+    embed.add_field(name="Sticker Cost", value=f"**{int(row['points_cost'])}**", inline=True)
     embed.add_field(name="Status", value=f"**{row['status'].upper()}**", inline=False)
     if row.get("remaining_points") is not None:
         embed.add_field(
-            name="Loyalty Balance",
-            value=(f"**{int(row['points_used'])} points used** • "
+            name="Sticker Balance",
+            value=(f"**{int(row['points_used'])} stickers used** • "
                    f"**{int(row['remaining_points'])} remaining**"),
             inline=False,
         )
@@ -1525,7 +1525,7 @@ def custom_reward_embed(row):
         voucher = next((item for item in services.vouchers(row["customer_key"]) if item["id"] == row["voucher_id"]), None)
         if voucher:
             embed.add_field(name="Customer Voucher", value=f"`{voucher['voucher_code']}`", inline=False)
-    embed.set_footer(text="Points are deducted only when staff approve the reward")
+    embed.set_footer(text="Stickers are deducted only when staff approve the reward")
     return embed
 
 
@@ -1897,7 +1897,7 @@ def raffle_embed(raffle: dict | None, *, title="🎟️ SNR RAFFLE CENTRE") -> d
     if raffle["status"] == "drawn":
         embed.add_field(name="🏆 WINNER", value=(f"**{discord.utils.escape_markdown(raffle['winner_name'])}**\n"
                         f"Winning number: **{int(raffle['winning_number'])}**"), inline=False)
-    embed.set_footer(text="Raffle entries are separate from meal sales, loyalty and Golden Tickets")
+    embed.set_footer(text="Raffle entries are separate from meal sales, City Run stickers and Golden Tickets")
     return embed
 
 
@@ -2133,8 +2133,8 @@ def city_run_status_embed():
               discord.Colour.orange() if board_status == "DRAFT" else discord.Colour.dark_grey())
     embed = discord.Embed(
         title="🏁 SNR CITY RUN CONTROL CENTRE",
-        description=("Digital collect-to-win campaign linked to website loyalty points.\n"
-                     "**1 loyalty point = 1 secure business reveal.**"),
+        description=("Digital collect-to-win campaign powered by City Run stickers.\n"
+                     "**1 City Run sticker = 1 secure business reveal.**"),
         colour=colour,
     )
     embed.add_field(name="Season", value=board_status, inline=True)
@@ -2149,7 +2149,7 @@ def city_run_status_embed():
                "Finance: 1 month VIP • Services: £10,000 • All 38: vehicle"),
         inline=False,
     )
-    embed.set_footer(text="Physical trading-card packs are retired. Existing loyalty balances stay protected.")
+    embed.set_footer(text="Physical trading-card packs are retired. Existing sticker balances stay protected.")
     return embed
 
 
@@ -2186,7 +2186,7 @@ class CityRunOwnerView(discord.ui.View):
                     await interaction.response.send_message(f"❌ {exc}", ephemeral=True)
                     return
                 await interaction.response.edit_message(
-                    content="✅ City Run is now live. Existing customer points are available as reveals.",
+                    content="✅ City Run is now live. Existing customer sticker balances are available as reveals.",
                     embed=city_run_status_embed(), view=CityRunOwnerView())
 
             recommended.callback = apply_recommended
@@ -2329,7 +2329,7 @@ def live_queue_snapshot(guild_id):
             row["reward_name"], "🏁", 2)
     for row in rewards:
         add("reward", row, f"Reward request #{row['id']} • {row['customer_name']}",
-            f"{row['reward_name']} • {int(row['points_cost'])} points", "🎁", 3)
+            f"{row['reward_name']} • {int(row['points_cost'])} stickers", "🎁", 3)
     for row in raffle:
         add("raffle", row, f"Raffle payment #{row['id']} • {row['customer_name']}",
             f"Numbers {row['numbers']} • {money(row['total_price'])}", "🎟️", 3)
@@ -2589,8 +2589,8 @@ def pack_claim_embed(row):
     embed.description = (f"Customer: **{discord.utils.escape_markdown(row['customer_name'])}**\n"
                          "Reward: **1 pack containing 2 trading cards**\n"
                          f"Status: **{row['status']}**\n"
-                         "The customer’s points stay unchanged while pending. Hand over the pack first, then confirm. "
-                         "Confirming deducts **4 points only**. Extra points are kept. Cancelling leaves their points unchanged.")
+                         "The customer’s stickers stay unchanged while pending. Hand over the reward first, then confirm. "
+                         "Confirming deducts **4 stickers only**. Extra stickers are kept. Cancelling leaves their stickers unchanged.")
     return embed
 
 
@@ -2599,7 +2599,7 @@ class PackClaimView(discord.ui.View):
         super().__init__(timeout=None)
         self.claim_id = claim_id
         for status, label, style in [('fulfilled', 'Handed Over', discord.ButtonStyle.success),
-                                     ('cancelled', 'Cancel & Return Points', discord.ButtonStyle.danger)]:
+                                     ('cancelled', 'Cancel & Keep Stickers', discord.ButtonStyle.danger)]:
             button = discord.ui.Button(label=label, style=style, custom_id=f'snr:pack:{claim_id}:{status}')
             async def callback(interaction, target=status):
                 if not await require_staff(interaction):
@@ -2616,10 +2616,10 @@ class PackClaimView(discord.ui.View):
                     await interaction.followup.send(str(exc), ephemeral=True)
                     return
                 await interaction.followup.send(
-                    (f"Pack marked as handed over. **{int(row['points_used'])} points used** and "
-                     f"**{int(row['remaining_points'])} points remain**."
+                    (f"Reward marked as handed over. **{int(row['points_used'])} stickers used** and "
+                     f"**{int(row['remaining_points'])} stickers remain**."
                      if target == 'fulfilled' else
-                     'Cancelled. The customer’s points were not changed.'), ephemeral=True)
+                     'Cancelled. The customer’s stickers were not changed.'), ephemeral=True)
                 # Also update the canonical alert if this action came from the pending-request list.
                 try:
                     await interaction.message.edit(embed=pack_claim_embed(row), view=None)
@@ -2726,7 +2726,7 @@ def delivery_order_embed(row):
     breakdown.append(f"Final total: **{money(row['price'])}**")
     embed.add_field(name='Price Breakdown', value="\n".join(breakdown), inline=False)
     embed.add_field(name='Rewards After Payment',
-                    value=(f"{loyalty} loyalty point(s) • {tickets} Golden ticket(s)\n"
+                    value=(f"{loyalty} City Run sticker(s) • {tickets} Golden ticket(s)\n"
                            "Tickets are issued and entered into the £5,000 draw automatically when payment is confirmed."),
                     inline=True)
     if row['status'] == 'paid':
@@ -2968,10 +2968,10 @@ class DeliveryOrderView(discord.ui.View):
                          'Their webpage is alerting them now and the reward is recorded for staff verification.')
                         if won else
                         (f'✅ {completed_word} and payment confirmed for {sum(item["quantity"] for item in orders.items(row))} deal(s). '
-                         'Sales, finance and loyalty are updated, and every Golden Ticket was issued and entered automatically.'))
+                         'Sales, finance and City Run stickers are updated, and every Golden Ticket was issued and entered automatically.'))
         elif target == 'wasted_journey':
             response = ('⚠️ Wasted Journey recorded. £500 is now owed on the customer’s webpage and name, '
-                        'and new deliveries are blocked. No sale, loyalty points or Golden Tickets were added.')
+                        'and new deliveries are blocked. No sale, City Run stickers or Golden Tickets were added.')
         else:
             response = 'Order cancelled. No sale or rewards were added. The customer’s webpage has been updated.'
         await interaction.followup.send(response, ephemeral=True)
@@ -3102,17 +3102,17 @@ def account_request_embed(row):
     if row['request_type'] == 'reset':
         embed.set_footer(text='Approving this reset signs out all old website sessions')
     else:
-        embed.set_footer(text='Approval unlocks this customer’s loyalty card')
+        embed.set_footer(text='Approval unlocks this customer’s SNR card')
     return embed
 
 
 def account_created_embed(row):
-    embed = discord.Embed(title=f"👤 NEW LOYALTY ACCOUNT #{row['id']}", colour=discord.Colour.green())
+    embed = discord.Embed(title=f"👤 NEW SNR ACCOUNT #{row['id']}", colour=discord.Colour.green())
     embed.add_field(name='Customer', value=f"**{discord.utils.escape_markdown(row['customer_name'])}**", inline=True)
     embed.add_field(name='Status', value='**ACTIVE NOW**', inline=True)
     embed.description = (
-        'The customer created their own loyalty account on the website. '
-        'No staff approval is needed and the account starts with zero points.'
+        'The customer created their own SNR account on the website. '
+        'No staff approval is needed and the account starts with zero City Run stickers.'
     )
     embed.set_footer(text='Password and memorable answer are securely hashed and never shown')
     return embed
@@ -3488,7 +3488,7 @@ async def snr_create_channels(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True)
     names = {
         "announcements": "snr-announcements",
-        "new_accounts": "snr-new-loyalty",
+        "new_accounts": "snr-new-accounts",
         "active_orders": "snr-active-deliveries",
         "completed_orders": "snr-completed-deliveries",
         "city_run_claims": "snr-city-run-claims",
@@ -3594,7 +3594,7 @@ async def accounts_setup(interaction: discord.Interaction):
     accounts.configure_notifications(
         channel.id, channel.guild.id, interaction.user.id, str(interaction.user))
     await interaction.response.send_message(
-        '✅ New-account notifications are now separated. New loyalty accounts will appear only in this channel, not Delivery Orders.',
+        '✅ New-account notifications are now separated. New SNR accounts will appear only in this channel, not Delivery Orders.',
         ephemeral=True)
 
 
@@ -3680,7 +3680,7 @@ async def main() -> None:
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN is missing. Add it to your environment variables.")
     server = start_web_server(db, PORT)
-    print(f"SNR Loyalty Card website listening on port {PORT}")
+    print(f"SNR Members website listening on port {PORT}")
     try:
         await bot.start(TOKEN)
     finally:

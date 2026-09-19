@@ -6,7 +6,7 @@ from snr_core import utc_now
 
 CHANNEL_TYPES = {
     "announcements": "Owner Announcements",
-    "new_accounts": "New Loyalty Accounts",
+    "new_accounts": "New SNR Accounts",
     "active_orders": "Active Deliveries",
     "completed_orders": "Completed Deliveries",
     "city_run_claims": "City Run Reward Claims",

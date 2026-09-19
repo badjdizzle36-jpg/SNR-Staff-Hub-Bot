@@ -118,7 +118,7 @@ class CustomerServices:
             if not route:
                 raise ValueError("Reward requests are being set up. Please ask staff.")
             if int(customer["loyalty_points"]) < int(reward["points_cost"]):
-                raise ValueError(f"You need {int(reward['points_cost'])} points for {reward['name']}.")
+                raise ValueError(f"You need {int(reward['points_cost'])} City Run stickers for {reward['name']}.")
             cursor = conn.execute("""INSERT INTO custom_reward_requests
                 (customer_key,customer_name,reward_code,reward_name,points_cost,request_key,
                  created_at,channel_id,guild_id) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -162,7 +162,7 @@ class CustomerServices:
             if decision == "approved":
                 customer = conn.execute("SELECT loyalty_points FROM customers WHERE customer_key=?", (row["customer_key"],)).fetchone()
                 if not customer or int(customer["loyalty_points"]) < int(row["points_cost"]):
-                    raise ValueError("The customer no longer has enough points.")
+                    raise ValueError("The customer no longer has enough City Run stickers.")
                 points_before = int(customer["loyalty_points"])
                 points_cost = max(0, int(row["points_cost"]))
                 reward = conn.execute("SELECT * FROM custom_reward_catalog WHERE code=?", (row["reward_code"],)).fetchone()
@@ -176,12 +176,12 @@ class CustomerServices:
                     WHERE customer_key=? AND loyalty_points>=?""",
                     (points_cost, utc_now(), row["customer_key"], points_cost))
                 if changed.rowcount != 1:
-                    raise ValueError("The customer no longer has enough points.")
+                    raise ValueError("The customer no longer has enough City Run stickers.")
                 points_after = int(conn.execute(
                     "SELECT loyalty_points FROM customers WHERE customer_key=?",
                     (row["customer_key"],)).fetchone()["loyalty_points"])
                 if points_after != points_before - points_cost:
-                    raise RuntimeError("The reward was stopped because the remaining loyalty balance could not be verified.")
+                    raise RuntimeError("The reward was stopped because the remaining sticker balance could not be verified.")
             conn.execute("""UPDATE custom_reward_requests SET status=?,resolved_at=?,resolved_by=?,
                 resolved_by_name=?,voucher_id=? WHERE id=?""", (decision, utc_now(), str(staff_id), staff_name,
                 voucher_id, int(request_id)))
