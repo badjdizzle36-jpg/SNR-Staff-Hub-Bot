@@ -909,7 +909,7 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "public, max-age=300")
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(data)
