@@ -8,6 +8,44 @@ from snr_core import normalize_name, utc_now
 
 NAMES = {b['key']: b['name'] for b in BUSINESSES}
 
+# Served as /city-marketplace.js. Keeping marketplace behaviour in an external
+# same-origin asset allows the portal's strict Content-Security-Policy to remain
+# enabled while every interactive control still works.
+MARKETPLACE_JS = r'''document.addEventListener("DOMContentLoaded",()=>{
+const root=document.querySelector('.market');if(!root)return;
+const panels=[...root.querySelectorAll('[data-market-panel]')],tabs=[...root.querySelectorAll('[data-market-tab]')];
+const showPanel=name=>{tabs.forEach(t=>t.setAttribute('aria-selected',String(t.dataset.marketTab===name)));panels.forEach(p=>p.hidden=p.dataset.marketPanel!==name)};
+tabs.forEach(tab=>tab.addEventListener('click',()=>showPanel(tab.dataset.marketTab)));
+const carousel=root.querySelector('.offer-carousel'),deck=root.querySelector('.offer-deck'),all=[...root.querySelectorAll('.offer-slide')],dots=root.querySelector('.carousel-dots'),empty=root.querySelector('.offer-empty'),prev=root.querySelector('.carousel-arrow.prev'),next=root.querySelector('.carousel-arrow.next');
+let visible=[...all],index=0,startX=0;
+function render(){
+  all.forEach(s=>s.classList.remove('active'));
+  if(!visible.length){deck.style.transform='';dots.replaceChildren();carousel.hidden=true;dots.hidden=true;empty.hidden=false;prev.hidden=true;next.hidden=true;return}
+  carousel.hidden=false;empty.hidden=true;index=Math.max(0,Math.min(index,visible.length-1));
+  const active=visible[index];active.classList.add('active');
+  const width=carousel.clientWidth,card=active.getBoundingClientRect().width||active.offsetWidth;
+  deck.style.transform=`translate3d(${width/2-(index+.5)*card}px,0,0)`;
+  const multiple=visible.length>1;prev.hidden=!multiple;next.hidden=!multiple;dots.hidden=!multiple;
+  dots.replaceChildren(...visible.map((_,i)=>{const b=document.createElement('button');b.type='button';b.className='carousel-dot'+(i===index?' active':'');b.setAttribute('aria-label',`Show card ${i+1}`);b.addEventListener('click',()=>{index=i;render()});return b}))
+}
+function move(step){if(visible.length<2)return;index=(index+step+visible.length)%visible.length;render()}
+prev.addEventListener('click',event=>{event.preventDefault();move(-1)});
+next.addEventListener('click',event=>{event.preventDefault();move(1)});
+deck.addEventListener('pointerdown',event=>{startX=event.clientX});
+deck.addEventListener('pointerup',event=>{if(Math.abs(event.clientX-startX)>35)move(event.clientX<startX?1:-1)});
+root.querySelectorAll('.rarity-filter').forEach(btn=>btn.addEventListener('click',()=>{
+  root.querySelectorAll('.rarity-filter').forEach(b=>b.setAttribute('aria-pressed','false'));btn.setAttribute('aria-pressed','true');
+  visible=all.filter(s=>btn.dataset.rarity==='all'||s.dataset.rarity===btn.dataset.rarity);
+  all.forEach(s=>s.hidden=!visible.includes(s));index=0;render()
+}));
+const give=root.querySelector('#swap-give'),want=root.querySelector('#swap-want'),preview=root.querySelector('#swap-preview');
+function draw(){if(!give||!want||!preview)return;preview.replaceChildren();[give,want].forEach((select,i)=>{if(i){const arrow=document.createElement('b');arrow.textContent='⇄';preview.append(arrow)}const fig=document.createElement('figure'),small=document.createElement('small'),img=document.createElement('img'),cap=document.createElement('figcaption');small.textContent=i?'YOU RECEIVE':'YOU GIVE';img.src='/city-card/'+encodeURIComponent(select.value)+'.png?v=market-art-1';cap.textContent=select.selectedOptions[0]?.textContent.split(' · ')[0]||'Choose a sticker';img.alt=cap.textContent;fig.append(small,img,cap);preview.append(fig)})}
+function filterWanted(){if(!give||!want||!give.selectedOptions.length)return;const rarity=give.selectedOptions[0].dataset.rarity;for(const option of want.options){option.disabled=option.dataset.rarity!==rarity||option.value===give.value;option.hidden=option.disabled}if(!want.selectedOptions.length||want.selectedOptions[0].disabled)want.value=[...want.options].find(o=>!o.disabled)?.value||'';draw()}
+if(give&&want){give.addEventListener('change',filterWanted);want.addEventListener('change',draw);filterWanted()}
+root.querySelectorAll('.list-card').forEach(btn=>btn.addEventListener('click',()=>{showPanel('make');if(give&&[...give.options].some(option=>option.value===btn.dataset.listKey)){give.value=btn.dataset.listKey;filterWanted();root.querySelector('.offer-builder')?.scrollIntoView({behavior:'smooth',block:'start'})}}));
+addEventListener('resize',render);render();
+});'''
+
 class TradeStore:
     def __init__(self, city):
         self.city, self.db = city, city.db
@@ -367,11 +405,5 @@ def exchange_html(store, owner, token):
 <section class="market-panel" data-market-panel="make" hidden><div class="offer-builder"><h2>Build your trade</h2>{listing}</div></section>
 <section class="market-panel" data-market-panel="activity" hidden><div class="activity-wrap"><h2>My offers &amp; swap history</h2><div class="history-grid">{''.join(history_cards) or '<div class="empty-state"><b>No swap activity yet.</b><p>Your offers and completed swaps will appear here with their card artwork.</p></div>'}</div></div></section>
 <div class="market-bottom"><a href="/account#city-run">My board</a><a href="/city-run-trades">Refresh Marketplace</a></div></main>'''
-    script = '''<script>(()=>{const root=document.querySelector('.market');if(!root)return;
-const panels=[...root.querySelectorAll('[data-market-panel]')],tabs=[...root.querySelectorAll('[data-market-tab]')];tabs.forEach(tab=>tab.addEventListener('click',()=>{tabs.forEach(t=>t.setAttribute('aria-selected',String(t===tab)));panels.forEach(p=>p.hidden=p.dataset.marketPanel!==tab.dataset.marketTab)}));
-const carousel=root.querySelector('.offer-carousel'),deck=root.querySelector('.offer-deck'),all=[...root.querySelectorAll('.offer-slide')],dots=root.querySelector('.carousel-dots'),empty=root.querySelector('.offer-empty'),prev=root.querySelector('.carousel-arrow.prev'),next=root.querySelector('.carousel-arrow.next');let visible=[...all],index=0,startX=0;
-function render(){all.forEach(s=>s.classList.remove('active'));if(!visible.length){deck.style.transform='';dots.replaceChildren();carousel.hidden=true;dots.hidden=true;empty.hidden=false;return}carousel.hidden=false;empty.hidden=true;index=Math.max(0,Math.min(index,visible.length-1));const active=visible[index];active.classList.add('active');const width=carousel.clientWidth,card=active.offsetWidth;deck.style.transform=`translateX(${width/2-(index+.5)*card}px)`;const multiple=visible.length>1;prev.hidden=!multiple;next.hidden=!multiple;dots.hidden=!multiple;dots.replaceChildren(...visible.map((_,i)=>{const b=document.createElement('button');b.type='button';b.className='carousel-dot'+(i===index?' active':'');b.setAttribute('aria-label',`Show card ${i+1}`);b.addEventListener('click',()=>{index=i;render()});return b}))}
-function move(step){if(!visible.length)return;index=(index+step+visible.length)%visible.length;render()}prev.addEventListener('click',()=>move(-1));next.addEventListener('click',()=>move(1));deck.addEventListener('pointerdown',e=>startX=e.clientX);deck.addEventListener('pointerup',e=>{if(Math.abs(e.clientX-startX)>35)move(e.clientX<startX?1:-1)});
-root.querySelectorAll('.rarity-filter').forEach(btn=>btn.addEventListener('click',()=>{root.querySelectorAll('.rarity-filter').forEach(b=>b.setAttribute('aria-pressed','false'));btn.setAttribute('aria-pressed','true');visible=all.filter(s=>btn.dataset.rarity==='all'||s.dataset.rarity===btn.dataset.rarity);all.forEach(s=>s.style.display=visible.includes(s)?'block':'none');index=0;render()}));
-const give=root.querySelector('#swap-give'),want=root.querySelector('#swap-want'),preview=root.querySelector('#swap-preview');function draw(){if(!give)return;preview.replaceChildren();[give,want].forEach((select,i)=>{if(i){const arrow=document.createElement('b');arrow.textContent='⇄';preview.append(arrow)}const fig=document.createElement('figure'),small=document.createElement('small'),img=document.createElement('img'),cap=document.createElement('figcaption');small.textContent=i?'YOU RECEIVE':'YOU GIVE';img.src='/city-card/'+encodeURIComponent(select.value)+'.png?v=market-art-1';cap.textContent=select.selectedOptions[0]?.textContent.split(' · ')[0]||'Choose a sticker';img.alt=cap.textContent;fig.append(small,img,cap);preview.append(fig)})}function filterWanted(){const rarity=give.selectedOptions[0].dataset.rarity;for(const option of want.options){option.disabled=option.dataset.rarity!==rarity||option.value===give.value;option.hidden=option.disabled}if(!want.selectedOptions.length||want.selectedOptions[0].disabled)want.value=[...want.options].find(o=>!o.disabled)?.value||'';draw()}if(give){give.addEventListener('change',filterWanted);want.addEventListener('change',draw);filterWanted();root.querySelectorAll('.list-card').forEach(btn=>btn.addEventListener('click',()=>{tabs.find(tab=>tab.dataset.marketTab==='make')?.click();if([...give.options].some(option=>option.value===btn.dataset.listKey)){give.value=btn.dataset.listKey;filterWanted();root.querySelector('.offer-builder').scrollIntoView({behavior:'smooth',block:'start'})}}))}addEventListener('resize',render);render()})();</script>'''
+    script = '<script src="/city-marketplace.js?v=3" defer></script>'
     return styles + body + script

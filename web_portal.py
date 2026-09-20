@@ -23,7 +23,7 @@ from reward_claims import ClaimStore
 from raffles import RaffleStore
 from city_run import BUSINESSES, CityRunStore
 from city_artwork import poster_markup, sticker_path, sticker_svg
-from city_trades import TradeStore, exchange_html
+from city_trades import MARKETPLACE_JS, TradeStore, exchange_html
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
 
 LONDON = ZoneInfo("Europe/London")
@@ -904,7 +904,16 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             path = parsed.path
-            if path == "/city-run-trades":
+            if path == "/city-marketplace.js":
+                data = MARKETPLACE_JS.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=300")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(data)
+            elif path == "/city-run-trades":
                 owner = self.owner()
                 if not owner:
                     self.send_html(401, login_page(db.customer_names(), "Log in to trade your duplicate stickers."))
