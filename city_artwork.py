@@ -69,19 +69,30 @@ def poster_markup(owned):
             '<image href="/city-run-board-v4.png" width="1254" height="1254"/>'
             + logo + ''.join(overlays) + '</svg><small>✓ Grey tiles are collected. Progress and claims below.</small></div>')
 
-def sticker_svg(key, name):
+def sticker_path(key):
+    """Resolve one manifest-backed artwork without accepting filesystem input."""
     if key not in SLOTS:
         return None
     manifest_path = ART_DIR / 'business-index.json'
-    if manifest_path.exists():
-        entry = next((item for item in json.loads(manifest_path.read_text())
-                      if item['business_id'] == key), None)
-        if entry:
-            asset = ART_DIR / Path(entry['file']).name
-            if asset.is_file():
-                data = base64.b64encode(asset.read_bytes()).decode('ascii')
-                return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {int(entry["width"])} {int(entry["height"])}" role="img" aria-label="{html.escape(name, quote=True)}">'
-                        f'<image href="data:image/png;base64,{data}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"/></svg>').encode()
+    if not manifest_path.exists():
+        return None
+    entry = next((item for item in json.loads(manifest_path.read_text())
+                  if item['business_id'] == key), None)
+    if not entry:
+        return None
+    asset = ART_DIR / Path(entry['file']).name
+    return asset if asset.is_file() else None
+
+def sticker_svg(key, name):
+    if key not in SLOTS:
+        return None
+    asset = sticker_path(key)
+    if asset:
+        manifest_path = ART_DIR / 'business-index.json'
+        entry = next(item for item in json.loads(manifest_path.read_text()) if item['business_id'] == key)
+        data = base64.b64encode(asset.read_bytes()).decode('ascii')
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {int(entry["width"])} {int(entry["height"])}" role="img" aria-label="{html.escape(name, quote=True)}">'
+                f'<image href="data:image/png;base64,{data}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"/></svg>').encode()
     x,y,w,h = SLOTS[key][0]
     # Only the illustration: live name and rarity come from the database.
     art_height = h*.70

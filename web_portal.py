@@ -22,7 +22,7 @@ from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
 from raffles import RaffleStore
 from city_run import BUSINESSES, CityRunStore
-from city_artwork import poster_markup, sticker_svg
+from city_artwork import poster_markup, sticker_path, sticker_svg
 from city_trades import TradeStore, exchange_html
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
 
@@ -965,6 +965,20 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(data)
+            elif path.startswith("/city-card/") and path.endswith(".png"):
+                business_key = path.removeprefix("/city-card/").removesuffix(".png")
+                image_path = sticker_path(business_key)
+                if image_path is None:
+                    self.send_html(404, page("Not found", '<section class="card"><h1>Card artwork not found.</h1></section>'))
+                    return
+                data = image_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(data)
