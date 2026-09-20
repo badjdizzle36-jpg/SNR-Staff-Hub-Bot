@@ -1147,7 +1147,7 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                     action = data.get("action", "")
                     if action == "create":
                         trades.create(owner, data.get("offered", ""), data.get("wanted", ""), data.get("request_key", ""))
-                        message = "Your offer is live. One duplicate is reserved for up to 24 hours."
+                        message = "Your offer is live. One duplicate is reserved until the expiry shown in the exchange."
                     else:
                         try:
                             trade_id = int(data.get("trade_id", ""))

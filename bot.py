@@ -30,6 +30,8 @@ from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
 from alert_channels import AlertChannels, CHANNEL_TYPES
 from city_run import CityRunStore
+from city_trades import TradeStore
+from city_trade_admin import MarketplaceAdminView, admin_embed as marketplace_admin_embed
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -49,6 +51,7 @@ db_lock = asyncio.Lock()
 claims = ClaimStore(db)
 claims.retire_pending()
 city_run = CityRunStore(db)
+marketplace = TradeStore(city_run)
 accounts = Accounts(db)
 orders = DeliveryStore(db)
 shifts = StaffShifts(db)
@@ -1190,6 +1193,13 @@ class OwnerAdminView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
+    @discord.ui.button(label="Marketplace", emoji="🏪", style=discord.ButtonStyle.primary, row=4)
+    async def marketplace_admin(self, interaction, button):
+        if await require_owner(interaction):
+            embed, _ = marketplace_admin_embed(marketplace)
+            await interaction.response.send_message(
+                embed=embed, view=MarketplaceAdminView(marketplace, require_owner), ephemeral=True)
+
     @discord.ui.button(label="Manage VIP Level", emoji="👑", style=discord.ButtonStyle.primary)
     async def manage_vip(self, interaction, button):
         if await require_owner(interaction):
@@ -2121,6 +2131,13 @@ def city_run_status_embed():
 
 
 class CityRunOwnerView(discord.ui.View):
+    @discord.ui.button(label="Marketplace Admin", emoji="🏪", style=discord.ButtonStyle.primary, row=1)
+    async def marketplace_admin(self, interaction, button):
+        if await require_owner(interaction):
+            embed, _ = marketplace_admin_embed(marketplace)
+            await interaction.response.send_message(
+                embed=embed, view=MarketplaceAdminView(marketplace, require_owner), ephemeral=True)
+
     def __init__(self):
         super().__init__(timeout=180)
         status = city_run.current().get("status")

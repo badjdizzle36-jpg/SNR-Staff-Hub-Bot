@@ -1,0 +1,63 @@
+SNR CITY RUN — MARKETPLACE OWNER ADMIN UPDATE
+
+INSTALL
+1. Extract SNR_City_Run_Marketplace_Admin_Update.zip.
+2. Copy every supplied Python file and city-run-board-v4.png into your existing
+   repository folder beside bot.py. Replace matching files.
+3. Keep all existing artwork folders, other assets, database and environment
+   settings. This package contains no database or credentials.
+4. Commit in GitHub Desktop, then Push origin.
+5. Wait for Railway to deploy successfully and restart the bot.
+6. In Discord, run /snrhub_owner to open a fresh Owner Admin menu.
+7. Click Marketplace. You can also reach Marketplace Admin from City Run.
+
+This is a cumulative update: the trading feature and its admin controls are
+included. Database tables and default settings are created automatically.
+Use your normal deployment backup procedure before replacing application code.
+
+WHERE THE BUTTON IS
+Discord: Reports & Admin > Owner Admin > Marketplace.
+Shortcut: /snrhub_owner > Marketplace.
+Alternative: /snrhub_city_run > Marketplace Admin.
+These are private Discord controls; customers do not receive an admin website.
+
+CONTROLS
+- Open offers: view live listings and offer IDs, with previous/next pages.
+- All swap history: review every season, including completed/cancelled/expired.
+- Marketplace settings: enable or pause the marketplace independently of the
+  City Run season. Adjust maximum open offers per player (1–20) and expiry for
+  new offers (1–168 hours). Defaults remain five offers and 24 hours.
+- Cancel offer: enter an open offer ID and an audit reason. Releases its reserve.
+- Cancel ALL open offers: requires typing CANCEL ALL and supplying a reason.
+- Player access: restrict or restore an exact character name. Restricting cancels
+  their open offers and immediately prevents creating or accepting swaps.
+  Their collection, sales, account login and other reward systems stay intact.
+- Find player history: look up swaps by exact character name.
+- Restricted players: inspect trading restrictions and reasons.
+- Admin audit: review owner changes, actor names, reasons and timestamps.
+- Refresh: reload the latest state. Reopen the menu if its five-minute session
+  expires; it does not need to remain open for settings to stay active.
+
+PROTECTIONS
+Every button and modal submission rechecks the existing owner permission rule:
+configured SNR Owner role, or Discord administrator, as in the existing bot.
+Marketplace pause and player restrictions are enforced server-side, including
+requests submitted from an older browser page. Cancellation releases reservations
+without deleting stickers. Same-rarity, duplicate-only rules remain enforced.
+Completed swaps remain permanent records; this panel does not undo swaps or
+remove issued prizes. That protects subsequent trades and reward claims.
+
+Changing limits affects new offers; existing offers keep their expiry dates.
+Pausing does not extend expiry. Cancel ALL includes every still-open offer.
+Player restrictions persist until explicitly restored, including across seasons.
+Admin changes are written to the audit log and queued through the existing
+private City Run Discord notification channel. Live delivery requires that
+channel and the bot's send/embed permissions to be configured.
+
+VALIDATION
+127 automated tests passed. New tests cover pause, player restrictions, stale
+requests, reservation release, cancellation, history paging, audit records,
+settings persistence, input limits, owner checks on every button/modal and bulk
+cancellation confirmation. The actual bot module and both admin views were
+constructed locally and verified against Discord component limits.
+No live Discord or Railway deployment was performed or verified from here.

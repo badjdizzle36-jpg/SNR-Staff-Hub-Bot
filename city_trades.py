@@ -21,6 +21,116 @@ class TradeStore:
                 request_key TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
                 resolved_at TEXT, UNIQUE(maker,request_key))''')
             c.execute('CREATE INDEX IF NOT EXISTS city_trade_open ON city_run_trades(campaign_id,status,maker,offered)')
+            c.execute('''CREATE TABLE IF NOT EXISTS city_run_trade_settings (
+                id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1,
+                max_offers INTEGER NOT NULL DEFAULT 5, expiry_hours INTEGER NOT NULL DEFAULT 24)''')
+            c.execute('INSERT OR IGNORE INTO city_run_trade_settings(id) VALUES(1)')
+            c.execute('''CREATE TABLE IF NOT EXISTS city_run_trade_blocks (
+                customer_key TEXT PRIMARY KEY REFERENCES customers(customer_key),
+                reason TEXT NOT NULL, staff_id TEXT NOT NULL, updated_at TEXT NOT NULL)''')
+
+    def settings(self, connection=None):
+        if connection is not None:
+            return dict(connection.execute('SELECT * FROM city_run_trade_settings WHERE id=1').fetchone())
+        with self.db.connect() as c:
+            return self.settings(c)
+
+    def _check_access(self, c, owner):
+        if not self.settings(c)['enabled']:
+            raise ValueError('The marketplace is paused by an owner. You can still cancel your offers.')
+        if c.execute('SELECT 1 FROM city_run_trade_blocks WHERE customer_key=?', (owner,)).fetchone():
+            raise ValueError('Trading access is restricted for this account. Contact SNR staff.')
+
+    def _admin_audit(self, c, action, staff_id, staff_name, details):
+        if not str(staff_id).strip():
+            raise ValueError('An owner identity is required.')
+        now = utc_now()
+        ident = c.execute('INSERT INTO audit_log(action,staff_id,staff_name,details,created_at) VALUES(?,?,?,?,?)',
+                          ('marketplace_'+action, str(staff_id), str(staff_name), json.dumps(details), now)).lastrowid
+        queue_event(c, f'marketplace-admin:{ident}',
+                    f'Marketplace admin: {staff_name} — {action.replace("_", " ")}. {json.dumps(details)[:1200]}', now)
+
+    @staticmethod
+    def _reason(reason):
+        reason = str(reason).strip()
+        if not 3 <= len(reason) <= 250:
+            raise ValueError('Enter a reason between 3 and 250 characters.')
+        return reason
+
+    def admin_configure(self, enabled, max_offers, expiry_hours, staff_id, staff_name, reason):
+        reason = self._reason(reason)
+        max_offers, expiry_hours = int(max_offers), int(expiry_hours)
+        if not isinstance(enabled, bool) or not 1 <= max_offers <= 20 or not 1 <= expiry_hours <= 168:
+            raise ValueError('Use 1–20 offers per player and 1–168 hours per new offer.')
+        with self.db.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            old = self.settings(c)
+            c.execute('UPDATE city_run_trade_settings SET enabled=?,max_offers=?,expiry_hours=? WHERE id=1',
+                      (int(enabled), max_offers, expiry_hours))
+            self._admin_audit(c, 'settings', staff_id, staff_name,
+                              {'before': old, 'after': self.settings(c), 'reason': reason})
+
+    def admin_cancel(self, trade_id, staff_id, staff_name, reason):
+        reason = self._reason(reason)
+        with self.db.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            self._expire(c, utc_now())
+            row = c.execute('SELECT * FROM city_run_trades WHERE id=?', (int(trade_id),)).fetchone()
+            if not row or row['status'] != 'open':
+                raise ValueError('Only an open offer can be cancelled. Completed swaps are kept in the history.')
+            c.execute("UPDATE city_run_trades SET status='cancelled',resolved_at=? WHERE id=?", (utc_now(), trade_id))
+            self._admin_audit(c, 'cancel_offer', staff_id, staff_name, {'trade_id': trade_id, 'reason': reason})
+
+    def admin_cancel_all(self, staff_id, staff_name, reason):
+        reason = self._reason(reason)
+        with self.db.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            self._expire(c, utc_now())
+            ids = [r[0] for r in c.execute("SELECT id FROM city_run_trades WHERE status='open'")]
+            c.execute("UPDATE city_run_trades SET status='cancelled',resolved_at=? WHERE status='open'", (utc_now(),))
+            self._admin_audit(c, 'cancel_all', staff_id, staff_name, {'trade_ids': ids, 'count': len(ids), 'reason': reason})
+            return len(ids)
+
+    def admin_access(self, customer, blocked, staff_id, staff_name, reason):
+        reason = self._reason(reason)
+        key = normalize_name(customer)
+        if not isinstance(blocked, bool):
+            raise ValueError('Choose restrict or restore.')
+        with self.db.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            row = c.execute('SELECT display_name FROM customers WHERE customer_key=?', (key,)).fetchone()
+            if not row:
+                raise ValueError('Account not found. Enter the exact character name.')
+            if blocked:
+                c.execute('INSERT OR REPLACE INTO city_run_trade_blocks VALUES(?,?,?,?)', (key, reason, str(staff_id), utc_now()))
+                c.execute("UPDATE city_run_trades SET status='cancelled',resolved_at=? WHERE maker=? AND status='open'", (utc_now(), key))
+            else:
+                c.execute('DELETE FROM city_run_trade_blocks WHERE customer_key=?', (key,))
+            self._admin_audit(c, 'restrict' if blocked else 'restore', staff_id, staff_name, {'customer': key, 'reason': reason})
+            return row['display_name']
+
+    def admin_list(self, kind='open', page=0, customer=''):
+        page = max(0, int(page))
+        with self.db.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            self._expire(c, utc_now())
+            if kind == 'restricted':
+                sql, args = 'SELECT * FROM city_run_trade_blocks ORDER BY updated_at DESC', []
+            elif kind == 'audit':
+                sql, args = "SELECT * FROM audit_log WHERE action LIKE 'marketplace_%' ORDER BY id DESC", []
+            else:
+                filters, args = [], []
+                if kind == 'open':
+                    filters.append("status='open'")
+                elif kind != 'history':
+                    raise ValueError('Unknown marketplace list.')
+                if customer:
+                    filters.append('(maker=? OR taker=?)')
+                    args.extend([normalize_name(customer)]*2)
+                sql = 'SELECT * FROM city_run_trades' + (' WHERE '+' AND '.join(filters) if filters else '') + ' ORDER BY id DESC'
+            rows = [dict(r) for r in c.execute(sql+' LIMIT 6 OFFSET ?', (*args,page*5))]
+            counts = {r[0]:r[1] for r in c.execute('SELECT status,COUNT(*) FROM city_run_trades GROUP BY status')}
+            return {'rows': rows[:5], 'more': len(rows)>5, 'page':page, 'counts':counts, 'settings':self.settings(c)}
 
     def _expire(self, c, now):
         c.execute("UPDATE city_run_trades SET status='expired',resolved_at=? WHERE status='open' AND (expires_at<=? OR campaign_id IN (SELECT id FROM city_run_campaigns WHERE status='ended'))", (now, now))
@@ -54,15 +164,17 @@ class TradeStore:
             if previous:
                 return dict(previous)
             campaign = self._campaign(c)['id']
+            self._check_access(c, owner)
             if offered == wanted or offered not in NAMES or wanted not in NAMES:
                 raise ValueError('Choose two different business stickers.')
             if self._rarity(c, campaign, offered) != self._rarity(c, campaign, wanted):
                 raise ValueError('Both stickers must have the same rarity.')
             if self._spares(c, campaign, owner, offered) < 1:
                 raise ValueError('You need an unreserved duplicate. Your first copy always stays on your board.')
-            if c.execute("SELECT COUNT(*) FROM city_run_trades WHERE maker=? AND status='open'", (owner,)).fetchone()[0] >= 5:
-                raise ValueError('You can have five open offers. Cancel an offer before listing another.')
-            expires = (datetime.fromisoformat(now) + timedelta(hours=24)).isoformat()
+            settings = self.settings(c)
+            if c.execute("SELECT COUNT(*) FROM city_run_trades WHERE maker=? AND status='open'", (owner,)).fetchone()[0] >= settings['max_offers']:
+                raise ValueError(f"You can have {settings['max_offers']} open offers. Cancel an offer before listing another.")
+            expires = (datetime.fromisoformat(now) + timedelta(hours=settings['expiry_hours'])).isoformat()
             ident = c.execute('INSERT INTO city_run_trades(campaign_id,maker,offered,wanted,request_key,created_at,expires_at) VALUES(?,?,?,?,?,?,?)', (campaign, owner, offered, wanted, request_key, now, expires)).lastrowid
             return dict(c.execute('SELECT * FROM city_run_trades WHERE id=?', (ident,)).fetchone())
 
@@ -87,6 +199,8 @@ class TradeStore:
             if r['status'] == 'accepted' and r['taker'] == owner:
                 return 'Swap already completed. Your board is up to date.'
             campaign = self._campaign(c)
+            self._check_access(c, owner)
+            self._check_access(c, r['maker'])
             if r['status'] != 'open' or r['campaign_id'] != campaign['id']:
                 raise ValueError('This offer is no longer available.')
             if r['maker'] == owner:
@@ -122,8 +236,10 @@ class TradeStore:
             c.execute('BEGIN IMMEDIATE')
             self._expire(c, utc_now())
             campaign = c.execute('SELECT * FROM city_run_campaigns ORDER BY id DESC LIMIT 1').fetchone()
+            settings = self.settings(c)
+            blocked = bool(c.execute('SELECT 1 FROM city_run_trade_blocks WHERE customer_key=?', (owner,)).fetchone())
             if not campaign:
-                return {'active': False, 'pieces': [], 'offers': [], 'history': [], 'owner': owner}
+                return {'active': False, 'pieces': [], 'offers': [], 'history': [], 'owner': owner, 'settings':settings, 'blocked':blocked}
             cid = campaign['id']
             pieces = []
             for b in BUSINESSES:
@@ -131,7 +247,7 @@ class TradeStore:
                 pieces.append({**b, 'rarity': row[0] if row else 'unassigned', 'spares': self._spares(c, cid, owner, b['key'])})
             offers = [dict(r) for r in c.execute("SELECT t.*,c.display_name FROM city_run_trades t JOIN customers c ON c.customer_key=t.maker WHERE campaign_id=? AND status='open' ORDER BY (t.maker=?) DESC,t.id DESC LIMIT 100", (cid, owner))]
             history = [dict(r) for r in c.execute("SELECT * FROM city_run_trades WHERE campaign_id=? AND (maker=? OR taker=?) ORDER BY id DESC LIMIT 30", (cid, owner, owner))]
-            return {'active': campaign['status']=='active', 'pieces': pieces, 'offers': offers, 'history': history, 'owner': owner}
+            return {'active': campaign['status']=='active' and bool(settings['enabled']) and not blocked, 'pieces': pieces, 'offers': offers, 'history': history, 'owner': owner, 'settings':settings, 'blocked':blocked}
 
 
 def exchange_html(store, owner, token):
@@ -149,6 +265,6 @@ def exchange_html(store, owner, token):
         cards.append(f'<article class="swap-card"><header><b>{"YOUR OFFER" if mine else esc(offer["display_name"])}</b><span>{esc(pieces[offer["offered"]]["rarity"].replace("_"," "))}</span></header><div class="swap-pair"><div><small>YOU {"GIVE" if mine else "RECEIVE"}</small>{art(offer["offered"])}</div><b aria-hidden="true">⇄</b><div><small>YOU {"RECEIVE" if mine else "GIVE"}</small>{art(offer["wanted"])}</div></div><small>Expires {esc(offer["expires_at"][:16].replace("T"," "))} UTC · #{offer["id"]}</small>{form}</article>')
     spare_options = ''.join(f'<option value="{esc(p["key"])}" data-rarity="{esc(p["rarity"])}">{esc(p["name"])} · {p["spares"]} spare · {esc(p["rarity"].replace("_"," "))}</option>' for p in data['pieces'] if p['spares']>0 and any(q['key']!=p['key'] and q['rarity']==p['rarity'] for q in data['pieces']))
     wanted_options = ''.join(f'<option value="{esc(p["key"])}" data-rarity="{esc(p["rarity"])}">{esc(p["name"])} · {esc(p["rarity"].replace("_"," "))}</option>' for p in data['pieces'])
-    listing = f'''<form method="post" action="/city-run-trade" id="swap-create">{hidden}<input type="hidden" name="request_key" value="{secrets.token_urlsafe(24)}"><label>I give one duplicate<select name="offered" id="swap-give" required>{spare_options}</select></label><label>I want in return<select name="wanted" id="swap-want" required>{wanted_options}</select></label><div class="swap-pair" id="swap-preview"></div><p>Your offer is public to signed-in players. One duplicate is reserved until it is accepted, cancelled or expires.</p><button name="action" value="create">Publish 24-hour offer</button></form>''' if spare_options and data['active'] else '<p>Reveal stickers to find duplicates. Your spare copies will appear here when trading is active and another business has the same rarity. Stickers with no same-rarity match cannot be listed.</p>'
+    listing = f'''<form method="post" action="/city-run-trade" id="swap-create">{hidden}<input type="hidden" name="request_key" value="{secrets.token_urlsafe(24)}"><label>I give one duplicate<select name="offered" id="swap-give" required>{spare_options}</select></label><label>I want in return<select name="wanted" id="swap-want" required>{wanted_options}</select></label><div class="swap-pair" id="swap-preview"></div><p>Your offer is public to signed-in players. One duplicate is reserved until it is accepted, cancelled or expires.</p><button name="action" value="create">Publish {data['settings']['expiry_hours']}-hour offer</button></form>''' if spare_options and data['active'] else '<p>Reveal stickers to find duplicates. Your spare copies will appear here when trading is active and another business has the same rarity. Stickers with no same-rarity match cannot be listed.</p>'
     history = ''.join(f'<li>#{r["id"]} · {esc(NAMES[r["offered"]])} ⇄ {esc(NAMES[r["wanted"]])} <b>{esc(r["status"])}</b></li>' for r in data['history']) or '<li>Your swap activity will appear here.</li>'
-    return '''<style>.exchange{max-width:1000px;margin:auto}.exchange-hero{padding:24px;border:1px solid #e9c45b;border-radius:22px;background:radial-gradient(ellipse at top right,#81621d88,transparent 65%),#101319}.exchange h1{font-size:clamp(28px,6vw,44px);margin:8px 0}.exchange .kicker{color:#ffd65b;letter-spacing:2px;font-weight:900}.swap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:14px}.swap-card,.swap-create{padding:16px;margin:15px 0;border:1px solid #685632;border-radius:18px;background:#12151b}.swap-card header{display:flex;justify-content:space-between;gap:10px}.swap-card header span{color:#ffd65b;text-transform:uppercase;font-size:11px}.swap-pair{display:grid;grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr);align-items:center;gap:8px;text-align:center;margin:14px 0}.swap-pair figure{margin:0}.swap-pair img{width:100%;height:145px;object-fit:contain;border-radius:12px;background:#080a0e}.swap-pair figcaption{font-size:13px;font-weight:800;margin-top:8px;min-height:36px}.swap-pair small{color:#e6c977;font-size:10px;letter-spacing:1px}.exchange select{width:100%;margin:8px 0 16px}.exchange summary{cursor:pointer;font-weight:800;color:#ffd65b;padding:12px 0}.exchange button{width:100%}.exchange .muted,.exchange p{color:#c6c2b9}.exchange li{margin-bottom:10px}.exchange a{color:#ffd65b}.swap-create p{font-size:13px}</style>''' + f'''<main class="exchange"><a href="/account#city-run">← Back to my board</a><section class="exchange-hero"><span class="kicker">SNR CITY RUN · STICKER EXCHANGE</span><h1>Your spare. Their missing piece.</h1><p>Swap duplicates with other players. One sticker for one sticker, matching rarity. Your first copy always stays safe.</p><strong>{sum(p['spares'] for p in data['pieces'])} available duplicates · {len(data['offers'])} recent open offers</strong>{'' if data['active'] else '<p>Trading is paused until the season is active.</p>'}</section><details class="swap-create"><summary>＋ Make a swap offer</summary>{listing}</details><h2>Open offers</h2><div class="swap-grid">{''.join(cards) or '<article class="swap-card"><h3>Start the exchange</h3><p>No open offers yet. List a spare sticker and choose the business you need.</p></article>'}</div><details class="swap-create"><summary>My offers &amp; swap history</summary><ul>{history}</ul></details><a href="/city-run-trades">Refresh offers</a></main>''' + '''<script>(()=>{const give=document.getElementById('swap-give'),want=document.getElementById('swap-want'),preview=document.getElementById('swap-preview');if(!give)return;function draw(){preview.replaceChildren();[give,want].forEach((select,i)=>{if(i){const arrow=document.createElement('b');arrow.textContent='⇄';preview.append(arrow)}const fig=document.createElement('figure'),img=document.createElement('img'),cap=document.createElement('figcaption');img.src='/city-art/'+encodeURIComponent(select.value)+'.svg?v=individual-art-2';cap.textContent=select.selectedOptions[0]?.textContent.split(' · ')[0]||'Choose a sticker';img.alt=cap.textContent;fig.append(img,cap);preview.append(fig)})}function filter(){const rarity=give.selectedOptions[0].dataset.rarity;for(const o of want.options){o.disabled=o.dataset.rarity!==rarity||o.value===give.value;o.hidden=o.disabled}if(!want.selectedOptions.length||want.selectedOptions[0].disabled)want.value=[...want.options].find(o=>!o.disabled)?.value||'';draw()}give.addEventListener('change',filter);want.addEventListener('change',draw);filter()})();</script>'''
+    return '''<style>.exchange{max-width:1000px;margin:auto}.exchange-hero{padding:24px;border:1px solid #e9c45b;border-radius:22px;background:radial-gradient(ellipse at top right,#81621d88,transparent 65%),#101319}.exchange h1{font-size:clamp(28px,6vw,44px);margin:8px 0}.exchange .kicker{color:#ffd65b;letter-spacing:2px;font-weight:900}.swap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:14px}.swap-card,.swap-create{padding:16px;margin:15px 0;border:1px solid #685632;border-radius:18px;background:#12151b}.swap-card header{display:flex;justify-content:space-between;gap:10px}.swap-card header span{color:#ffd65b;text-transform:uppercase;font-size:11px}.swap-pair{display:grid;grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr);align-items:center;gap:8px;text-align:center;margin:14px 0}.swap-pair figure{margin:0}.swap-pair img{width:100%;height:145px;object-fit:contain;border-radius:12px;background:#080a0e}.swap-pair figcaption{font-size:13px;font-weight:800;margin-top:8px;min-height:36px}.swap-pair small{color:#e6c977;font-size:10px;letter-spacing:1px}.exchange select{width:100%;margin:8px 0 16px}.exchange summary{cursor:pointer;font-weight:800;color:#ffd65b;padding:12px 0}.exchange button{width:100%}.exchange .muted,.exchange p{color:#c6c2b9}.exchange li{margin-bottom:10px}.exchange a{color:#ffd65b}.swap-create p{font-size:13px}</style>''' + f'''<main class="exchange"><a href="/account#city-run">← Back to my board</a><section class="exchange-hero"><span class="kicker">SNR CITY RUN · STICKER EXCHANGE</span><h1>Your spare. Their missing piece.</h1><p>Swap duplicates with other players. One sticker for one sticker, matching rarity. Your first copy always stays safe.</p><strong>{sum(p['spares'] for p in data['pieces'])} available duplicates · {len(data['offers'])} recent open offers</strong>{'' if data['active'] else '<p>Trading is currently unavailable: the season or marketplace may be paused, or your account may be restricted. Contact SNR staff if you need help.</p>'}</section><details class="swap-create"><summary>＋ Make a swap offer</summary>{listing}</details><h2>Open offers</h2><div class="swap-grid">{''.join(cards) or '<article class="swap-card"><h3>Start the exchange</h3><p>No open offers yet. List a spare sticker and choose the business you need.</p></article>'}</div><details class="swap-create"><summary>My offers &amp; swap history</summary><ul>{history}</ul></details><a href="/city-run-trades">Refresh offers</a></main>''' + '''<script>(()=>{const give=document.getElementById('swap-give'),want=document.getElementById('swap-want'),preview=document.getElementById('swap-preview');if(!give)return;function draw(){preview.replaceChildren();[give,want].forEach((select,i)=>{if(i){const arrow=document.createElement('b');arrow.textContent='⇄';preview.append(arrow)}const fig=document.createElement('figure'),img=document.createElement('img'),cap=document.createElement('figcaption');img.src='/city-art/'+encodeURIComponent(select.value)+'.svg?v=individual-art-2';cap.textContent=select.selectedOptions[0]?.textContent.split(' · ')[0]||'Choose a sticker';img.alt=cap.textContent;fig.append(img,cap);preview.append(fig)})}function filter(){const rarity=give.selectedOptions[0].dataset.rarity;for(const o of want.options){o.disabled=o.dataset.rarity!==rarity||o.value===give.value;o.hidden=o.disabled}if(!want.selectedOptions.length||want.selectedOptions[0].disabled)want.value=[...want.options].find(o=>!o.disabled)?.value||'';draw()}give.addEventListener('change',filter);want.addEventListener('change',draw);filter()})();</script>'''
