@@ -22,6 +22,7 @@ from staff_shifts import StaffShifts
 from reward_claims import ClaimStore
 from raffles import RaffleStore
 from city_run import BUSINESSES, CityRunStore
+from city_dashboard import dashboard, DASHBOARD_JS
 from city_artwork import poster_markup, sticker_path, sticker_svg
 from city_trades import MARKETPLACE_JS, TradeStore, exchange_html
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
@@ -617,31 +618,27 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
             cards.append(f'''<article class="city-business {state}" style="--set-colour:{html.escape(route['colour'], quote=True)}"><div class="city-business-art"><img src="/city-art/{html.escape(item['key'], quote=True)}.svg?v=individual-art-2" loading="lazy" alt=""></div><div class="city-business-copy"><strong>{html.escape(item['name'])}</strong><small>{html.escape(status)}</small></div></article>''')
         reward = route.get("reward") or {}
         claim = route.get("claim") or {}
-        if claim:
+        if claim and claim.get("status") != "cancelled":
             reward_action = f'''<div class="notice"><strong>{html.escape(reward.get('reward_name') or route['name'])}</strong><br>Claim status: {html.escape(str(claim['status']).replace('_', ' ').title())}</div>'''
-        elif route["complete"] and reward:
+        elif route["complete"] and reward and campaign.get("status") in ("active", "paused"):
             reward_action = f'''<form method="post" action="/city-run-claim"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><input type="hidden" name="reward_key" value="{html.escape(route['key'], quote=True)}"><button type="submit">Claim {html.escape(reward['reward_name'])}</button></form>'''
         elif reward:
             reward_action = f'''<p class="muted">Complete this route to unlock: <strong>{html.escape(reward['reward_name'])}</strong></p>'''
         else:
             reward_action = ""
         routes.append(f'''<details class="city-route" {'open' if route['collected'] else ''}><summary><strong>{html.escape(route['name'])}</strong><span>{int(route['collected'])}/{int(route['total'])}{' ✓' if route['complete'] else ''}</span></summary><div class="city-business-grid">{''.join(cards)}</div><div class="city-route-reward">{reward_action}</div></details>''')
-    available = int(board["available_reveals"])
-    action = f'''<form class="city-reveal-form" method="post" action="/city-run-reveal"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><button type="submit" {'disabled' if available < 1 or campaign.get('status') != 'active' else ''}>{'Reveal a Business Sticker' if available else 'Earn a qualifying meal to receive a sticker'}</button></form>'''
-    status = "PAUSED" if campaign.get("status") == "paused" else "SEASON LIVE"
     grand = board.get("grand_reward") or {}
     grand_claim = board.get("grand_claim") or {}
-    if grand_claim:
+    if grand_claim and grand_claim.get("status") != "cancelled":
         grand_action = f'''<div class="notice">Grand-prize claim: <strong>{html.escape(str(grand_claim['status']).title())}</strong></div>'''
-    elif board.get("grand_complete") and grand:
+    elif board.get("grand_complete") and grand and campaign.get("status") in ("active", "paused"):
         grand_action = f'''<form method="post" action="/city-run-claim"><input type="hidden" name="city_run_request_key" value="{html.escape(reveal_token, quote=True)}"><input type="hidden" name="reward_key" value="grand"><button type="submit">Claim the Grand-Prize Vehicle</button></form>'''
     else:
         grand_action = '<p class="muted">Collect all 38 businesses to unlock the grand-prize vehicle.</p>'
     board_art = poster_markup(item['key'] for item, _ in board_items if item['owned'])
     corners = ''.join(f'''<div class="city-corner {'unlocked' if corner['unlocked'] else ''}"><b>{'✓' if corner['unlocked'] else '○'} {html.escape(corner['name'])}</b><small>{html.escape(corner['description'])}</small></div>''' for corner in board.get('corners', []))
-    collected = int(board['unique_collected'])
-    collection_percent = round(collected / 38 * 100)
-    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-run-hero"><small>{status}</small><strong>Collect the businesses.<br>Win the ride.</strong><span>Qualifying meals award City Run stickers. Duplicates can appear, so completing all 38 takes commitment.</span></div><section class="city-collection-focus" aria-label="Your collection"><header><span><small>YOUR COLLECTION</small><strong>{collected} businesses found</strong></span><b>{collection_percent}%</b></header><div class="city-collection-track" role="progressbar" aria-label="Businesses collected" aria-valuemin="0" aria-valuemax="38" aria-valuenow="{collected}"><span style="width:{collection_percent}%"></span></div></section><div class="city-run-score"><div><b>{collected}</b><small>OF 38 COLLECTED</small></div><div><b>{available}</b><small>STICKERS READY</small></div><div><b>{int(board['duplicates'])}</b><small>DUPLICATES</small></div></div>{action}<a class="neon-reward-banner" href="/city-run-trades" style="text-decoration:none"><span>⇄</span><strong>STICKER EXCHANGE<small>Turn spare stickers into missing businesses</small></strong><b>›</b></a>{board_art}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
+    overview = dashboard(board, reveal_token)
+    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body">{overview}{board_art}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details" id="city-collection-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -1003,6 +1000,14 @@ setInterval(async()=>{try{const r=await fetch("/order-status",{cache:"no-store"}
 });'''
                 self.send_response(200)
                 self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            elif path == "/city-dashboard.js":
+                data = DASHBOARD_JS.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()

@@ -1,0 +1,88 @@
+LATEST ADDITION — 21 September 2026
+Read START_HERE_NEW_STAFF.txt first before deploying this version.
+It requires enabling Server Members Intent in Discord.
+
+SNR BUNS — CITY RUN CUSTOMER PAGE & DISCORD UPDATE
+20 September 2026
+
+This is the latest update. The older Marketplace install note is retained for
+reference; use these instructions for this version.
+
+INSTALL INTO YOUR EXISTING SNR REPOSITORY
+1. Extract this ZIP.
+2. Copy the supplied files and folders into your existing repository beside
+   bot.py, replacing matching files. Include the NEW city_dashboard.py and
+   city_notifications.py modules. This ZIP is an update, not a standalone app.
+3. Keep your existing database, Railway volume, environment variables and all
+   other application files. Do not replace the whole repository with this ZIP.
+4. Commit in GitHub Desktop: Improve City Run customer page and Discord embeds.
+5. Push origin, wait for Railway to deploy, and check its startup logs.
+6. Refresh your account and open the City Run tab.
+
+CUSTOMER PAGE
+- Stickers ready, X of 38 collected and duplicate count appear at the top.
+- Nearest route is selected by fewest missing businesses, then completion %.
+- Newly collected shows the five most recently FIRST-collected businesses,
+  including stickers received through trades. Duplicate reveals do not move
+  an old business into this list.
+- Missing business count is visible; expand it to see every missing business.
+- Completed routes show unclaimed, awaiting staff, issued or cancelled status.
+- Marketplace shows live offers, your offers, completed trades and your three
+  latest activities. Private activity is scoped to your authenticated account.
+- One main button prioritises:
+  1. Open My Stickers when active with reveals available (opens one at a time).
+  2. Claim Route Reward when a completed route has an unclaimed reward.
+  3. Visit Marketplace when active with duplicates or live offers.
+  4. View My Collection otherwise.
+- Grand-prize claim remains available in the grand-prize section.
+- Cancelled route/grand claims can be requested again when claims are open.
+- Ended seasons do not display working reveal or claim buttons.
+
+SEASON END DATE
+No date is invented or set by installing this update.
+Until configured, customers see "End date to be announced".
+An owner can use the new Discord command:
+  /snrhub_city_run_end_date
+Supply end_date as a future ISO date WITH its UTC offset, for example:
+  2026-10-31T20:00:00+00:00
+This example is not applied automatically. Choose your real season deadline.
+Dates are stored/displayed in UTC. The customer countdown updates each second.
+When the deadline is reached, the season ends on the next bot notification
+cycle (normally within 10 seconds) or customer board request. Reveals and
+trades also check the deadline in their award transaction. Pending claims can
+still be handed over by staff. New claims close when a season has ended,
+matching the existing ended-season rule.
+The existing City Run owner control centre displays the configured end date.
+
+DISCORD EMBEDS
+- Route Completed
+- Full Set Completed (all 38 businesses)
+- Reward Awaiting Staff, with existing staff fulfil/cancel buttons
+- Reward Issued
+- Marketplace Trade Completed
+- Grand Prize Completed (qualification, not a claim of physical handover)
+- System Error / Sticker Failed
+- Season Started / Season Ended
+Events use distinct colours, recorded time and event references. Existing
+reward claims keep their claim references and interactive staff controls.
+They use your existing private City Run alert channel configuration.
+Routine events do not ping staff; reward claims keep the existing staff ping.
+Completion events are queued once per customer/route/season, with retry after
+Discord send failures. Existing queued events also receive the new formatting.
+Unexpected sticker failures roll back before an alert is queued, and are
+coalesced per customer per minute. Normal user validation errors do not spam
+Discord. If the database itself is unavailable, failure information can only
+be written to the application log until it recovers.
+
+VERIFICATION
+- 17 automated Python checks passed, using isolated temporary databases.
+- JavaScript countdown, expiry, collection expansion and focus checks passed.
+- Python compilation and JavaScript syntax checks passed.
+- Rendering of the actual customer section was checked programmatically.
+- Full browser visual testing was unavailable because the browser download
+  was blocked. Live Discord delivery and Railway startup require verification
+  after installation; no live deployment or Discord messages were performed.
+
+Local test commands (optional, in the existing repository):
+  python3 -m unittest discover -s tests -q
+  node tests/test_city_dashboard_js.cjs

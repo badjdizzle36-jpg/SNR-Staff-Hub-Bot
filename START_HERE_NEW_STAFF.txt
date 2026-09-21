@@ -1,0 +1,82 @@
+SNR BUNS — AUTOMATIC NEW STAFF ACCESS
+21 September 2026
+
+This update includes the previous City Run/Discord improvements as well as
+staff onboarding. It is an update for your existing repository, not a complete
+standalone installation.
+
+BEFORE DEPLOYING
+1. Open https://discord.com/developers/applications
+2. Select your SNR bot application → Bot.
+3. Under Privileged Gateway Intents, turn ON Server Members Intent and save.
+   This must be enabled before starting the updated bot. Otherwise Discord can
+   reject the bot's connection. Message Content Intent is not required here.
+4. In your Discord server, give the BOT Manage Roles and Manage Channels.
+   Ensure it can manage channel permissions across all categories/channels.
+   Move the bot's role ABOVE the New Staff role. Do not give New Staff admin.
+
+INSTALL
+5. Extract the ZIP and copy all supplied files/folders beside your existing
+   bot.py, replacing matching files. Include staff_onboarding.py,
+   city_dashboard.py and city_notifications.py.
+6. Keep all other repository files, your database, Railway volume and existing
+   environment variables. Never replace the repository or database wholesale.
+7. Commit and push with GitHub Desktop, then wait for Railway to deploy.
+8. As an SNR Owner, run this command in your Discord:
+   /snrhub_new_staff_setup
+   staff_category: choose your exact SNR staff category
+   general_chat: choose the exact general chat you want staff to use
+   new_staff_role: choose your existing New Staff role
+   If you leave new_staff_role blank, the bot reuses one uniquely named
+   New Staff role or creates it with no server-wide permissions.
+9. Put the permanent SNR staff panel in a permitted staff channel. An owner
+   can run /snrhub_panel there if needed. Existing panel buttons still work.
+10. Check with an ordinary test member that New Sale works, general chat can
+    be read/written, outside channels are hidden and owner controls refuse
+    access. Do not test restrictions while using an administrator account.
+
+BEHAVIOUR
+- New human members joining this configured server receive New Staff.
+  This assumes your Discord invitations are for staff. It does not know who
+  has been hired: every new human join is eligible, not just selected invites.
+- Bots are skipped. Existing named SNR Staff/Management/Owner members retain
+  their existing access. Members from before setup are not bulk-assigned.
+- Joins missed while the bot is offline are recovered after reconnect.
+- Configuration is stored in your existing persistent database.
+- New Staff can use normal staff controls, including New Sale, customer tools,
+  shifts and operational queues. Existing owner-only controls stay protected.
+  A shared panel may still show an Owner/Admin button, but New Staff alone
+  cannot pass the owner permission check.
+- Allowed channels: the selected staff category and its ordinary channels,
+  plus the selected general chat (even if general is outside that category).
+- General chat gets view, history and send permission. Staff channels also
+  permit application commands and normal voice participation where relevant.
+- Explicit staff-denied or explicitly management-only channels stay hidden.
+  If a legitimate staff channel is denied to the existing SNR Staff role,
+  review that restriction first instead of granting New Staff an admin role.
+- Other categories/channels receive a New Staff View Channel denial.
+- Channel creation, moves and overwrite changes are handled while the bot is
+  online. Rerun setup after channel changes made while the bot was offline.
+  Gateway updates are asynchronous: create sensitive channels with private
+  permissions from the start, rather than relying on a later bot update.
+- Setup checks bot permissions/hierarchy and rejects privileged New Staff
+  roles. If setup fails partway, it attempts to restore changed overwrites.
+  If rollback also fails, automatic assignment is disabled and setup reports
+  that a manual permissions review is needed.
+
+DISCORD PERMISSION LIMIT
+Discord combines all a member's roles and member-specific overwrites.
+New Staff alone is restricted as above. Another role's explicit channel allow
+or a member-specific allow can grant extra visibility; Administrator bypasses
+channel restrictions entirely. Do not let another bot assign a broader role
+to new joiners. This update preserves other roles and their overwrites rather
+than deleting or stripping existing users' access.
+Official reference: https://docs.discord.com/developers/topics/permissions
+Intent reference: https://discordpy.readthedocs.io/en/stable/intents.html
+
+CHECKS
+31 automated Python checks passed, including onboarding channel permissions,
+role assignment, owner denial, rollback, persistence, missed joins, channel
+moves, and actual discord.py slash-command registration. Existing City Run
+checks and the dashboard JavaScript checks pass. Live Discord setup and
+Railway deployment were not performed from this chat.

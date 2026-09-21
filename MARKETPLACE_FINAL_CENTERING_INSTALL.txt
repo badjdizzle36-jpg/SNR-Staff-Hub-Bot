@@ -1,0 +1,50 @@
+SNR CITY RUN — FINAL MARKETPLACE CENTRING AND CONTROLS UPDATE
+
+INSTALL
+1. Extract SNR_City_Run_Marketplace_Final_Centered.zip.
+2. Copy every supplied Python file, city-run-board-v4.png and the complete
+   city-run-stickers folder into the repository folder containing bot.py.
+3. Choose Replace when Windows asks about matching files. Do not remove your
+   database, .env file, Railway variables or unrelated repository files.
+4. In GitHub Desktop, commit with:
+   Finalise centred City Run Marketplace
+5. Click Push origin and wait for Railway to finish deploying.
+6. Open Sticker Exchange. The controller is now marked no-store, but perform
+   one Ctrl + F5 refresh after the first deployment to clear the older page.
+
+FINAL CENTRING FIX
+- Every card is centred using its real browser layout position and width.
+- The calculation no longer assumes that every card has a fixed width.
+- There is no cumulative left/right drift after repeated navigation.
+- Centring reruns after arrow navigation, swipes, filters and window resizing.
+- Scaling now uses the exact centre of the card.
+- The previous and next arrows stay symmetrically positioned around the card.
+- Side cards remain as a deliberate small preview while the active card stays
+  fully centred and highlighted.
+
+FULLY CONNECTED CONTROLS
+- Previous and next arrows loop through all visible stickers.
+- Touch and mouse swipes move one card at a time.
+- Left and right keyboard arrows are supported.
+- Position dots jump directly to a sticker.
+- Browse, Make offer and My activity work.
+- All cards, Common, Rare and Ultra rare filters work and recenter immediately.
+- Offer this card opens Make offer with the correct business selected.
+- Give/receive selectors show their matching business artwork.
+
+RELIABILITY AND SECURITY
+- Marketplace behaviour remains in a same-origin external JavaScript file,
+  compatible with the strict portal security policy.
+- The controller is served with no-store so an old broken script cannot remain
+  cached after a deployment.
+- First copies, reserved duplicates, same-rarity trade rules, admin controls,
+  rewards, Discord notifications and audit history remain unchanged.
+
+VERIFICATION
+- 129 automated tests passed.
+- External Marketplace JavaScript syntax passed.
+- Python syntax checks passed.
+- The controller route, content type, security-compatible script loading and
+  no-store cache policy are covered by the HTTP test.
+
+This ZIP does not deploy itself. Replace the files, commit and push to Railway.

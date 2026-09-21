@@ -30,6 +30,7 @@ from delivery_orders import ACTIVE_STATUSES, DeliveryStore
 from staff_shifts import StaffShifts
 from alert_channels import AlertChannels, CHANNEL_TYPES
 from city_run import CityRunStore
+from staff_onboarding import StaffOnboarding
 from city_trades import TradeStore
 from city_trade_admin import MarketplaceAdminView, admin_embed as marketplace_admin_embed
 
@@ -45,8 +46,11 @@ LEGACY_DATA_FILE = os.getenv("LEGACY_DATA_FILE", "loyalty_data.json")
 PORT = int(os.getenv("PORT", "8080"))
 
 intents = discord.Intents.default()
+# Enable the matching privileged intent in the Discord Developer Portal.
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 db = SNRDatabase(DATABASE_PATH)
+onboarding = StaffOnboarding(db, STAFF_ROLE_NAME, MANAGER_ROLE_NAME, OWNER_ROLE_NAME)
 db_lock = asyncio.Lock()
 claims = ClaimStore(db)
 claims.retire_pending()
@@ -74,7 +78,8 @@ def has_role(interaction: discord.Interaction, role_name: str) -> bool:
 
 def is_staff(interaction: discord.Interaction) -> bool:
     return (has_role(interaction, STAFF_ROLE_NAME) or has_role(interaction, MANAGER_ROLE_NAME)
-            or has_role(interaction, OWNER_ROLE_NAME))
+            or has_role(interaction, OWNER_ROLE_NAME)
+            or (isinstance(interaction.user, discord.Member) and onboarding.is_staff(interaction.user)))
 
 
 def is_owner(interaction: discord.Interaction) -> bool:
@@ -2115,6 +2120,7 @@ def city_run_status_embed():
         colour=colour,
     )
     embed.add_field(name="Season", value=board_status, inline=True)
+    embed.add_field(name="Season end (UTC)", value=status.get("ends_at") or "Not scheduled", inline=False)
     embed.add_field(name="Businesses configured",
                     value=f"{int(status.get('configured_pieces') or 0)}/38", inline=True)
     embed.add_field(name="Rewards configured",
@@ -2500,7 +2506,7 @@ def city_run_claim_embed(row):
               discord.Colour.green() if row["status"] == "fulfilled" else
               discord.Colour.red())
     embed = discord.Embed(
-        title=f"🏁 CITY RUN REWARD CLAIM #{int(row['id'])}",
+        title=("Reward Awaiting Staff" if row["status"] == "pending" else "Reward Issued" if row["status"] == "fulfilled" else "Reward Cancelled"),
         description=(f"**Customer:** {discord.utils.escape_markdown(row['customer_name'])}\n"
                      f"**Reward:** {discord.utils.escape_markdown(row['reward_name'])}\n"
                      f"**Status:** {status}"),
@@ -2508,7 +2514,7 @@ def city_run_claim_embed(row):
     )
     embed.add_field(name="Verified collection reward",
                     value=discord.utils.escape_markdown(row["reward_description"]), inline=False)
-    embed.set_footer(text="The website verifies the completed City Run collection before creating this claim.")
+    embed.set_footer(text=f"SNR Buns • City Run • Claim #{int(row['id'])}")
     return embed
 
 
@@ -3140,15 +3146,19 @@ async def show_account_requests(interaction):
 async def notify_city_run_claims():
     if not bot.is_ready():
         return
+    city_run.current()  # Apply a configured season deadline even when nobody visits the page.
     for event in city_run.pending_events()[:20]:
         try:
             channel = await routed_alert_channel(event, "city_run_claims")
             if not channel or channel.permissions_for(channel.guild.default_role).view_channel:
                 continue
-            embed = discord.Embed(title="🏁 City Run update", description=event['description'], colour=discord.Colour.gold())
-            embed.set_footer(text=f"City Run event #{event['id']}")
-            mention, allowed = staff_ping(channel)
-            message = await channel.send(content=mention, embed=embed, allowed_mentions=allowed)
+            from city_notifications import event_style
+            title, colour = event_style(event['event_key'])
+            embed = discord.Embed(title=title,
+                description=discord.utils.escape_markdown(event['description'])[:4096], colour=colour)
+            embed.add_field(name="Recorded (UTC)", value=event['created_at'][:19].replace('T', ' '), inline=False)
+            embed.set_footer(text=f"SNR Buns • City Run • Event #{event['id']}")
+            message = await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
             city_run.mark_event_sent(event['id'], message.id)
         except Exception:
             logging.exception("City Run event delivery failed; retained for retry")
@@ -3159,7 +3169,7 @@ async def notify_city_run_claims():
                 logging.warning('City Run claim channel is unavailable or belongs to another server: %s', row['id'])
                 continue
             mention, allowed = staff_ping(channel)
-            content = mention or "🏁 **New City Run reward claim**"
+            content = mention or None
             message = await channel.send(content=content, embed=city_run_claim_embed(row),
                                          view=CityRunClaimView(row['id']), allowed_mentions=allowed)
             city_run.mark_claim_notified(row['id'], message.id)
@@ -3340,8 +3350,57 @@ async def notify_customer_services():
 
 
 @bot.event
+async def on_member_join(member: discord.Member):
+    try:
+        await onboarding.assign(member)
+    except (discord.HTTPException, ValueError):
+        logging.exception("New Staff role assignment failed for member %s in guild %s", member.id, member.guild.id)
+
+
+@bot.event
+async def on_guild_channel_create(channel):
+    try:
+        await onboarding.channel_changed(channel)
+    except (discord.HTTPException, ValueError):
+        logging.exception("New Staff permissions failed for channel %s", channel.id)
+
+
+@bot.event
+async def on_guild_channel_update(before, after):
+    if before.category_id != after.category_id or before.overwrites != after.overwrites:
+        await on_guild_channel_create(after)
+
+
+@bot.tree.command(name="snrhub_new_staff_setup", description="Owner: set automatic New Staff access to staff channels and general chat.")
+@app_commands.guild_only()
+@app_commands.describe(staff_category="The SNR staff category", general_chat="General chat new staff can read and write in", new_staff_role="Choose your New Staff role, or omit to create/reuse New Staff")
+async def new_staff_setup(interaction: discord.Interaction, staff_category: discord.CategoryChannel,
+                          general_chat: discord.TextChannel, new_staff_role: discord.Role | None = None):
+    if not await require_owner(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        role, count = await onboarding.configure(interaction.guild, staff_category, general_chat, new_staff_role)
+    except (ValueError, discord.HTTPException) as exc:
+        await interaction.followup.send(f"Could not finish New Staff setup: {exc}", ephemeral=True)
+        return
+    await interaction.followup.send(
+        f"New Staff onboarding is enabled. New human members receive {role.mention}. "
+        f"They can use staff controls and chat in {general_chat.mention}. "
+        f"Staff category: {staff_category.mention}. {count} channel/category entries allowed. "
+        "Owner controls remain restricted. Other roles or member-specific permission grants may add access; "
+        "do not auto-assign broader roles to new staff.", ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.event
 async def on_ready() -> None:
     print(f"Logged in as {bot.user} ({bot.user.id})")
+    for guild in bot.guilds:
+        try:
+            await onboarding.reconcile(guild)
+        except (discord.HTTPException, ValueError):
+            logging.exception("Could not recover missed New Staff joins for server %s", guild.id)
     if not notify_city_run_claims.is_running():
         notify_city_run_claims.start()
     if not notify_delivery_orders.is_running():
@@ -3544,6 +3603,18 @@ async def accounts_setup(interaction: discord.Interaction):
 @bot.tree.command(name='snrhub_accounts_pending', description='Review recent account activity and older pending requests.')
 async def accounts_pending(interaction: discord.Interaction):
     await show_account_requests(interaction)
+
+
+@bot.tree.command(name='snrhub_city_run_end_date', description='Owner: schedule the City Run season end and customer countdown.')
+async def city_run_end_date(interaction: discord.Interaction, end_date: str):
+    if not await require_owner(interaction):
+        return
+    try:
+        value = city_run.set_end_date(end_date, str(interaction.user.id), str(interaction.user))
+    except ValueError as exc:
+        await interaction.response.send_message(str(exc), ephemeral=True)
+        return
+    await interaction.response.send_message(f"City Run will end at {value}. The customer countdown is now set.", ephemeral=True)
 
 
 @bot.tree.command(name='snrhub_city_run', description='Open the SNR City Run status and owner controls.')

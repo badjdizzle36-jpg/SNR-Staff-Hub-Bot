@@ -324,6 +324,7 @@ def queue_completions(conn, campaign_id, customer_key, now):
             queue_event(conn, f'set:{campaign_id}:{customer_key}:{route}',
                         f"{name} completed {data['name']}. Unlocked: {reward['reward_name'] if reward else 'route complete'}. Staff handover is still required.", now)
     if {b['key'] for b in BUSINESSES} <= owned:
+        queue_event(conn, f'full:{campaign_id}:{customer_key}', f'{name} completed the full set: 38 of 38 businesses collected.', now)
         queue_event(conn, f'grand:{campaign_id}:{customer_key}', f'{name} collected all 38 businesses. Grand-prize claim unlocked; not yet handed over.', now)
 
 
@@ -503,7 +504,17 @@ class CityRunStore:
             ensure_city_run_schema(conn, utc_now())
 
     def current(self) -> dict[str, Any]:
+        from snr_core import utc_now
+        now = utc_now()
         with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            expired = conn.execute("""SELECT id,title FROM city_run_campaigns
+                WHERE status IN ('active','paused') AND ends_at IS NOT NULL
+                AND julianday(ends_at)<=julianday(?)""", (now,)).fetchall()
+            for season in expired:
+                conn.execute("UPDATE city_run_campaigns SET status='ended',ended_at=? WHERE id=?", (now, season['id']))
+                queue_event(conn, f"season-end:{season['id']}",
+                            f"{season['title']} has ended. New reveals and trades are closed.", now)
             row = conn.execute(
                 "SELECT * FROM city_run_campaigns WHERE status IN ('draft','active','paused') ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -528,6 +539,29 @@ class CityRunStore:
                 "SELECT COUNT(*) FROM city_run_packs WHERE campaign_id=? AND status='unopened'", (row["id"],)
             ).fetchone()[0])
         return result
+
+    def set_end_date(self, value, staff_id, staff_name):
+        from datetime import datetime, timezone
+        from snr_core import utc_now
+        try:
+            end = datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("Use an ISO date including timezone, such as 2026-10-31T20:00:00+00:00.") from None
+        if end.tzinfo is None or end <= datetime.now(timezone.utc):
+            raise ValueError("Choose a future date with a timezone (+00:00 for UTC).")
+        end_value = end.astimezone(timezone.utc).isoformat(timespec='seconds')
+        campaign = self.current()
+        if campaign.get('status') not in ('draft', 'active', 'paused'):
+            raise ValueError("An ended season cannot be rescheduled.")
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute("UPDATE city_run_campaigns SET ends_at=? WHERE id=? AND status IN ('draft','active','paused')",
+                                   (end_value, campaign['id'])).rowcount
+            if not changed:
+                raise ValueError("Season changed. Refresh the controls.")
+            conn.execute("INSERT INTO audit_log(action,staff_id,staff_name,details,created_at) VALUES(?,?,?,?,?)",
+                ('city_run_end_date',str(staff_id),staff_name,json.dumps({'campaign_id':campaign['id'],'ends_at':end_value}),utc_now()))
+        return end_value
 
     def _sync_corner_awards(self, campaign: dict[str, Any], customer_key: str,
                             customer_name: str, unique_collected: int, connection=None) -> None:
@@ -579,7 +613,7 @@ class CityRunStore:
             cards = {row["business_key"]: dict(row) for row in conn.execute(
                 """SELECT c.*,i.rarity FROM city_run_customer_cards c
                    JOIN city_run_inventory i ON i.campaign_id=c.campaign_id AND i.business_key=c.business_key
-                   WHERE c.campaign_id=? AND c.customer_key=?""",
+                   WHERE c.campaign_id=? AND c.customer_key=? AND c.copies_owned>0""",
                 (campaign["id"], customer_key),
             ).fetchall()}
             customer_name = conn.execute(
@@ -616,7 +650,8 @@ class CityRunStore:
                 owned = cards.get(business["key"])
                 items.append({**business, "owned": bool(owned),
                               "copies": int(owned["copies_owned"]) if owned else 0,
-                              "rarity": owned["rarity"] if owned else "hidden"})
+                              "rarity": owned["rarity"] if owned else "hidden",
+                              "first_collected_at": owned["first_collected_at"] if owned else None})
             groups.append({"key": key, "name": details["name"], "colour": details["colour"],
                            "items": items, "collected": sum(1 for item in items if item["owned"]),
                            "total": len(items), "complete": all(item["owned"] for item in items),
@@ -635,10 +670,55 @@ class CityRunStore:
                 "unique_collected": len(cards),
                 "duplicates": sum(max(0, int(row["copies_owned"]) - 1) for row in cards.values()),
                 "total_businesses": len(BUSINESSES), "grand_reward": rewards.get("grand"),
-                "corners": corners,
+                "corners": corners, "marketplace": self.marketplace_activity(campaign["id"], customer_key),
                 "grand_claim": claims.get("grand"), "grand_complete": len(cards) == len(BUSINESSES)}
 
-    def reveal_one(self, customer_key: str, request_key: str | None = None) -> dict[str, Any]:
+    def marketplace_activity(self, campaign_id, customer_key):
+        from snr_core import utc_now
+        with self.db.connect() as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='city_run_trades'").fetchone():
+                return {"open": 0, "mine": 0, "completed": 0, "recent": []}
+            now = utc_now()
+            season = conn.execute("SELECT status FROM city_run_campaigns WHERE id=?", (campaign_id,)).fetchone()
+            ended = bool(season and season['status'] == 'ended')
+            counts = conn.execute("""SELECT
+                COALESCE(SUM(status='open' AND expires_at>?),0),
+                COALESCE(SUM(status='open' AND expires_at>? AND maker=?),0),
+                COALESCE(SUM(status='accepted' AND (maker=? OR taker=?)),0)
+                FROM city_run_trades WHERE campaign_id=?""",
+                (now, now, customer_key, customer_key, customer_key, campaign_id)).fetchone()
+            recent = [dict(r) for r in conn.execute("""SELECT id,offered,wanted,status,expires_at
+                FROM city_run_trades WHERE campaign_id=? AND (maker=? OR taker=?)
+                ORDER BY COALESCE(resolved_at,created_at) DESC,id DESC LIMIT 3""",
+                (campaign_id, customer_key, customer_key))]
+            for r in recent:
+                if r['status'] == 'open' and (ended or r['expires_at'] <= now):
+                    r['status'] = 'expired'
+            return {"open": 0 if ended else int(counts[0]), "mine": 0 if ended else int(counts[1]),
+                    "completed": int(counts[2]), "recent": recent}
+
+    def reveal_one(self, customer_key, request_key=None):
+        # The award transaction rolls back before a failure alert is queued.
+        try:
+            self.current()
+            return self._reveal_one(customer_key, request_key)
+        except ValueError:
+            raise
+        except Exception:
+            import logging
+            from snr_core import utc_now, normalize_name
+            logging.exception("City Run sticker reveal failed")
+            try:
+                now = utc_now()
+                with self.db.connect() as conn:
+                    queue_event(conn, f"error:reveal:{normalize_name(customer_key)}:{now[:16]}",
+                        f"Sticker reveal failed for {normalize_name(customer_key)}. "
+                        "The award transaction was rolled back. Check application logs before retrying.", now)
+            except Exception:
+                logging.exception("Could not queue City Run failure alert")
+            raise ValueError("Your sticker could not be opened. Please try again shortly; contact staff if this continues.") from None
+
+    def _reveal_one(self, customer_key: str, request_key: str | None = None) -> dict[str, Any]:
         """Spend one reveal credit and atomically award one digital business sticker."""
         from snr_core import normalize_name, utc_now
         key = normalize_name(customer_key)
@@ -665,7 +745,7 @@ class CityRunStore:
             campaign = conn.execute(
                 "SELECT * FROM city_run_campaigns WHERE status='active' ORDER BY id DESC LIMIT 1"
             ).fetchone()
-            if not campaign:
+            if not campaign or (campaign["ends_at"] and conn.execute("SELECT julianday(?)<=julianday(?)", (campaign["ends_at"], utc_now())).fetchone()[0]):
                 raise ValueError("SNR City Run is not accepting reveals right now.")
             token = conn.execute(
                 "SELECT * FROM city_run_tokens WHERE campaign_id=? AND customer_key=?",
@@ -995,6 +1075,8 @@ class CityRunStore:
                    VALUES('city_run_activated',?,?,?,?)""",
                 (str(staff_id), staff_name, json.dumps({"campaign_id": campaign["id"]}), now),
             )
+            queue_event(conn, f"season-start:{campaign['id']}",
+                        f"{campaign['title']} is now live. Collect 38 businesses to complete the city.", now)
         return self.current()
 
     def set_status(self, status: str, staff_id: str, staff_name: str) -> dict[str, Any]:
@@ -1011,6 +1093,9 @@ class CityRunStore:
             conn.execute("BEGIN IMMEDIATE")
             now = utc_now()
             ended_at = now if status == "ended" else None
+            if status == "ended":
+                queue_event(conn, f"season-end:{campaign['id']}",
+                            f"{campaign['title']} has ended. New reveals and trades are closed.", now)
             conn.execute(
                 "UPDATE city_run_campaigns SET status=?,ended_at=COALESCE(?,ended_at) WHERE id=?",
                 (status, ended_at, campaign["id"]),

@@ -178,7 +178,7 @@ class TradeStore:
 
     def _campaign(self, c):
         r = c.execute("SELECT * FROM city_run_campaigns ORDER BY id DESC LIMIT 1").fetchone()
-        if not r or r['status'] != 'active':
+        if not r or r['status'] != 'active' or (r['ends_at'] and c.execute('SELECT julianday(?)<=julianday(?)', (r['ends_at'], utc_now())).fetchone()[0]):
             raise ValueError('Trading is available only while the City Run season is active.')
         return dict(r)
 
