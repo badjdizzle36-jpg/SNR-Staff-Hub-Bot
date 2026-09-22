@@ -6,7 +6,7 @@ const source=execFileSync('python3',['-c','from city_dashboard import DASHBOARD_
 let click,scheduled,focused=false,scrolled=false;
 const collection={open:false,scrollIntoView:()=>scrolled=true,querySelector:()=>({focus:()=>focused=true})};
 const clock={dataset:{cityCountdown:new Date(Date.now()+86400000).toISOString()},textContent:''};
-const document={addEventListener:(_,fn)=>fn(),querySelectorAll:selector=>selector==='[data-city-collection]'?[{addEventListener:(_,fn)=>click=fn}]:[clock],getElementById:()=>collection};
+const document={addEventListener:(_,fn)=>fn(),querySelectorAll:selector=>selector==='[data-city-collection]'?[{addEventListener:(_,fn)=>click=fn}]:selector==='[data-city-countdown]'?[clock]:[],getElementById:()=>collection};
 vm.runInNewContext(source,{document,Date,Number,Math,setInterval:fn=>scheduled=fn});
 assert(clock.textContent.includes('remaining'));
 click();assert(collection.open&&focused&&scrolled);

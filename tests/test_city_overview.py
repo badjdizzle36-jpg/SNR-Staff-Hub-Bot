@@ -46,6 +46,24 @@ class CityOverviewTests(unittest.TestCase):
 
     def markup(self): return dashboard(self.board(),'x'*24)
 
+    def test_blue_light_discord_quantity(self):
+        result = self.db.record_sale_quantity('Jamie', 'blue_light', 3, '1', 'Staff')
+        self.assertEqual(result['city_run_stickers_awarded'], 3)
+        self.assertEqual(self.board()['available_reveals'], 3)
+        self.assertEqual(result['loyalty_awarded'], 0)
+
+    def test_blue_light_vip_exactly_one_and_replay(self):
+        with self.db.connect() as c:
+            c.execute("UPDATE customers SET vip_override='Gold' WHERE customer_key='jamie'")
+        self.db.record_sale('Jamie', 'blue_light', '1', 'Staff', source_ref='blue-test')
+        self.db.record_sale('Jamie', 'blue_light', '1', 'Staff', source_ref='blue-test')
+        self.assertEqual(self.board()['available_reveals'], 1)
+
+    def test_blue_light_paused_no_stickers(self):
+        self.city.set_status('paused', '1', 'Owner')
+        result = self.db.record_sale_quantity('Jamie', 'blue_light', 1, '1', 'Staff')
+        self.assertEqual(result['city_run_stickers_awarded'], 0)
+
     def test_empty_collection(self):
         page=self.markup()
         self.assertIn('View My Collection',page)

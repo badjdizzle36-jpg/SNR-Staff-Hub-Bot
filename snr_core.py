@@ -521,7 +521,7 @@ class SNRDatabase:
             if int(updated["loyalty_points"]) != new_points_total:
                 raise RuntimeError("The sale was stopped because its City Run stickers did not save.")
             city_run_reveals_awarded = award_tokens_for_sale(
-                conn, sale_id, key, shown, earned_stickers if city_run_active else 0, now
+                conn, sale_id, key, shown, (1 if deal.key == "blue_light" else earned_stickers) if city_run_active else 0, now
             )
 
         return {

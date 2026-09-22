@@ -80,6 +80,7 @@ class CompactMarketTests(unittest.TestCase):
     def test_compact_collection_closed_by_default(self):
         with self.get('/qa-account') as r:
             body=r.read().decode();self.assertNotRegex(body,r'<details[^>]*\bopen\b')
-            self.assertIn('View collection board',body)
+            self.assertIn('id="city-board-top"',body)
+            self.assertLess(body.index('id="city-board-top"'),body.index('aria-label="City Run overview"'))
 
 if __name__=='__main__':unittest.main()

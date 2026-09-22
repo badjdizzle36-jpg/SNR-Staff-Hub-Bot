@@ -30,30 +30,27 @@ LIVE MARKETPLACE
 - Matching rarity, first-copy protection, reservation limits, account checks,
   expiry, stock and atomic transfer checks remain enforced by the server.
 
-COMPACT CITY RUN
-- Ready stickers, X of 38, duplicates and one main action stay at the top.
-- Nearest route, rewards, newly collected and missing businesses are compact
-  rows; tap a row to expand it only when needed.
-- The board image, milestones/grand prize and route collection details start
-  collapsed. Routes no longer all open just because a sticker is collected.
-- Direct Live Marketplace link stays visible.
-- Marketplace artwork uses small thumbnails; originals remain unchanged.
-- The previous oversized swipe carousel and pointer-capture handler are gone.
-- Navigation uses real links/forms, with 44px touch targets and no drag overlay.
+COLLECTION BOARD & BUTTON UPDATE
+- Collection board stays visible at the top, without an expand/collapse tab.
+- Small shortcut buttons for missing businesses, rewards, newly collected,
+  nearest route, marketplace and route details.
+- Only one shortcut detail panel opens at a time; Close returns to its button.
+- Three columns on phones; two columns on the narrowest screens.
+- Milestones/grand prize and route details remain available below.
+- Blue Light Deal now awards exactly ONE reveal credit per deal during an
+  active City Run season, including sales recorded through Discord.
+  Quantity 3 awards 3 credits. Existing sales are not backfilled.
+  This shared sale rule also applies to website sales.
+- Legacy loyalty rules and the Blue Light price are unchanged.
 
-TESTS COMPLETED HERE
-- 40 automated Python checks passed, including the real HTTP request handlers,
-  authenticated feed, CSRF rejection, public/own listing separation, pagination,
-  publish redirect, atomic accept, repeat submissions, cancellation, thumbnail
-  route validation and existing City Run/staff-role regressions.
-- Real Chromium browser: touch publish; another account sees and accepts the
-  offer; activity status; cancellation; page navigation; rarity filters; live
-  refresh in an iframe; collapsed collection controls; no horizontal overflow
-  at 320px and 390px; desktop rendering; artwork loads; no JavaScript errors.
-- Dashboard countdown/collection JavaScript checks and Python compilation pass.
-- The collapsed City Run section measured about 696px high at 390px wide using
-  sample data. Screen/font settings and a longer season date can change that.
-- PREVIEW images in this ZIP show illustrative test accounts, not live data.
+VALIDATION
+- 43 automated checks passed, including sale quantity, VIP exact-one,
+  repeated source and paused-season checks.
+- Touch browser checks passed: board visibility, shortcut panels and close,
+  with no horizontal overflow at 320px, 390px and 768px.
+- Existing City Run, marketplace and staff-role regression checks.
+- PREVIEW images use illustrative test accounts, not live customer data.
+- Actual FiveM/LB Phone still needs the in-game check below.
 
 LB PHONE — WHAT IS VERIFIED / WHAT NEEDS AN IN-GAME CHECK
 The web controls were tested with touch and inside an embedded Chromium
