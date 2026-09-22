@@ -23,6 +23,7 @@ from reward_claims import ClaimStore
 from raffles import RaffleStore
 from city_run import BUSINESSES, CityRunStore
 from city_dashboard import dashboard, DASHBOARD_JS
+from compact_market import feed_html, normal_options
 from city_artwork import poster_markup, sticker_path, sticker_svg
 from city_trades import MARKETPLACE_JS, TradeStore, exchange_html
 from snr_core import DEALS, VIP_LEVELS, SNRDatabase, normalize_name
@@ -252,7 +253,7 @@ def order_progress(status: str, fulfillment: str) -> tuple[list[str], int]:
 
 
 def page(title: str, content: str) -> str:
-    body_class = ' class="customer-shell"' if 'id="customer-app"' in content else ""
+    body_class = (' class="customer-shell"' if 'id="customer-app"' in content else ' class="marketplace-shell"' if 'id="marketplace"' in content else "")
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{html.escape(title)}</title><style>{CSS}</style></head><body{body_class}><main class="wrap"><div class="brand"><div class="logo-frame"><img src="/snr-logo.png" alt="Official Snr. Buns logo" width="1254" height="1254"></div><div class="tag">CITY RUN • DELIVERY • VIP</div></div>{content}<footer>SNR Buns • Your account is protected by your password</footer></main></body></html>'''
 
 
@@ -606,7 +607,7 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
     board = city_run.customer_board(customer["customer_key"])
     campaign = board.get("campaign") or {}
     if not campaign or campaign.get("status") == "draft":
-        return '''<section class="app-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body"><div class="city-draft"><h2>City Run is being prepared</h2><p>Your existing sticker balance is protected. It will become digital business reveals when the season opens.</p></div></div></section>'''
+        return '''<section class="app-page"><h2 class="app-page-title">SNR City Run</h2><div class="drawer-body"><div class="city-draft"><h2>City Run is being prepared</h2><p>Your existing sticker balance is protected. It will become digital business reveals when the season opens.</p></div></div></section>'''
     routes = []
     board_items = []
     for route in board["collections"]:
@@ -626,7 +627,7 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
             reward_action = f'''<p class="muted">Complete this route to unlock: <strong>{html.escape(reward['reward_name'])}</strong></p>'''
         else:
             reward_action = ""
-        routes.append(f'''<details class="city-route" {'open' if route['collected'] else ''}><summary><strong>{html.escape(route['name'])}</strong><span>{int(route['collected'])}/{int(route['total'])}{' ✓' if route['complete'] else ''}</span></summary><div class="city-business-grid">{''.join(cards)}</div><div class="city-route-reward">{reward_action}</div></details>''')
+        routes.append(f'''<details class="city-route"><summary><strong>{html.escape(route['name'])}</strong><span>{int(route['collected'])}/{int(route['total'])}{' ✓' if route['complete'] else ''}</span></summary><div class="city-business-grid">{''.join(cards)}</div><div class="city-route-reward">{reward_action}</div></details>''')
     grand = board.get("grand_reward") or {}
     grand_claim = board.get("grand_claim") or {}
     if grand_claim and grand_claim.get("status") != "cancelled":
@@ -638,7 +639,7 @@ def city_run_section(customer: dict, city_run: CityRunStore, reveal_token: str) 
     board_art = poster_markup(item['key'] for item, _ in board_items if item['owned'])
     corners = ''.join(f'''<div class="city-corner {'unlocked' if corner['unlocked'] else ''}"><b>{'✓' if corner['unlocked'] else '○'} {html.escape(corner['name'])}</b><small>{html.escape(corner['description'])}</small></div>''' for corner in board.get('corners', []))
     overview = dashboard(board, reveal_token)
-    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">🏁 SNR City Run</h2><div class="drawer-body">{overview}{board_art}<section class="city-corners"><h3>🧭 Board corners</h3>{corners}</section><div class="city-grand"><strong>🏎️ Complete the City</strong>{grand_action}</div><details class="city-board-details" id="city-collection-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
+    return f'''<section class="app-page city-board-page"><h2 class="app-page-title">SNR City Run</h2><div class="drawer-body">{overview}<details class="city-board-details"><summary>View collection board</summary>{board_art}</details><details class="city-board-details"><summary>Board milestones &amp; grand prize</summary><section class="city-corners">{corners}</section><div class="city-grand">{grand_action}</div></details><details class="city-board-details" id="city-collection-details"><summary>View route rewards and live collection details</summary><div class="city-board-route-list">{''.join(routes)}</div></details></div></section>'''
 
 
 def customer_page(customer: dict, claims: ClaimStore, orders: DeliveryStore, shifts: StaffShifts,
@@ -910,12 +911,24 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(data)
+            elif path == "/city-market-feed":
+                owner = self.owner()
+                if not owner:
+                    self.send_json(401, {"error": "Login expired"})
+                    return
+                options = {k:v[0] for k,v in parse_qs(urlparse(self.path).query).items()}
+                tab, _, rarity = normal_options(options)
+                if tab not in ('live', 'activity'):
+                    tab = 'live'
+                    options['tab'] = tab
+                data = trades.page_snapshot(owner, options)
+                self.send_json(200, {"html": feed_html(data, make_form_token(owner), tab, rarity), "live_total": data["live_total"]})
             elif path == "/city-run-trades":
                 owner = self.owner()
                 if not owner:
                     self.send_html(401, login_page(db.customer_names(), "Log in to trade your duplicate stickers."))
                     return
-                self.send_html(200, page("Sticker Exchange", exchange_html(trades, owner, make_form_token(owner))))
+                self.send_html(200, page("Sticker Exchange", exchange_html(trades, owner, make_form_token(owner), {k:v[0] for k,v in parse_qs(urlparse(self.path).query).items()})))
             elif path in ("/snr-logo.png", "/snr-logo.jpg"):
                 self.send_response(200)
                 self.send_header("Content-Type", "image/png")
@@ -971,6 +984,23 @@ def start_web_server(db: SNRDatabase, port: int) -> ThreadingHTTPServer:
                 self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(data)
+            elif path.startswith("/city-thumb/") and path.endswith(".webp"):
+                business_key = path.removeprefix("/city-thumb/").removesuffix(".webp")
+                if business_key not in {b["key"] for b in BUSINESSES}:
+                    self.send_html(404, page("Not found", "Unknown business"))
+                    return
+                thumb = Path(__file__).with_name("city-run-thumbs") / (business_key + ".webp")
+                if not thumb.is_file():
+                    self.redirect("/city-card/" + business_key + ".png")
+                    return
+                data = thumb.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/webp")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
                 self.wfile.write(data)
@@ -1182,7 +1212,9 @@ setInterval(async()=>{try{const r=await fetch("/service-status",{cache:"no-store
                         except (ValueError, TypeError):
                             raise ValueError("Choose a valid swap offer.")
                         message = trades.resolve(owner, trade_id, action)
-                    self.send_html(200, page("Sticker Exchange", '<section class="card"><h1>Sticker Exchange</h1><p>' + html.escape(message) + '</p><a class="back" href="/city-run-trades">Back to the exchange</a><br><a class="back" href="/account#city-run">View my updated board</a></section>'))
+                    notice = {'create': 'listed', 'accept': 'accepted', 'cancel': 'cancelled'}.get(action, '')
+                    tab = 'activity' if action == 'cancel' else 'live'
+                    self.redirect('/city-run-trades?tab=' + tab + '&notice=' + notice)
                 elif path == "/city-run-reveal":
                     owner = self.owner()
                     if not owner:

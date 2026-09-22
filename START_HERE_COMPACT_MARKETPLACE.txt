@@ -1,0 +1,81 @@
+SNR BUNS — LIVE MARKETPLACE & COMPACT PHONE UPDATE
+22 September 2026 — read this file first
+
+INSTALL
+1. Extract the ZIP and copy all supplied files/folders into your EXISTING
+   repository beside bot.py, replacing matching files.
+2. Include the NEW compact_market.py and city-run-thumbs folder.
+   The existing city_dashboard.py, city_trades.py and web_portal.py are updated.
+3. Keep your database, .env, Railway volume and all other repository files.
+   This is a cumulative update package, not a standalone replacement project.
+4. Commit and push to GitHub, then wait for Railway deployment to finish.
+5. Fully close/reopen the website or the phone app to load the updated page.
+   No Discord setup command needs to be rerun for this marketplace update.
+6. Read the in-game check below. The existing website URL and QR stay the same.
+
+LIVE MARKETPLACE
+- Opens by default and shows OTHER players' open offers clearly.
+- Each compact listing names the seller, the sticker you receive, the sticker
+  you give, rarity and expiry. Eligible players get Confirm swap.
+- Three offers per page, previous/next links and rarity filters.
+- Refreshes every 15 seconds while the page is visible, with a manual Refresh
+  link and an honest refresh/login error message if the request fails.
+- My duplicates contains your available spare stickers only.
+- Offer this card opens Make offer with that specific sticker selected.
+- Make offer uses ordinary selectable rows. No native dropdown popup is needed.
+- Publish returns directly to Live Marketplace with confirmation. Your own
+  offer is in My activity and appears in everyone else's public feed.
+- My activity shows your offers/trades with pagination and cancel controls.
+- Expired, accepted and cancelled offers do not remain in the live listings.
+- Matching rarity, first-copy protection, reservation limits, account checks,
+  expiry, stock and atomic transfer checks remain enforced by the server.
+
+COMPACT CITY RUN
+- Ready stickers, X of 38, duplicates and one main action stay at the top.
+- Nearest route, rewards, newly collected and missing businesses are compact
+  rows; tap a row to expand it only when needed.
+- The board image, milestones/grand prize and route collection details start
+  collapsed. Routes no longer all open just because a sticker is collected.
+- Direct Live Marketplace link stays visible.
+- Marketplace artwork uses small thumbnails; originals remain unchanged.
+- The previous oversized swipe carousel and pointer-capture handler are gone.
+- Navigation uses real links/forms, with 44px touch targets and no drag overlay.
+
+TESTS COMPLETED HERE
+- 40 automated Python checks passed, including the real HTTP request handlers,
+  authenticated feed, CSRF rejection, public/own listing separation, pagination,
+  publish redirect, atomic accept, repeat submissions, cancellation, thumbnail
+  route validation and existing City Run/staff-role regressions.
+- Real Chromium browser: touch publish; another account sees and accepts the
+  offer; activity status; cancellation; page navigation; rarity filters; live
+  refresh in an iframe; collapsed collection controls; no horizontal overflow
+  at 320px and 390px; desktop rendering; artwork loads; no JavaScript errors.
+- Dashboard countdown/collection JavaScript checks and Python compilation pass.
+- The collapsed City Run section measured about 696px high at 390px wide using
+  sample data. Screen/font settings and a longer season date can change that.
+- PREVIEW images in this ZIP show illustrative test accounts, not live data.
+
+LB PHONE — WHAT IS VERIFIED / WHAT NEEDS AN IN-GAME CHECK
+The web controls were tested with touch and inside an embedded Chromium
+window. This chat has no connection to your running FiveM/LB Phone resource,
+so this is not a claim of a live in-game test or guaranteed compatibility with
+an unknown LB version/configuration. Login credentials/cookie protection and
+CSRF checks were not weakened.
+
+After deploying, open the site in your existing LB Phone app and:
+1. Log in, open City Run, and expand/collapse a detail row.
+2. Open Live Marketplace, tap rarity filters and Next/Previous.
+3. Offer a spare, choose the desired business, and publish.
+4. Have another logged-in player check the offer on their phone.
+5. Cancel the test offer in My activity (or agree on a real swap together).
+
+If the entire app cannot log in, load, or receive input in game while it works
+in a normal browser, send the exact symptom and a screenshot/video. The server
+owner may need to check the LB app's embedding/focus configuration; that cannot
+be changed by uploading this website ZIP to Railway.
+Official LB custom-app reference: https://docs.lbscripts.com/phone/custom-apps/
+
+PREVIOUS FEATURES
+City Run rewards, season countdown, Discord embeds and New Staff onboarding
+remain included. Older install notes are retained for reference; use this file
+for the current marketplace installation.

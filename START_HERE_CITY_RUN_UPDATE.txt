@@ -1,3 +1,5 @@
+NEWEST UPDATE: Read START_HERE_COMPACT_MARKETPLACE.txt first.
+
 LATEST ADDITION — 21 September 2026
 Read START_HERE_NEW_STAFF.txt first before deploying this version.
 It requires enabling Server Members Intent in Discord.
